@@ -1,0 +1,1664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101F2E">
+<title>RSR Drawing Billing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#101F2E;
+  --ink2:#1D3448;
+  --paper:#EDEFEA;
+  --card:#FFFFFF;
+  --rsr:#B4142A;
+  --weld:#E07A18;
+  --paid:#0B6E4F;
+  --slate:#5A6B7A;
+  --line:rgba(16,31,46,.14);
+  --line2:rgba(16,31,46,.07);
+  --shadow:0 1px 2px rgba(16,31,46,.06),0 6px 18px rgba(16,31,46,.07);
+  --sans:'Archivo',ui-sans-serif,system-ui,'Segoe UI',Roboto,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--sans);
+  background:var(--paper);
+  color:var(--ink);
+  font-size:15px;
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+:focus-visible{outline:2px solid var(--weld);outline-offset:2px;border-radius:4px}
+
+/* ---------- shell ---------- */
+#app{max-width:1080px;margin:0 auto;padding-bottom:calc(96px + var(--safe-b))}
+
+header.top{
+  position:sticky;top:0;z-index:40;
+  background:var(--ink);
+  color:#fff;
+  background-image:
+    linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);
+  background-size:22px 22px;
+  border-bottom:2px solid var(--rsr);
+}
+.top-in{max-width:1080px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:12px}
+.mark{
+  width:34px;height:34px;flex:0 0 auto;border-radius:8px;background:var(--rsr);
+  display:grid;place-items:center;font-weight:800;font-size:13px;letter-spacing:.04em;
+}
+.brand h1{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}
+.brand p{margin:0;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.55);font-weight:500}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
+.icon-btn{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.16)}
+.icon-btn:hover{background:rgba(255,255,255,.09)}
+.icon-btn svg{width:17px;height:17px}
+
+.sync{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;color:rgba(255,255,255,.6);padding-right:2px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--slate);flex:0 0 auto}
+.dot.ok{background:#43C08A}
+.dot.off{background:var(--weld)}
+.dot.err{background:var(--rsr)}
+.dot.busy{background:#43C08A;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ---------- totals ---------- */
+.totals{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+.tcell{background:var(--card);padding:12px 14px}
+.tcell .lbl{font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--slate);font-weight:600}
+.tcell .val{font-family:var(--mono);font-size:17px;font-weight:600;letter-spacing:-.02em;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tcell .sub{font-family:var(--mono);font-size:10px;color:var(--slate)}
+.tcell.draft .val{color:var(--slate)}
+.tcell.recv .val{color:var(--rsr)}
+.tcell.paid .val{color:var(--paid)}
+
+/* ---------- toolbar ---------- */
+.toolbar{padding:12px 16px 4px;display:flex;flex-direction:column;gap:10px}
+.search{position:relative}
+.search input{
+  width:100%;padding:11px 12px 11px 36px;border-radius:10px;border:1px solid var(--line);
+  background:var(--card);font-size:14px
+}
+.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--slate)}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{
+  padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);
+  font-size:12px;font-weight:600;white-space:nowrap;color:var(--slate);letter-spacing:.01em
+}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.chip .n{font-family:var(--mono);font-size:10.5px;opacity:.65;margin-left:5px}
+.selects{display:flex;gap:8px}
+.selects select{
+  flex:1;min-width:0;padding:9px 10px;border-radius:9px;border:1px solid var(--line);
+  background:var(--card);font-size:13px;color:var(--ink);
+  appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235A6B7A' stroke-width='2.5'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat:no-repeat;background-position:right 9px center;background-size:13px;padding-right:28px
+}
+
+/* ---------- list ---------- */
+.list{padding:10px 16px 0;display:flex;flex-direction:column;gap:9px}
+.row{
+  background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 13px;
+  box-shadow:var(--shadow);position:relative;overflow:hidden
+}
+.row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--slate)}
+.row[data-s="BILLED"]::before{background:var(--rsr)}
+.row[data-s="PAID"]::before{background:var(--paid)}
+.row.pending{border-style:dashed;border-color:var(--weld)}
+
+.row-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* signature element: title-block stamp for the tracking code */
+.code{
+  font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.06em;
+  background:var(--ink);color:#fff;padding:3px 8px;border-radius:4px;
+  border-left:3px solid var(--weld)
+}
+.badge{
+  font-size:9.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  padding:3px 8px;border-radius:4px;border:1px solid currentColor
+}
+.badge.DRAFT{color:var(--slate)}
+.badge.BILLED{color:var(--rsr);background:rgba(180,20,42,.06)}
+.badge.PAID{color:var(--paid);background:rgba(11,110,79,.07)}
+.row-amt{margin-left:auto;font-family:var(--mono);font-size:15px;font-weight:600;letter-spacing:-.02em}
+
+.row-title{margin:8px 0 2px;font-size:14.5px;font-weight:600;line-height:1.3}
+.row-meta{font-size:12px;color:var(--slate);display:flex;flex-wrap:wrap;gap:4px 10px}
+.row-meta b{font-weight:600;color:var(--ink2)}
+.row-meta .m{font-family:var(--mono);font-size:11.5px}
+
+.row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
+.act{
+  padding:6px 11px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-weight:600;
+  color:var(--ink2);background:var(--card)
+}
+.act:hover{background:var(--paper)}
+.act.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+.act.paid{background:var(--paid);color:#fff;border-color:var(--paid)}
+.act.ghost{margin-left:auto;color:var(--slate);border-color:transparent}
+
+.empty{padding:52px 24px;text-align:center}
+.empty h3{margin:0 0 6px;font-size:16px;font-weight:700}
+.empty p{margin:0 0 18px;color:var(--slate);font-size:13.5px;max-width:34ch;margin-inline:auto}
+
+/* ---------- fab ---------- */
+.fab-bar{
+  position:fixed;left:0;right:0;bottom:0;z-index:35;
+  padding:10px 16px calc(10px + var(--safe-b));
+  background:linear-gradient(to top,var(--paper) 62%,rgba(237,239,234,0));
+  display:flex;gap:9px;max-width:1080px;margin:0 auto
+}
+.fab{
+  flex:1;padding:14px;border-radius:12px;background:var(--ink);color:#fff;
+  font-weight:700;font-size:14px;letter-spacing:.01em;box-shadow:var(--shadow);
+  display:flex;align-items:center;justify-content:center;gap:8px
+}
+.fab.alt{flex:0 0 auto;background:var(--card);color:var(--ink);border:1px solid var(--line);padding:14px 16px}
+.fab svg{width:17px;height:17px}
+
+/* ---------- sheet / modal ---------- */
+.scrim{position:fixed;inset:0;background:rgba(16,31,46,.42);z-index:50;opacity:0;pointer-events:none;transition:opacity .18s}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--paper);
+  border-radius:18px 18px 0 0;max-height:92vh;display:flex;flex-direction:column;
+  transform:translateY(101%);transition:transform .22s cubic-bezier(.32,.72,0,1);
+  max-width:640px;margin:0 auto;box-shadow:0 -8px 40px rgba(16,31,46,.2)
+}
+.sheet.on{transform:translateY(0)}
+.sheet-head{
+  padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;
+  background:var(--card);border-radius:18px 18px 0 0
+}
+.sheet-head h2{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}
+.sheet-head .eyebrow{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--slate);font-weight:600}
+.sheet-body{overflow-y:auto;padding:16px 18px calc(20px + var(--safe-b));-webkit-overflow-scrolling:touch}
+.sheet-foot{
+  padding:12px 18px calc(12px + var(--safe-b));border-top:1px solid var(--line);background:var(--card);
+  display:flex;gap:9px
+}
+.sheet-foot button{flex:1;padding:13px;border-radius:11px;font-weight:700;font-size:14px}
+.btn-ghost{border:1px solid var(--line);color:var(--ink2);background:var(--card)}
+.btn-fill{background:var(--ink);color:#fff}
+.btn-danger{background:var(--card);border:1px solid var(--line);color:var(--rsr);flex:0 0 auto !important;padding:13px 16px !important}
+
+/* ---------- form ---------- */
+.f{margin-bottom:13px}
+.f label{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--slate);font-weight:600;margin-bottom:5px}
+.f input,.f select,.f textarea{
+  width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);font-size:14.5px
+}
+.f textarea{min-height:64px;resize:vertical}
+.f input[readonly]{background:var(--paper);color:var(--slate)}
+.f .hint{font-size:11.5px;color:var(--slate);margin-top:5px}
+.f-row{display:flex;gap:10px}
+.f-row .f{flex:1;min-width:0}
+.mono-in{font-family:var(--mono) !important;letter-spacing:.04em}
+.amt-preview{
+  background:var(--ink);color:#fff;border-radius:11px;padding:12px 14px;display:flex;align-items:baseline;gap:10px;margin-bottom:14px
+}
+.amt-preview .lbl{font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.55);font-weight:600}
+.amt-preview .val{margin-left:auto;font-family:var(--mono);font-size:20px;font-weight:600}
+
+.pick{display:flex;flex-direction:column;gap:7px;margin-top:4px}
+.pick-item{display:flex;gap:10px;align-items:flex-start;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 11px}
+.pick-item input{width:18px;height:18px;flex:0 0 auto;margin-top:2px;accent-color:var(--rsr)}
+.pick-item .t{font-size:13px;font-weight:600;line-height:1.3}
+.pick-item .s{font-size:11.5px;color:var(--slate);font-family:var(--mono)}
+.pick-item .a{margin-left:auto;font-family:var(--mono);font-size:13px;font-weight:600;white-space:nowrap}
+
+.note{background:rgba(224,122,24,.09);border:1px solid rgba(224,122,24,.3);border-radius:10px;padding:11px 12px;font-size:12.5px;color:#7a4409;margin-bottom:14px}
+.note code{font-family:var(--mono);font-size:11.5px;background:rgba(255,255,255,.6);padding:1px 4px;border-radius:3px}
+.sect-t{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--slate);font-weight:700;margin:20px 0 9px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.sect-t:first-child{margin-top:0}
+
+.toast{
+  position:fixed;left:50%;bottom:calc(96px + var(--safe-b));transform:translate(-50%,14px);z-index:70;
+  background:var(--ink);color:#fff;padding:11px 17px;border-radius:10px;font-size:13.5px;font-weight:500;
+  opacity:0;pointer-events:none;transition:.2s;box-shadow:var(--shadow);max-width:88vw;text-align:center
+}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.toast.bad{background:var(--rsr)}
+
+/* ---------- desktop ---------- */
+@media(min-width:760px){
+  .totals{grid-template-columns:repeat(3,1fr)}
+  .tcell{padding:16px 20px}
+  .tcell .val{font-size:22px}
+  .toolbar{flex-direction:row;align-items:center;padding:16px 20px 6px}
+  .search{flex:1}
+  .selects{flex:0 0 auto}
+  .list{padding:12px 20px 0}
+  .fab-bar{background:none;padding:0;position:fixed;bottom:24px;right:24px;left:auto;max-width:none;width:auto}
+  .sheet{border-radius:16px;bottom:auto;top:50%;left:50%;right:auto;transform:translate(-50%,-46%) scale(.98);opacity:0;max-height:86vh;width:min(640px,92vw)}
+  .sheet.on{transform:translate(-50%,-50%) scale(1);opacity:1}
+  .sheet-head{border-radius:16px 16px 0 0}
+}
+
+/* ---------- sign-in gate ---------- */
+#gate{
+  position:fixed;inset:0;z-index:100;display:none;place-items:center;padding:24px;
+  background:var(--ink);color:#fff;
+  background-image:
+    linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);
+  background-size:26px 26px
+}
+#gate.on{display:grid}
+.gate-card{width:100%;max-width:330px}
+.gate-card .mark{width:42px;height:42px;border-radius:10px;font-size:15px;margin-bottom:18px}
+.gate-card h2{margin:0;font-size:20px;font-weight:800;letter-spacing:-.015em}
+.gate-card p.sub{margin:5px 0 22px;font-size:12.5px;color:rgba(255,255,255,.55);line-height:1.5}
+.gate-card label{display:block;font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600;margin-bottom:5px}
+.gate-card input{
+  width:100%;padding:12px 13px;border-radius:10px;margin-bottom:13px;font-size:15px;
+  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:#fff
+}
+.gate-card input::placeholder{color:rgba(255,255,255,.32)}
+.gate-card input:focus{border-color:var(--weld);outline:none;background:rgba(255,255,255,.1)}
+.gate-card .go{width:100%;padding:14px;border-radius:11px;background:var(--rsr);color:#fff;font-weight:700;font-size:14.5px;letter-spacing:.01em}
+.gate-card .go[disabled]{opacity:.6}
+.gate-err{font-size:12.5px;color:#FF9AA6;margin:0 0 13px;min-height:0}
+.gate-links{display:flex;margin-top:16px;gap:14px}
+.gate-links button{font-size:12px;color:rgba(255,255,255,.55);text-decoration:underline;text-underline-offset:3px}
+.gate-links button:hover{color:#fff}
+.gate-links .r{margin-left:auto}
+
+/* ---------- sign-in gate ---------- */
+#gate{
+  position:fixed;inset:0;z-index:45;background:var(--ink);color:#fff;
+  display:none;place-items:center;padding:24px;
+  background-image:
+    linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);
+  background-size:26px 26px
+}
+#gate.on{display:grid}
+.gate-b{width:100%;max-width:330px}
+.gate-b .mark{width:42px;height:42px;font-size:15px;margin-bottom:16px}
+.gate-b h2{margin:0;font-size:20px;font-weight:800;letter-spacing:-.02em}
+.gate-b p{margin:5px 0 20px;font-size:13px;color:rgba(255,255,255,.6)}
+.gate-b label{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600;margin-bottom:5px}
+.gate-b input{
+  width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);
+  background:rgba(255,255,255,.07);color:#fff;font-size:15px;margin-bottom:12px
+}
+.gate-b input::placeholder{color:rgba(255,255,255,.35)}
+.gate-b .go{width:100%;padding:14px;border-radius:11px;background:var(--rsr);color:#fff;font-weight:700;font-size:15px}
+.gate-b .go[disabled]{opacity:.6}
+.gate-b .err{font-size:12.5px;color:#FF9AA6;margin:0 0 12px;min-height:16px}
+.gate-b .alt{display:block;width:100%;margin-top:14px;font-size:12px;color:rgba(255,255,255,.55);text-decoration:underline;text-align:center}
+
+/* ---------- import from PDF ---------- */
+.drop{
+  border:2px dashed var(--line);border-radius:14px;background:var(--card);
+  padding:26px 18px;text-align:center;transition:.15s;cursor:pointer;display:block;width:100%
+}
+.drop:hover,.drop.hot{border-color:var(--weld);background:rgba(224,122,24,.07)}
+.drop svg{width:26px;height:26px;color:var(--slate);margin-bottom:6px}
+.drop .t{font-size:14px;font-weight:700}
+.drop .s{font-size:12px;color:var(--slate);margin-top:3px}
+.drop.hot .t,.drop.hot svg{color:var(--weld)}
+
+.imp{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 11px}
+.imp.off{opacity:.48}
+.imp-h{display:flex;align-items:center;gap:9px}
+.imp-h input[type=checkbox]{width:18px;height:18px;flex:0 0 auto;accent-color:var(--rsr)}
+.imp-h .fn{font-family:var(--mono);font-size:10.5px;color:var(--slate);min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imp-h .pg{font-family:var(--mono);font-size:10px;color:var(--slate);border:1px solid var(--line);border-radius:4px;padding:1px 5px;white-space:nowrap}
+.imp-h .amt{font-family:var(--mono);font-size:12.5px;font-weight:600;white-space:nowrap}
+.imp-f{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.imp-f input{width:100%;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-size:13px}
+.imp-f .two{display:flex;gap:6px}
+.imp-f .two input{flex:1;min-width:0;font-family:var(--mono);font-size:12px}
+.warn{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--weld);border:1px solid currentColor;border-radius:4px;padding:1px 5px;white-space:nowrap}
+.imp-status{font-size:12.5px;color:var(--slate);padding:12px 2px;display:flex;align-items:center;gap:9px}
+.spin{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:spin .7s linear infinite;flex:0 0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.chk{display:flex;align-items:flex-start;gap:11px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin-bottom:11px;font-size:13.5px;font-weight:600;cursor:pointer}
+.chk input{width:19px;height:19px;accent-color:var(--rsr);flex:0 0 auto;margin-top:1px}
+.chk .s{display:block;font-size:11.5px;color:var(--slate);font-weight:400;margin-top:2px}
+.pdflink{font-family:var(--mono);font-size:11px;color:var(--rsr);text-decoration:none;border:0;border-bottom:1px solid currentColor;background:none;padding:0;cursor:pointer;font-weight:600}
+
+/* ---------- sign-in gate ---------- */
+#gate{
+  position:fixed;inset:0;z-index:90;background:var(--ink);color:#fff;
+  display:none;place-items:center;padding:24px;overflow-y:auto;
+  background-image:
+    linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);
+  background-size:26px 26px
+}
+#gate.on{display:grid}
+.gate-box{width:100%;max-width:340px;text-align:left}
+.gate-box .mark{width:42px;height:42px;font-size:15px;border-radius:10px;margin-bottom:16px}
+.gate-box h2{margin:0;font-size:21px;font-weight:800;letter-spacing:-.02em}
+.gate-box .eb{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600;margin-bottom:3px}
+.gate-box p{margin:7px 0 20px;font-size:13px;color:rgba(255,255,255,.6);line-height:1.5}
+.gate-box label{display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600;margin:0 0 5px}
+.gate-box input{
+  width:100%;padding:12px 13px;border-radius:10px;margin-bottom:13px;font-size:15px;
+  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:#fff
+}
+.gate-box input::placeholder{color:rgba(255,255,255,.32)}
+.gate-box input:focus{border-color:var(--weld);outline:none;background:rgba(255,255,255,.1)}
+#gIn{width:100%;padding:14px;border-radius:11px;background:var(--rsr);color:#fff;font-weight:700;font-size:14.5px;margin-top:4px}
+#gIn[disabled]{opacity:.6}
+#gErr{margin-top:12px;font-size:12.5px;color:#FF9A9A;min-height:17px;line-height:1.4}
+#gCfg{margin-top:20px;font-size:12px;color:rgba(255,255,255,.5);border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:1px}
+.acct{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 13px;display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.acct .who{min-width:0}
+.acct .who .e{font-family:var(--mono);font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct .who .s{font-size:11px;color:var(--slate)}
+.acct button{margin-left:auto;flex:0 0 auto;padding:8px 13px;border-radius:8px;border:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--rsr)}
+#dropOverlay{position:fixed;inset:0;z-index:80;background:rgba(16,31,46,.88);color:#fff;display:none;place-items:center;padding:24px;text-align:center}
+#dropOverlay.on{display:grid}
+#dropOverlay .b{border:2px dashed rgba(255,255,255,.45);border-radius:18px;padding:38px 30px;max-width:420px;pointer-events:none}
+#dropOverlay h3{margin:0 0 6px;font-size:19px;font-weight:800;letter-spacing:-.01em}
+#dropOverlay p{margin:0;font-size:13px;color:rgba(255,255,255,.68)}
+
+/* ---------- print statement ---------- */
+#printRoot{display:none}
+.stmt{font-family:var(--sans);color:#000;background:#fff;padding:0}
+.stmt-hd{display:flex;gap:14px;align-items:flex-start;border-bottom:3px solid var(--ink);padding-bottom:10px}
+.stmt-hd .m{width:46px;height:46px;background:var(--rsr);color:#fff;display:grid;place-items:center;font-weight:800;font-size:16px;border-radius:8px;flex:0 0 auto}
+.stmt-hd h1{margin:0;font-size:17px;font-weight:800;letter-spacing:-.01em}
+.stmt-hd p{margin:1px 0 0;font-size:10.5px;color:#333;line-height:1.4}
+.stmt-hd .rt{margin-left:auto;text-align:right}
+.stmt-hd .rt .t{font-size:11px;letter-spacing:.18em;text-transform:uppercase;font-weight:700}
+.stmt-hd .rt .n{font-family:var(--mono);font-size:13px;font-weight:600;margin-top:3px}
+.stmt-hd .rt .d{font-family:var(--mono);font-size:10.5px;color:#444}
+
+/* title-block style meta strip */
+.stmt-meta{display:flex;border:1px solid #000;border-top:0;margin-top:0}
+.stmt-meta div{flex:1;padding:7px 10px;border-right:1px solid #000}
+.stmt-meta div:last-child{border-right:0}
+.stmt-meta .k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:700}
+.stmt-meta .v{font-size:11.5px;font-weight:600;margin-top:2px}
+.stmt-meta .v.mono{font-family:var(--mono)}
+
+table.stmt-t{width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px}
+table.stmt-t th{
+  background:var(--ink);color:#fff;text-align:left;padding:7px 8px;font-size:8.5px;
+  letter-spacing:.12em;text-transform:uppercase;font-weight:700
+}
+table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
+table.stmt-t .r{text-align:right;font-family:var(--mono);white-space:nowrap}
+table.stmt-t .c{text-align:center;font-family:var(--mono)}
+table.stmt-t .cd{font-family:var(--mono);font-size:9.5px;white-space:nowrap}
+table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
+.stmt-tot{margin-top:0;border-top:2px solid var(--ink)}
+.stmt-tot tr td{padding:6px 8px;font-size:11px;border:0}
+.stmt-tot .lbl{text-align:right;font-weight:600}
+.stmt-tot .amt{text-align:right;font-family:var(--mono);font-weight:600;white-space:nowrap;width:120px}
+.stmt-tot .grand td{font-size:13px;font-weight:800;border-top:1px solid #000;padding-top:8px}
+.words{margin-top:8px;font-size:10.5px;font-style:italic;border:1px solid #000;padding:7px 10px}
+.words b{font-style:normal;letter-spacing:.1em;font-size:8.5px;text-transform:uppercase}
+.stmt-sig{display:flex;gap:40px;margin-top:34px}
+.stmt-sig div{flex:1}
+.stmt-sig .k{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:#555;font-weight:700;margin-bottom:34px}
+.stmt-sig .l{border-top:1px solid #000;padding-top:4px;font-size:11px;font-weight:700}
+.stmt-sig .r{font-size:9.5px;color:#444}
+.stmt-ft{margin-top:22px;padding-top:8px;border-top:1px solid #ccc;font-size:9px;color:#666;display:flex}
+.stmt-ft span:last-child{margin-left:auto;font-family:var(--mono)}
+
+@media print{
+  @page{size:A4;margin:13mm}
+  body{background:#fff}
+  #app,.fab-bar,.scrim,.sheet,.toast,#dropOverlay,#gate{display:none !important}
+  #printRoot{display:block !important}
+  table.stmt-t tbody tr{break-inside:avoid}
+  .stmt-sig{break-inside:avoid}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gate-card">
+    <div class="mark">RSR</div>
+    <h2>Drawing Billing</h2>
+    <p class="sub">Sign in to reach the billing records. This page is public, the data behind it is not.</p>
+    <p class="gate-err" id="gateErr" role="alert"></p>
+    <label for="gEmail">Email</label>
+    <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" spellcheck="false">
+    <label for="gPw">Password</label>
+    <input id="gPw" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button class="go" id="gGo" type="button">Sign in</button>
+    <div class="gate-links">
+      <button id="gForgot" type="button">Forgot password</button>
+      <button id="gCfg" type="button" class="r">Project settings</button>
+    </div>
+  </div>
+</div>
+
+<div id="gate">
+  <div class="gate-box">
+    <div class="mark">RSR</div>
+    <div class="eb">RSR Engineering Services</div>
+    <h2>Drawing Billing</h2>
+    <p id="gMsg">Sign in to open the billing records.</p>
+    <label for="gEmail">Email</label>
+    <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" autocapitalize="off" spellcheck="false">
+    <label for="gPw">Password</label>
+    <input id="gPw" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button id="gIn">Sign in</button>
+    <div id="gErr" role="alert"></div>
+    <button id="gCfg">Connection settings</button>
+  </div>
+</div>
+
+<div id="app">
+  <header class="top">
+    <div class="top-in">
+      <div class="mark">RSR</div>
+      <div class="brand">
+        <h1>Drawing Billing</h1>
+        <p id="brandSub">RSR Engineering Services</p>
+      </div>
+      <div class="top-actions">
+        <div class="sync"><span class="dot" id="syncDot"></span><span id="syncTxt">—</span></div>
+        <button class="icon-btn" id="btnSync" title="Sync now" aria-label="Sync now">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.7-4.3M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.7 4.3"/><path d="M21 3v5h-5M3 21v-5h5"/></svg>
+        </button>
+        <button class="icon-btn" id="btnSettings" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="totals">
+      <div class="tcell draft"><div class="lbl">Unbilled</div><div class="val" id="tDraft">₱0</div><div class="sub" id="cDraft">0 items</div></div>
+      <div class="tcell recv"><div class="lbl">Receivable</div><div class="val" id="tRecv">₱0</div><div class="sub" id="cRecv">0 items</div></div>
+      <div class="tcell paid"><div class="lbl">Collected</div><div class="val" id="tPaid">₱0</div><div class="sub" id="cPaid">0 items</div></div>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="q" type="search" placeholder="Search code, vessel, drawing, client…" autocomplete="off">
+    </div>
+    <div class="selects">
+      <select id="fClient"><option value="">All clients</option></select>
+      <select id="fMonth"><option value="">All months</option></select>
+    </div>
+  </div>
+  <div class="toolbar" style="padding-top:0">
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="list" id="list"></div>
+</div>
+
+<div class="fab-bar">
+  <button class="fab" id="btnNew">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    New drawing
+  </button>
+  <button class="fab alt" id="btnImport" title="Import PDF drawings" aria-label="Import PDF drawings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 9l5-5 5 5"/><path d="M12 4v12"/></svg>
+  </button>
+  <button class="fab alt" id="btnStmt" title="Billing statement" aria-label="Billing statement">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><path d="M6 17H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/></svg>
+  </button>
+</div>
+
+<div id="dropOverlay"><div class="b"><h3>Drop the drawing PDFs</h3><p>Each file becomes one billing line. Release to read the title blocks.</p></div></div>
+
+<div class="scrim" id="scrim"></div>
+
+<!-- Entry sheet -->
+<div class="sheet" id="sheetEntry" role="dialog" aria-modal="true" aria-labelledby="entryTitle">
+  <div class="sheet-head">
+    <div><div class="eyebrow" id="entryEyebrow">New record</div><h2 id="entryTitle">Drawing details</h2></div>
+    <button class="icon-btn" style="margin-left:auto;color:var(--slate);border-color:var(--line)" data-close aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div class="amt-preview"><div><div class="lbl">Amount</div></div><div class="val" id="ePrev">₱0.00</div></div>
+    <div class="f-row">
+      <div class="f" style="flex:1.4"><label for="eCode">Billing code</label><input id="eCode" class="mono-in" autocomplete="off"></div>
+      <div class="f"><label for="eDate">Date</label><input id="eDate" type="date"></div>
+    </div>
+    <div class="f"><label for="eClient">Client</label><input id="eClient" list="dlClients" autocomplete="off" placeholder="e.g. Seaford Shipping Lines"><datalist id="dlClients"></datalist></div>
+    <div class="f"><label for="eVessel">Vessel</label><input id="eVessel" list="dlVessels" autocomplete="off" placeholder="e.g. MV SF Voyager"><datalist id="dlVessels"></datalist></div>
+    <div class="f-row">
+      <div class="f" style="flex:1"><label for="eDwgNo">Drawing no.</label><input id="eDwgNo" class="mono-in" autocomplete="off" placeholder="optional"></div>
+      <div class="f" style="flex:0 0 96px"><label for="eQty">Qty</label><input id="eQty" type="number" inputmode="numeric" min="1" step="1" value="1"></div>
+    </div>
+    <div class="f"><label for="eTitle">Drawing title</label><input id="eTitle" autocomplete="off" placeholder="e.g. Shell Expansion Plan"></div>
+    <div class="f"><label for="eRate">Rate per drawing (₱)</label><input id="eRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
+
+    <div class="sect-t">Status</div>
+    <div class="f-row">
+      <div class="f" style="flex:1"><label for="eStatus">Stage</label>
+        <select id="eStatus"><option value="DRAFT">Draft — not yet billed</option><option value="BILLED">Billed — awaiting payment</option><option value="PAID">Paid</option></select>
+      </div>
+    </div>
+    <div class="f-row">
+      <div class="f"><label for="eBilled">Billed on</label><input id="eBilled" type="date"></div>
+      <div class="f"><label for="ePaid">Paid on</label><input id="ePaid" type="date"></div>
+    </div>
+    <div class="f"><label for="eInv">Invoice / SI no.</label><input id="eInv" class="mono-in" autocomplete="off" placeholder="optional"></div>
+    <div class="f"><label for="eRem">Remarks</label><textarea id="eRem" placeholder="optional"></textarea></div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn-danger" id="eDelete" hidden>Delete</button>
+    <button class="btn-ghost" data-close>Cancel</button>
+    <button class="btn-fill" id="eSave">Save</button>
+  </div>
+</div>
+
+<!-- Import sheet -->
+<div class="sheet" id="sheetImp" role="dialog" aria-modal="true" aria-labelledby="impTitle">
+  <div class="sheet-head">
+    <div><div class="eyebrow">From PDF files</div><h2 id="impTitle">Import drawings</h2></div>
+    <button class="icon-btn" style="margin-left:auto;color:var(--slate);border-color:var(--line)" data-close aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <button class="drop" id="drop" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>
+      <div class="t">Drop PDF drawings here</div>
+      <div class="s">or tap to choose files — one PDF, one billing line</div>
+    </button>
+    <input type="file" id="fileIn" accept="application/pdf,.pdf" multiple hidden>
+    <div class="imp-status" id="impStatus" hidden></div>
+
+    <div id="impForm" hidden>
+      <div class="sect-t">Applies to every file</div>
+      <div class="f"><label for="iClient">Client</label><input id="iClient" list="dlClients" autocomplete="off" placeholder="e.g. Seaford Shipping Lines"></div>
+      <div class="f-row">
+        <div class="f" style="flex:1.4"><label for="iVessel">Vessel</label><input id="iVessel" list="dlVessels" autocomplete="off" placeholder="detected from title block"></div>
+        <div class="f"><label for="iDate">Date</label><input id="iDate" type="date"></div>
+      </div>
+      <div class="f"><label for="iRate">Rate per drawing (₱)</label><input id="iRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
+      <label class="chk"><input type="checkbox" id="iPages"><span>Charge each sheet<span class="s">A 3-page PDF bills as qty 3 instead of qty 1.</span></span></label>
+      <label class="chk" id="iUpWrap" hidden><input type="checkbox" id="iUpload"><span>Attach the PDF to each record<span class="s">Uploads to Supabase Storage so the file opens from the billing line.</span></span></label>
+
+      <div class="sect-t" style="display:flex;align-items:center">Files<span style="margin-left:auto;font-family:var(--mono);font-size:12px;letter-spacing:0;text-transform:none" id="impTotal">₱0.00</span></div>
+      <div style="display:flex;gap:8px;margin-bottom:9px">
+        <button class="act" id="iAll" type="button">Select all</button>
+        <button class="act" id="iNone" type="button">Clear</button>
+        <button class="act" id="iReset" type="button" style="margin-left:auto;color:var(--rsr)">Remove files</button>
+      </div>
+      <div class="pick" id="impList"></div>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn-ghost" data-close>Cancel</button>
+    <button class="btn-fill" id="iCommit">Add drawings</button>
+  </div>
+</div>
+
+<!-- Statement sheet -->
+<div class="sheet" id="sheetStmt" role="dialog" aria-modal="true" aria-labelledby="stmtTitle">
+  <div class="sheet-head">
+    <div><div class="eyebrow">Build document</div><h2 id="stmtTitle">Billing statement</h2></div>
+    <button class="icon-btn" style="margin-left:auto;color:var(--slate);border-color:var(--line)" data-close aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div class="f"><label for="sClient">Client</label><select id="sClient"></select></div>
+    <div class="f-row">
+      <div class="f"><label for="sFrom">From</label><input id="sFrom" type="date"></div>
+      <div class="f"><label for="sTo">To</label><input id="sTo" type="date"></div>
+    </div>
+    <div class="f-row">
+      <div class="f" style="flex:1.3"><label for="sNo">Statement no.</label><input id="sNo" class="mono-in"></div>
+      <div class="f"><label for="sTerms">Terms (days)</label><input id="sTerms" type="number" inputmode="numeric" min="0" step="1" value="30"></div>
+    </div>
+    <div class="f"><label for="sVat">Add-on</label>
+      <select id="sVat"><option value="0">None</option><option value="12">Plus 12% VAT</option><option value="-2">Less 2% withholding tax</option></select>
+    </div>
+    <div class="sect-t">Include these drawings</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="act" id="sAll">Select all</button>
+      <button class="act" id="sNone">Clear</button>
+      <span style="margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;align-self:center" id="sTotal">₱0.00</span>
+    </div>
+    <div class="pick" id="sPick"></div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn-ghost" data-close>Cancel</button>
+    <button class="btn-fill" id="sPrint">Print statement</button>
+  </div>
+</div>
+
+<!-- Settings sheet -->
+<div class="sheet" id="sheetCfg" role="dialog" aria-modal="true" aria-labelledby="cfgTitle">
+  <div class="sheet-head">
+    <div><div class="eyebrow">Configuration</div><h2 id="cfgTitle">Settings</h2></div>
+    <button class="icon-btn" style="margin-left:auto;color:var(--slate);border-color:var(--line)" data-close aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div class="note">Paste your Supabase project URL and <b>anon</b> key, then sign in with a Supabase Auth account. Until a project is set, everything stays on this device only. Run the table script in the SQL editor first — tap <b>Show SQL</b> below.</div>
+    <div class="sect-t">Account</div>
+    <div class="chk" style="cursor:default">
+      <span style="flex:1"><span id="cWho">Not signed in</span><span class="s" id="cWhoSub">Records are local to this device.</span></span>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px"><button class="act" id="cSignOut" hidden>Sign out</button><button class="act" id="cSignIn" hidden>Sign in</button></div>
+    <div class="sect-t">Supabase</div>
+    <div class="f"><label for="cUrl">Project URL</label><input id="cUrl" class="mono-in" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"></div>
+    <div class="f"><label for="cKey">Anon key</label><input id="cKey" class="mono-in" placeholder="eyJhbGciOi…" autocomplete="off" spellcheck="false"></div>
+    <div class="f"><label for="cTable">Table name</label><input id="cTable" class="mono-in" value="drawing_billing"></div>
+    <div style="display:flex;gap:8px;margin-bottom:8px"><button class="act" id="cTest">Test connection</button><button class="act" id="cSql">Show SQL</button></div>
+    <div class="f" id="sqlWrap" hidden><textarea id="cSqlBox" readonly class="mono-in" style="min-height:210px;font-size:11px;line-height:1.5"></textarea><div class="hint">Copy this into Supabase → SQL Editor → Run. Safe to re-run on an existing table.</div></div>
+
+    <div class="sect-t">PDF attachments</div>
+    <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. If set, create a <b>public</b> bucket with that name under Storage.</div></div>
+
+    <div class="sect-t">Billing defaults</div>
+    <div class="f"><label for="cRate">Standard rate per drawing (₱)</label><input id="cRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
+    <div class="f"><label for="cPrefix">Code prefix</label><input id="cPrefix" class="mono-in"><div class="hint">Codes come out as <span id="codeSample" style="font-family:var(--mono)"></span> and reset each month.</div></div>
+
+    <div class="sect-t">Company details on statements</div>
+    <div class="f"><label for="cCo">Company name</label><input id="cCo"></div>
+    <div class="f"><label for="cAddr">Address</label><textarea id="cAddr" style="min-height:52px"></textarea></div>
+    <div class="f"><label for="cContact">Contact line</label><input id="cContact" placeholder="Tel / email / TIN"></div>
+    <div class="f-row">
+      <div class="f"><label for="cSigner">Prepared by</label><input id="cSigner"></div>
+      <div class="f"><label for="cRole">Position</label><input id="cRole"></div>
+    </div>
+
+    <div class="sect-t">Account</div>
+    <div class="chk" style="cursor:default"><span style="flex:1">Signed in<span class="s" id="cWho">Not signed in</span></span></div>
+    <div style="display:flex;gap:8px"><button class="act" id="cOut" style="color:var(--rsr)">Sign out</button></div>
+
+    <div class="sect-t">Backup</div>
+    <div style="display:flex;gap:8px"><button class="act" id="cExport">Export JSON</button><button class="act" id="cCsv">Export CSV</button></div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn-ghost" data-close>Close</button>
+    <button class="btn-fill" id="cSave">Save settings</button>
+  </div>
+</div>
+
+<div id="gate">
+  <div class="gate-b">
+    <div class="mark">RSR</div>
+    <h2>Drawing Billing</h2>
+    <p>Sign in to reach the billing records.</p>
+    <label for="gEmail">Email</label>
+    <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" spellcheck="false">
+    <label for="gPw">Password</label>
+    <input id="gPw" type="password" autocomplete="current-password" placeholder="••••••••">
+    <p class="err" id="gErr"></p>
+    <button class="go" id="gGo">Sign in</button>
+    <button class="alt" id="gCfg">Connection settings</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div id="printRoot"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================= constants & helpers ================= */
+const LS_CFG='rsr_dwg_cfg_v1', LS_ROWS='rsr_dwg_rows_v1', LS_Q='rsr_dwg_queue_v1';
+const STATUSES=['DRAFT','BILLED','PAID'];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>'₱'+(Number(n)||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+const moneyShort=n=>{n=Number(n)||0;return n>=1e6?'₱'+(n/1e6).toFixed(2)+'M':money(n).replace(/\.00$/,'');};
+const today=()=>new Date().toISOString().slice(0,10);
+const uid=()=>'loc-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+function fmtDate(d){if(!d)return'';const p=String(d).slice(0,10).split('-');if(p.length!==3)return d;
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return p[2]+' '+M[+p[1]-1]+' '+p[0];}
+function monthKey(d){return d?String(d).slice(0,7):'';}
+function monthLabel(k){if(!k)return'';const M=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const p=k.split('-');return M[+p[1]-1]+' '+p[0];}
+
+const ONES=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+const TENS=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+function under1k(n){let s='';if(n>=100){s+=ONES[Math.floor(n/100)]+' Hundred';n%=100;if(n)s+=' ';}
+  if(n>=20){s+=TENS[Math.floor(n/10)];if(n%10)s+='-'+ONES[n%10];}else if(n)s+=ONES[n];return s;}
+function words(n){n=Math.floor(Math.abs(Number(n)||0));if(!n)return'Zero';
+  const g=[[1e9,'Billion'],[1e6,'Million'],[1e3,'Thousand']];let out=[];
+  for(const [v,name] of g){if(n>=v){out.push(under1k(Math.floor(n/v))+' '+name);n%=v;}}
+  if(n)out.push(under1k(n));return out.join(' ');}
+function pesoWords(n){n=Number(n)||0;const p=Math.floor(n),c=Math.round((n-p)*100);
+  let s=words(p)+' Peso'+(p===1?'':'s');if(c)s+=' and '+words(c)+' Centavo'+(c===1?'':'s');return s+' Only';}
+
+let toastT;
+function toast(msg,bad){const t=$('toast');t.textContent=msg;t.className='toast on'+(bad?' bad':'');
+  clearTimeout(toastT);toastT=setTimeout(()=>t.className='toast',2600);}
+
+/* ================= config ================= */
+const DEFAULT_CFG={
+  url:'',key:'',table:'drawing_billing',bucket:'',
+  rate:0,prefix:'RSR-DWG',
+  company:'RSR ENGINEERING SERVICES',
+  address:'Carmen & Mandaue Yard Facilities, Cebu, Philippines',
+  contact:'',
+  signer:'',role:'Naval Architect & Marine Engineer'
+};
+let cfg=Object.assign({},DEFAULT_CFG);
+try{Object.assign(cfg,JSON.parse(localStorage.getItem(LS_CFG)||'{}'));}catch(e){}
+const saveCfg=()=>localStorage.setItem(LS_CFG,JSON.stringify(cfg));
+const online=()=>!!(cfg.url&&cfg.key);
+
+/* ================= state ================= */
+let rows=[];
+let queue=[];
+try{rows=JSON.parse(localStorage.getItem(LS_ROWS)||'[]');}catch(e){rows=[];}
+try{queue=JSON.parse(localStorage.getItem(LS_Q)||'[]');}catch(e){queue=[];}
+const persist=()=>{localStorage.setItem(LS_ROWS,JSON.stringify(rows));localStorage.setItem(LS_Q,JSON.stringify(queue));};
+
+let filters={q:'',status:'ALL',client:'',month:''};
+let editingId=null;
+
+const FIELDS=['code','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
+function payloadOf(r){const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;return o;}
+const amountOf=r=>(Number(r.qty)||0)*(Number(r.rate)||0);
+
+/* ================= auth session ================= */
+const LS_SES='rsr_dwg_session_v1';
+let session={};
+try{session=JSON.parse(localStorage.getItem(LS_SES)||'{}');}catch(e){session={};}
+const authed=()=>!!session.access_token;
+function saveSession(){localStorage.setItem(LS_SES,JSON.stringify(session));}
+function setSession(d){
+  session={
+    access_token:d.access_token,
+    refresh_token:d.refresh_token||session.refresh_token,
+    expires_at:Date.now()+((d.expires_in||3600)*1000),
+    email:(d.user&&d.user.email)||session.email||''
+  };
+  saveSession();
+}
+function clearSession(){session={};localStorage.removeItem(LS_SES);}
+
+async function authPost(path,body){
+  const res=await fetch(cfg.url.replace(/\/+$/,'')+'/auth/v1/'+path,{
+    method:'POST',
+    headers:{'apikey':cfg.key,'Content-Type':'application/json'},
+    body:JSON.stringify(body||{})
+  });
+  let d={};try{d=await res.json();}catch(e){}
+  if(!res.ok)throw new Error(d.error_description||d.msg||d.message||d.error||('HTTP '+res.status));
+  return d;
+}
+async function refreshSession(){
+  if(!session.refresh_token)return false;
+  try{setSession(await authPost('token?grant_type=refresh_token',{refresh_token:session.refresh_token}));return true;}
+  catch(e){clearSession();return false;}
+}
+async function ensureFresh(){
+  if(!authed())return false;
+  if(session.expires_at&&session.expires_at-Date.now()<120000)return await refreshSession();
+  return true;
+}
+function bearer(){return session.access_token||cfg.key;}
+
+/* ================= supabase rest ================= */
+function setSync(cls,txt){$('syncDot').className='dot '+cls;$('syncTxt').textContent=txt;}
+async function sb(path,opts,retried){
+  if(!online())throw new Error('No project configured');
+  const res=await fetch(cfg.url.replace(/\/+$/,'')+'/rest/v1/'+path,Object.assign({},opts,{
+    headers:Object.assign({
+      'apikey':cfg.key,'Authorization':'Bearer '+bearer(),
+      'Content-Type':'application/json','Prefer':'return=representation'
+    },(opts&&opts.headers)||{})
+  }));
+  if((res.status===401||res.status===403)&&!retried&&authed()){
+    if(await refreshSession())return sb(path,opts,true);
+    showGate('Your session expired. Sign in again.');
+    throw new Error('Session expired');
+  }
+  if(!res.ok){let t='';try{t=(await res.json()).message||'';}catch(e){}
+    throw new Error(t||('HTTP '+res.status));}
+  const txt=await res.text();
+  return txt?JSON.parse(txt):null;
+}
+
+async function flushQueue(){
+  if(!online()||!queue.length)return;
+  const still=[];
+  for(const job of queue){
+    try{
+      if(job.op==='insert'){
+        const out=await sb(cfg.table,{method:'POST',body:JSON.stringify(job.data)});
+        const srv=out&&out[0];
+        if(srv){const i=rows.findIndex(r=>r.id===job.localId);if(i>-1)rows[i]=srv;}
+      }else if(job.op==='update'){
+        await sb(cfg.table+'?id=eq.'+encodeURIComponent(job.id),{method:'PATCH',body:JSON.stringify(job.data)});
+      }else if(job.op==='delete'){
+        await sb(cfg.table+'?id=eq.'+encodeURIComponent(job.id),{method:'DELETE'});
+      }
+    }catch(err){still.push(job);}
+  }
+  queue=still;persist();
+}
+
+async function pull(quiet){
+  if(!online()){setSync('off','Local');return;}
+  if(!authed()){setSync('off','Signed out');return;}
+  setSync('busy','Sync');
+  try{
+    await ensureFresh();
+    await flushQueue();
+    const data=await sb(cfg.table+'?select=*&order=bill_date.desc,code.desc');
+    const pendingLocal=rows.filter(r=>String(r.id).startsWith('loc-'));
+    rows=(data||[]).concat(pendingLocal);
+    persist();render();
+    setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
+  }catch(err){
+    setSync('err','Offline');
+    if(!quiet)toast(err.message||'Could not reach Supabase',true);
+  }
+}
+
+/* ================= codes ================= */
+function nextCode(dateStr,extra){
+  const d=(dateStr||today()).slice(0,10).split('-');
+  const stamp=d[1]+d[0]; // MMYYYY, matches RSR report numbering
+  const pre=(cfg.prefix||'RSR-DWG')+'-'+stamp+'-';
+  let max=0;
+  rows.concat(extra||[]).forEach(r=>{
+    if(r.code&&r.code.indexOf(pre)===0){const n=parseInt(r.code.slice(pre.length),10);if(n>max)max=n;}
+  });
+  return pre+String(max+1).padStart(3,'0');
+}
+
+/* ================= filtering ================= */
+function visible(){
+  const q=filters.q.trim().toLowerCase();
+  return rows.filter(r=>{
+    if(filters.status!=='ALL'&&r.status!==filters.status)return false;
+    if(filters.client&&r.client!==filters.client)return false;
+    if(filters.month&&monthKey(r.bill_date)!==filters.month)return false;
+    if(q){
+      const hay=[r.code,r.client,r.vessel,r.drawing_no,r.drawing_title,r.invoice_no,r.remarks].join(' ').toLowerCase();
+      if(hay.indexOf(q)<0)return false;
+    }
+    return true;
+  }).sort((a,b)=>String(b.bill_date||'').localeCompare(String(a.bill_date||''))||String(b.code||'').localeCompare(String(a.code||'')));
+}
+
+/* ================= render ================= */
+function render(){
+  const vis=visible();
+
+  // totals over current filter (status chip ignored so the three cells stay comparable)
+  const scope=rows.filter(r=>{
+    if(filters.client&&r.client!==filters.client)return false;
+    if(filters.month&&monthKey(r.bill_date)!==filters.month)return false;
+    const q=filters.q.trim().toLowerCase();
+    if(q){const hay=[r.code,r.client,r.vessel,r.drawing_no,r.drawing_title].join(' ').toLowerCase();if(hay.indexOf(q)<0)return false;}
+    return true;
+  });
+  const agg={};STATUSES.forEach(s=>agg[s]={n:0,v:0});
+  scope.forEach(r=>{const s=agg[r.status]||agg.DRAFT;s.n++;s.v+=amountOf(r);});
+  $('tDraft').textContent=moneyShort(agg.DRAFT.v);$('cDraft').textContent=agg.DRAFT.n+' item'+(agg.DRAFT.n===1?'':'s');
+  $('tRecv').textContent=moneyShort(agg.BILLED.v);$('cRecv').textContent=agg.BILLED.n+' item'+(agg.BILLED.n===1?'':'s');
+  $('tPaid').textContent=moneyShort(agg.PAID.v);$('cPaid').textContent=agg.PAID.n+' item'+(agg.PAID.n===1?'':'s');
+
+  // chips
+  const counts={ALL:scope.length};STATUSES.forEach(s=>counts[s]=agg[s].n);
+  const labels={ALL:'All',DRAFT:'Draft',BILLED:'Billed',PAID:'Paid'};
+  $('chips').innerHTML=['ALL'].concat(STATUSES).map(s=>
+    `<button class="chip${filters.status===s?' on':''}" data-status="${s}">${labels[s]}<span class="n">${counts[s]||0}</span></button>`).join('');
+
+  // filter dropdowns
+  syncSelect($('fClient'),uniq(rows.map(r=>r.client)),filters.client,'All clients');
+  syncSelect($('fMonth'),uniq(rows.map(r=>monthKey(r.bill_date))).sort().reverse(),filters.month,'All months',monthLabel);
+
+  // datalists
+  $('dlClients').innerHTML=uniq(rows.map(r=>r.client)).map(v=>`<option value="${esc(v)}">`).join('');
+  $('dlVessels').innerHTML=uniq(rows.map(r=>r.vessel)).map(v=>`<option value="${esc(v)}">`).join('');
+
+  // list
+  const L=$('list');
+  if(!vis.length){
+    L.innerHTML=rows.length
+      ? `<div class="empty"><h3>Nothing matches</h3><p>Try a different status, client or month.</p><button class="act" id="clearF">Clear filters</button></div>`
+      : `<div class="empty"><h3>No drawings billed yet</h3><p>Add your first drawing and the tracking code is generated for you.</p><button class="act" id="firstAdd">Add a drawing</button></div>`;
+    const cf=$('clearF');if(cf)cf.onclick=()=>{filters={q:'',status:'ALL',client:'',month:''};$('q').value='';render();};
+    const fa=$('firstAdd');if(fa)fa.onclick=()=>openEntry(null);
+    return;
+  }
+  L.innerHTML=vis.map(r=>{
+    const pend=String(r.id).startsWith('loc-');
+    const meta=[];
+    if(r.vessel)meta.push(`<span><b>${esc(r.vessel)}</b></span>`);
+    if(r.drawing_no)meta.push(`<span class="m">${esc(r.drawing_no)}</span>`);
+    meta.push(`<span class="m">${fmtDate(r.bill_date)}</span>`);
+    if(Number(r.qty)>1)meta.push(`<span class="m">${r.qty} × ${money(r.rate)}</span>`);
+    if(r.invoice_no)meta.push(`<span class="m">SI ${esc(r.invoice_no)}</span>`);
+    if(r.file_url)meta.push(`<a class="pdflink" href="${esc(r.file_url)}" target="_blank" rel="noopener">PDF</a>`);
+    else if(r.file_name)meta.push(`<span class="m" title="${esc(r.file_name)}">PDF</span>`);
+    let acts='';
+    if(r.status==='DRAFT')acts=`<button class="act primary" data-mark="BILLED" data-id="${esc(r.id)}">Mark billed</button>`;
+    else if(r.status==='BILLED')acts=`<button class="act paid" data-mark="PAID" data-id="${esc(r.id)}">Mark paid</button><button class="act" data-mark="DRAFT" data-id="${esc(r.id)}">Unbill</button>`;
+    else acts=`<button class="act" data-mark="BILLED" data-id="${esc(r.id)}">Reopen</button>`;
+    return `<article class="row${pend?' pending':''}" data-s="${esc(r.status)}">
+      <div class="row-head">
+        <span class="code">${esc(r.code||'—')}</span>
+        <span class="badge ${esc(r.status)}">${esc(r.status)}</span>
+        <span class="row-amt">${money(amountOf(r))}</span>
+      </div>
+      <div class="row-title">${esc(r.drawing_title||'Untitled drawing')}</div>
+      <div class="row-meta">${meta.join('')}${r.client?`<span>${esc(r.client)}</span>`:''}</div>
+      <div class="row-acts">${acts}<button class="act ghost" data-edit="${esc(r.id)}">Edit</button></div>
+    </article>`;
+  }).join('');
+}
+
+function uniq(a){return Array.from(new Set(a.filter(Boolean))).sort();}
+function syncSelect(sel,vals,cur,allLabel,fmt){
+  sel.innerHTML=`<option value="">${allLabel}</option>`+vals.map(v=>`<option value="${esc(v)}"${v===cur?' selected':''}>${esc(fmt?fmt(v):v)}</option>`).join('');
+  sel.value=cur||'';
+}
+
+/* ================= writes ================= */
+async function saveRow(row,isNew){
+  if(isNew){
+    row.id=uid();
+    rows.unshift(row);
+    queue.push({op:'insert',localId:row.id,data:payloadOf(row)});
+  }else{
+    const i=rows.findIndex(r=>r.id===row.id);if(i>-1)rows[i]=row;
+    if(String(row.id).startsWith('loc-')){
+      const j=queue.find(q=>q.op==='insert'&&q.localId===row.id);
+      if(j)j.data=payloadOf(row);else queue.push({op:'insert',localId:row.id,data:payloadOf(row)});
+    }else{
+      queue=queue.filter(q=>!(q.op==='update'&&q.id===row.id));
+      queue.push({op:'update',id:row.id,data:payloadOf(row)});
+    }
+  }
+  persist();render();
+  if(online()){try{await flushQueue();persist();render();setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');}
+    catch(e){setSync('err','Offline');}}
+  else setSync('off','Local');
+}
+async function saveBatch(list){
+  list.forEach(row=>{
+    row.id=uid();
+    rows.unshift(row);
+    queue.push({op:'insert',localId:row.id,data:payloadOf(row)});
+  });
+  persist();render();
+  if(online()){
+    try{await flushQueue();persist();render();}catch(e){}
+    setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
+  }else setSync('off','Local');
+}
+async function deleteRow(id){
+  rows=rows.filter(r=>r.id!==id);
+  if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
+  else{queue=queue.filter(q=>q.id!==id);queue.push({op:'delete',id:id});}
+  persist();render();
+  if(online()){await flushQueue();persist();setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');}
+}
+function markStatus(id,status){
+  const r=rows.find(x=>x.id===id);if(!r)return;
+  r.status=status;
+  if(status==='BILLED'&&!r.billed_date)r.billed_date=today();
+  if(status==='PAID'&&!r.paid_date)r.paid_date=today();
+  if(status==='DRAFT'){r.billed_date=null;r.paid_date=null;}
+  saveRow(r,false);
+  toast(status==='PAID'?'Marked paid':status==='BILLED'?'Marked billed':'Moved back to draft');
+}
+
+/* ================= sign-in gate ================= */
+function showGate(msg){
+  $('gateErr').textContent=msg||'';
+  $('gate').classList.add('on');
+  document.body.style.overflow='hidden';
+  if(session.email)$('gEmail').value=session.email;
+  setSync('off','Signed out');
+  setTimeout(()=>{($('gEmail').value?$('gPw'):$('gEmail')).focus();},120);
+}
+function hideGate(){
+  $('gate').classList.remove('on');
+  document.body.style.overflow='';
+  $('gPw').value='';$('gateErr').textContent='';
+}
+async function doSignIn(){
+  const email=$('gEmail').value.trim(),pw=$('gPw').value;
+  if(!email||!pw){$('gateErr').textContent='Enter your email and password.';return;}
+  if(!online()){$('gateErr').textContent='Set the Supabase project first — tap Project settings.';return;}
+  const btn=$('gGo');btn.disabled=true;btn.textContent='Signing in…';
+  try{
+    setSession(await authPost('token?grant_type=password',{email:email,password:pw}));
+    hideGate();
+    toast('Signed in');
+    await pull();
+  }catch(e){
+    $('gateErr').textContent=/invalid/i.test(e.message)?'That email and password do not match an account.':e.message;
+  }finally{btn.disabled=false;btn.textContent='Sign in';}
+}
+$('gGo').onclick=doSignIn;
+$('gPw').addEventListener('keydown',e=>{if(e.key==='Enter')doSignIn();});
+$('gEmail').addEventListener('keydown',e=>{if(e.key==='Enter')$('gPw').focus();});
+$('gCfg').onclick=()=>{$('gate').classList.remove('on');document.body.style.overflow='';openCfg();};
+$('gForgot').onclick=async()=>{
+  const email=$('gEmail').value.trim();
+  if(!email){$('gateErr').textContent='Type your email first, then tap Forgot password.';return;}
+  if(!online()){$('gateErr').textContent='Set the Supabase project first.';return;}
+  try{await authPost('recover',{email:email});$('gateErr').textContent='';toast('Reset link sent to '+email);}
+  catch(e){$('gateErr').textContent=e.message;}
+};
+async function doSignOut(){
+  if(queue.length&&!confirm(queue.length+' change(s) have not synced yet and will be lost. Sign out anyway?'))return;
+  try{if(authed())await fetch(cfg.url.replace(/\/+$/,'')+'/auth/v1/logout',{method:'POST',headers:{'apikey':cfg.key,'Authorization':'Bearer '+bearer()}});}catch(e){}
+  clearSession();
+  rows=[];queue=[];persist();render();
+  hide();showGate('Signed out.');
+}
+
+/* ================= sheets ================= */
+let openSheet=null;
+function show(id){
+  if(openSheet)hide();
+  openSheet=id;$(id).classList.add('on');$('scrim').classList.add('on');
+  document.body.style.overflow='hidden';
+}
+function hide(){
+  if(openSheet){$(openSheet).classList.remove('on');openSheet=null;}
+  $('scrim').classList.remove('on');document.body.style.overflow='';
+}
+$('scrim').onclick=hide;
+document.querySelectorAll('[data-close]').forEach(b=>b.onclick=hide);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')hide();});
+
+/* ---- entry ---- */
+function openEntry(id){
+  editingId=id;
+  const r=id?rows.find(x=>x.id===id):null;
+  $('entryEyebrow').textContent=r?'Record '+(r.code||''):'New record';
+  $('entryTitle').textContent=r?'Edit drawing':'Drawing details';
+  $('eDelete').hidden=!r;
+  $('eDate').value=r?String(r.bill_date||today()).slice(0,10):today();
+  $('eCode').value=r?(r.code||''):nextCode($('eDate').value);
+  $('eClient').value=r?(r.client||''):(filters.client||'');
+  $('eVessel').value=r?(r.vessel||''):'';
+  $('eDwgNo').value=r?(r.drawing_no||''):'';
+  $('eTitle').value=r?(r.drawing_title||''):'';
+  $('eQty').value=r?(r.qty||1):1;
+  $('eRate').value=r?(r.rate||0):(cfg.rate||'');
+  $('eStatus').value=r?(r.status||'DRAFT'):'DRAFT';
+  $('eBilled').value=r&&r.billed_date?String(r.billed_date).slice(0,10):'';
+  $('ePaid').value=r&&r.paid_date?String(r.paid_date).slice(0,10):'';
+  $('eInv').value=r?(r.invoice_no||''):'';
+  $('eRem').value=r?(r.remarks||''):'';
+  prev();show('sheetEntry');
+}
+function prev(){$('ePrev').textContent=money((Number($('eQty').value)||0)*(Number($('eRate').value)||0));}
+$('eQty').oninput=prev;$('eRate').oninput=prev;
+$('eDate').onchange=()=>{if(!editingId)$('eCode').value=nextCode($('eDate').value);};
+
+$('eSave').onclick=async()=>{
+  const title=$('eTitle').value.trim();
+  if(!title){toast('Add a drawing title first',true);$('eTitle').focus();return;}
+  if(!$('eClient').value.trim()){toast('Add a client first',true);$('eClient').focus();return;}
+  const base=editingId?Object.assign({},rows.find(r=>r.id===editingId)):{};
+  const row=Object.assign(base,{
+    code:$('eCode').value.trim()||nextCode($('eDate').value),
+    bill_date:$('eDate').value||today(),
+    client:$('eClient').value.trim(),
+    vessel:$('eVessel').value.trim(),
+    drawing_no:$('eDwgNo').value.trim(),
+    drawing_title:title,
+    qty:Math.max(1,parseInt($('eQty').value,10)||1),
+    rate:Number($('eRate').value)||0,
+    status:$('eStatus').value,
+    billed_date:$('eBilled').value||null,
+    paid_date:$('ePaid').value||null,
+    invoice_no:$('eInv').value.trim(),
+    remarks:$('eRem').value.trim()
+  });
+  if(row.status!=='DRAFT'&&!row.billed_date)row.billed_date=row.bill_date;
+  if(row.status==='PAID'&&!row.paid_date)row.paid_date=today();
+  const dup=rows.find(r=>r.code===row.code&&r.id!==editingId);
+  if(dup){toast('That code is already used',true);return;}
+  hide();
+  await saveRow(row,!editingId);
+  toast(editingId?'Changes saved':'Drawing added — '+row.code);
+};
+$('eDelete').onclick=async()=>{
+  if(!editingId)return;
+  if(!confirm('Delete this record permanently?'))return;
+  const id=editingId;hide();await deleteRow(id);toast('Record deleted');
+};
+
+/* ---- import from PDF ---- */
+let impFiles=[];
+let pdfLib=null;
+
+function loadPdfJs(){
+  if(pdfLib)return pdfLib;
+  pdfLib=new Promise((res,rej)=>{
+    if(window.pdfjsLib){res(window.pdfjsLib);return;}
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=()=>{
+      try{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}catch(e){}
+      res(window.pdfjsLib);
+    };
+    s.onerror=()=>{pdfLib=null;rej(new Error('reader unavailable'));};
+    document.head.appendChild(s);
+  });
+  return pdfLib;
+}
+
+// Title blocks sit bottom-right on page 1, so text there is weighted first.
+async function readPdf(file){
+  const lib=await loadPdfJs();
+  const buf=await file.arrayBuffer();
+  const doc=await lib.getDocument({data:new Uint8Array(buf)}).promise;
+  const out={pages:doc.numPages||1,items:[],tbItems:[]};
+  try{
+    const pg=await doc.getPage(1);
+    const vp=pg.getViewport({scale:1});
+    const c=await pg.getTextContent();
+    c.items.forEach(it=>{
+      const s=(it.str||'').replace(/\s+/g,' ').trim();
+      if(!s)return;
+      out.items.push(s);
+      const x=it.transform[4],y=it.transform[5];
+      if(y<vp.height*0.34&&x>vp.width*0.40)out.tbItems.push(s);
+    });
+  }catch(e){}
+  try{doc.destroy();}catch(e){}
+  return out;
+}
+
+const RE_VESSEL=/\b(?:M\s?\/?\s?V|M\s?\/?\s?T|LCT|TUG|BARGE|FD|MB|FB)[\s.\-]+[A-Z][A-Za-z0-9'.\-]*(?:\s+[A-Z0-9][A-Za-z0-9'.\-]*){0,3}/;
+const RE_DWGNO=/(?:DWG|DRAWING|DRG)\s*(?:NO|NUM|NUMBER|#)?\s*[.:\-]?\s*([A-Z0-9][A-Z0-9\/\-.]{2,24})/i;
+const TITLE_KW=/(PLAN|PROFILE|ARRANGEMENT|ARR'?G?T|DIAGRAM|EXPANSION|LINES|CAPACITY|MIDSHIP|SECTION|LAYOUT|DETAILS?|SCANTLINGS?|DOCKING|CONSTRUCTION|PIPING|WIRING|CURVE|SKETCH|BODY)/i;
+const NOISE=/SCALE|SHEET|APPROVED|DRAWN BY|CHECKED|REV\b|DATE|SIGNATURE|TITLE BLOCK/i;
+
+function tidy(s){
+  s=String(s||'').replace(/\s+/g,' ').trim().replace(/^[-–—:\s]+|[-–—:\s]+$/g,'');
+  if(!s)return'';
+  if(s===s.toUpperCase()&&s.length>3){
+    s=s.toLowerCase().replace(/\b([a-z])/g,(m,c)=>c.toUpperCase())
+       .replace(/\b(Mv|Mt|Lct|Fd|Sf|St|Mb|Fb|Ga|Ut|Ndt|Rsr|Ii|Iii|Iv)\b/g,x=>x.toUpperCase());
+  }
+  return s;
+}
+function pickMatch(items,re){for(let i=0;i<items.length;i++){const m=items[i].match(re);if(m)return m;}return null;}
+function bestTitle(items){
+  let best='';
+  items.forEach(s=>{
+    const t=s.replace(/\s+/g,' ').trim();
+    if(t.length<6||t.length>70)return;
+    if(!TITLE_KW.test(t)||NOISE.test(t))return;
+    if(t.length>best.length)best=t;
+  });
+  return best;
+}
+function fromName(name){
+  const base=name.replace(/\.pdf$/i,'').replace(/_+/g,' ').replace(/\s+/g,' ').trim();
+  const parts=base.split(/\s*[-–—]\s*/).map(s=>s.trim()).filter(Boolean);
+  const out={vessel:'',dwg:'',title:'',base:base};
+  const rest=[];
+  parts.forEach(p=>{
+    if(!out.vessel&&RE_VESSEL.test(p)){out.vessel=p;return;}
+    if(!out.dwg&&p.length<=12&&/^[A-Za-z]{0,4}[-\s]?\d{1,4}[A-Za-z]?$/.test(p)){out.dwg=p;return;}
+    rest.push(p);
+  });
+  out.title=rest.join(' - ')||base;
+  return out;
+}
+
+async function scanFiles(fileList){
+  const files=Array.from(fileList).filter(f=>/\.pdf$/i.test(f.name)||f.type==='application/pdf');
+  if(!files.length){toast('No PDF files in that drop',true);return;}
+  if(openSheet!=='sheetImp')openImport(true);
+  const st=$('impStatus');st.hidden=false;
+  let read=0,fell=0;
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    st.innerHTML='<span class="spin"></span><span>Reading '+(i+1)+' of '+files.length+' — '+esc(f.name)+'</span>';
+    const nm=fromName(f.name);
+    const rec={file:f,name:f.name,on:true,pages:1,vessel:nm.vessel,dwg:nm.dwg,title:tidy(nm.title),dupe:false};
+    try{
+      const p=await readPdf(f);
+      rec.pages=p.pages||1;
+      const all=p.tbItems.concat(p.items);
+      const joined=all.join(' ');
+      const mv=pickMatch(all,RE_VESSEL)||joined.match(RE_VESSEL);
+      if(mv)rec.vessel=tidy(mv[0]);
+      const md=pickMatch(all,RE_DWGNO)||joined.match(RE_DWGNO);
+      if(md&&md[1])rec.dwg=md[1].toUpperCase();
+      const ti=bestTitle(p.tbItems)||bestTitle(p.items);
+      if(ti)rec.title=tidy(ti);
+      read++;
+    }catch(e){fell++;}
+    if(!rec.title)rec.title=tidy(nm.base);
+    rec.dupe=rows.some(r=>
+      (r.file_name&&r.file_name===f.name)||
+      (((r.drawing_title||'').toLowerCase()===rec.title.toLowerCase())&&(r.vessel||'')===rec.vessel)
+    );
+    if(rec.dupe)rec.on=false;
+    impFiles.push(rec);
+  }
+  const msg=fell
+    ? files.length+' added — '+fell+' could not be read, so those use the file name. Check the titles below.'
+    : files.length+' file'+(files.length===1?'':'s')+' read from the title blocks. Correct anything below before adding.';
+  st.innerHTML='<span>'+esc(msg)+'</span>';
+  $('impForm').hidden=false;
+  const vs=impFiles.map(f=>f.vessel).filter(Boolean);
+  if(vs.length&&!$('iVessel').value)$('iVessel').value=vs[0];
+  renderImp();
+}
+
+function renderImp(){
+  const rate=Number($('iRate').value)||0;
+  const byPage=$('iPages').checked;
+  $('impList').innerHTML=impFiles.map((f,i)=>{
+    const qty=byPage?Math.max(1,f.pages||1):1;
+    return `<div class="imp${f.on?'':' off'}">
+      <div class="imp-h">
+        <input type="checkbox" data-on="${i}"${f.on?' checked':''} aria-label="Include ${esc(f.name)}">
+        <span class="fn" title="${esc(f.name)}">${esc(f.name)}</span>
+        ${f.dupe?'<span class="warn">Already billed</span>':''}
+        <span class="pg">${f.pages}p</span>
+        <span class="amt">${money(qty*rate)}</span>
+      </div>
+      <div class="imp-f">
+        <input data-f="title" data-i="${i}" value="${esc(f.title)}" placeholder="Drawing title" autocomplete="off">
+        <div class="two">
+          <input data-f="dwg" data-i="${i}" value="${esc(f.dwg)}" placeholder="Drawing no." autocomplete="off">
+          <input data-f="vessel" data-i="${i}" value="${esc(f.vessel)}" placeholder="Vessel" autocomplete="off">
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  const on=impFiles.filter(f=>f.on);
+  const tot=on.reduce((s,f)=>s+(byPage?Math.max(1,f.pages||1):1)*rate,0);
+  $('impTotal').textContent=money(tot);
+  $('iCommit').textContent=on.length?('Add '+on.length+' drawing'+(on.length===1?'':'s')):'Add drawings';
+}
+
+function openImport(keep){
+  if(!keep&&!impFiles.length){$('impForm').hidden=true;$('impStatus').hidden=true;}
+  if(!$('iDate').value)$('iDate').value=today();
+  if(!$('iRate').value)$('iRate').value=cfg.rate||'';
+  if(!$('iClient').value&&filters.client)$('iClient').value=filters.client;
+  $('iUpWrap').hidden=!(cfg.bucket&&online());
+  if($('iUpWrap').hidden)$('iUpload').checked=false;
+  show('sheetImp');
+}
+function resetImp(){
+  impFiles=[];$('fileIn').value='';
+  $('impForm').hidden=true;$('impStatus').hidden=true;$('impList').innerHTML='';
+  $('iCommit').textContent='Add drawings';
+}
+
+$('drop').onclick=()=>$('fileIn').click();
+$('fileIn').onchange=e=>{if(e.target.files.length)scanFiles(e.target.files);e.target.value='';};
+$('iRate').oninput=renderImp;
+$('iPages').onchange=renderImp;
+$('iVessel').onchange=()=>{
+  const v=$('iVessel').value.trim();
+  if(!v)return;
+  impFiles.forEach(f=>{f.vessel=v;});
+  renderImp();
+};
+$('iAll').onclick=()=>{impFiles.forEach(f=>f.on=true);renderImp();};
+$('iNone').onclick=()=>{impFiles.forEach(f=>f.on=false);renderImp();};
+$('iReset').onclick=()=>{resetImp();toast('Files cleared');};
+$('impList').addEventListener('change',e=>{
+  const c=e.target.closest('[data-on]');
+  if(c){impFiles[+c.dataset.on].on=c.checked;renderImp();}
+});
+$('impList').addEventListener('input',e=>{
+  const t=e.target.closest('[data-f]');
+  if(!t)return;
+  const f=impFiles[+t.dataset.i];if(!f)return;
+  if(t.dataset.f==='title')f.title=t.value;
+  else if(t.dataset.f==='dwg')f.dwg=t.value;
+  else f.vessel=t.value;
+});
+
+async function uploadPdf(file,code){
+  const base=cfg.url.replace(/\/+$/,'');
+  const safe=code.replace(/[^\w\-]/g,'_')+'__'+file.name.replace(/[^\w.\-]/g,'_');
+  const res=await fetch(base+'/storage/v1/object/'+encodeURIComponent(cfg.bucket)+'/'+encodeURIComponent(safe),{
+    method:'POST',
+    headers:{'apikey':cfg.key,'Authorization':'Bearer '+cfg.key,'Content-Type':'application/pdf','x-upsert':'true'},
+    body:file
+  });
+  if(!res.ok){let m='';try{m=(await res.json()).message||'';}catch(e){}throw new Error(m||('HTTP '+res.status));}
+  return base+'/storage/v1/object/public/'+encodeURIComponent(cfg.bucket)+'/'+encodeURIComponent(safe);
+}
+
+$('iCommit').onclick=async()=>{
+  const picked=impFiles.filter(f=>f.on);
+  if(!picked.length){toast('Tick at least one file',true);return;}
+  const client=$('iClient').value.trim();
+  if(!client){toast('Set the client for this batch',true);$('iClient').focus();return;}
+  const date=$('iDate').value||today();
+  const rate=Number($('iRate').value)||0;
+  const byPage=$('iPages').checked;
+  const batchVessel=$('iVessel').value.trim();
+  const doUp=$('iUpload').checked&&cfg.bucket&&online();
+  const btn=$('iCommit');
+  btn.disabled=true;
+  const built=[];
+  let upFail=0;
+  for(const f of picked){
+    const code=nextCode(date,built);
+    let url=null;
+    if(doUp){
+      btn.textContent='Uploading '+(built.length+1)+' of '+picked.length+'…';
+      try{url=await uploadPdf(f.file,code);}catch(e){upFail++;}
+    }
+    built.push({
+      code:code,bill_date:date,client:client,
+      vessel:(f.vessel||batchVessel).trim(),
+      drawing_no:(f.dwg||'').trim(),
+      drawing_title:(f.title||'').trim()||f.name.replace(/\.pdf$/i,''),
+      qty:byPage?Math.max(1,f.pages||1):1,
+      rate:rate,status:'DRAFT',
+      billed_date:null,paid_date:null,invoice_no:'',remarks:'',
+      file_name:f.name,file_url:url,pages:f.pages||1
+    });
+  }
+  btn.disabled=false;
+  hide();
+  await saveBatch(built);
+  resetImp();
+  toast(built.length+' draft'+(built.length===1?'':'s')+' added'+(upFail?' — '+upFail+' upload(s) failed':''));
+};
+
+/* ---- drag and drop anywhere ---- */
+let dragDepth=0;
+function hasFiles(e){
+  const t=e.dataTransfer&&e.dataTransfer.types;
+  return !!t&&Array.prototype.indexOf.call(t,'Files')>-1;
+}
+window.addEventListener('dragenter',e=>{
+  if(!hasFiles(e))return;
+  e.preventDefault();dragDepth++;$('dropOverlay').classList.add('on');
+});
+window.addEventListener('dragover',e=>{if(hasFiles(e))e.preventDefault();});
+window.addEventListener('dragleave',e=>{
+  if(!hasFiles(e))return;
+  dragDepth=Math.max(0,dragDepth-1);
+  if(!dragDepth)$('dropOverlay').classList.remove('on');
+});
+window.addEventListener('drop',e=>{
+  if(!hasFiles(e))return;
+  e.preventDefault();dragDepth=0;$('dropOverlay').classList.remove('on');
+  if(e.dataTransfer.files&&e.dataTransfer.files.length)scanFiles(e.dataTransfer.files);
+});
+
+/* ---- statement ---- */
+function openStmt(){
+  const clients=uniq(rows.map(r=>r.client));
+  $('sClient').innerHTML=clients.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  if(filters.client)$('sClient').value=filters.client;
+  const d=new Date();
+  $('sFrom').value=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);
+  $('sTo').value=today();
+  const mm=String(d.getMonth()+1).padStart(2,'0')+d.getFullYear();
+  $('sNo').value='RSR-SOA-'+mm+'-001';
+  buildPick();show('sheetStmt');
+}
+function stmtCandidates(){
+  const c=$('sClient').value,f=$('sFrom').value,t=$('sTo').value;
+  return rows.filter(r=>r.client===c&&r.status!=='PAID'
+    &&(!f||String(r.bill_date)>=f)&&(!t||String(r.bill_date)<=t))
+    .sort((a,b)=>String(a.bill_date).localeCompare(String(b.bill_date))||String(a.code).localeCompare(String(b.code)));
+}
+function buildPick(){
+  const list=stmtCandidates();
+  $('sPick').innerHTML=list.length?list.map(r=>`
+    <label class="pick-item">
+      <input type="checkbox" checked value="${esc(r.id)}">
+      <span style="min-width:0">
+        <span class="t">${esc(r.drawing_title)}</span><br>
+        <span class="s">${esc(r.code)}${r.vessel?' · '+esc(r.vessel):''}</span>
+      </span>
+      <span class="a">${money(amountOf(r))}</span>
+    </label>`).join('')
+    : `<div style="padding:18px;text-align:center;color:var(--slate);font-size:13px">No unpaid drawings for this client in that date range.</div>`;
+  $('sPick').querySelectorAll('input').forEach(i=>i.onchange=pickTotal);
+  pickTotal();
+}
+function pickedRows(){
+  const ids=Array.from($('sPick').querySelectorAll('input:checked')).map(i=>i.value);
+  return rows.filter(r=>ids.indexOf(String(r.id))>-1)
+    .sort((a,b)=>String(a.bill_date).localeCompare(String(b.bill_date))||String(a.code).localeCompare(String(b.code)));
+}
+function pickTotal(){$('sTotal').textContent=money(pickedRows().reduce((s,r)=>s+amountOf(r),0));}
+$('sClient').onchange=buildPick;$('sFrom').onchange=buildPick;$('sTo').onchange=buildPick;
+$('sAll').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=true);pickTotal();};
+$('sNone').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=false);pickTotal();};
+
+$('sPrint').onclick=()=>{
+  const list=pickedRows();
+  if(!list.length){toast('Pick at least one drawing',true);return;}
+  renderStatement(list);
+  hide();
+  setTimeout(()=>{
+    window.print();
+    setTimeout(()=>{
+      if(confirm('Mark these '+list.length+' drawing(s) as BILLED?')){
+        list.forEach(r=>{r.status='BILLED';if(!r.billed_date)r.billed_date=today();saveRow(r,false);});
+        toast(list.length+' marked billed');
+      }
+    },400);
+  },220);
+};
+
+function renderStatement(list){
+  const sub=list.reduce((s,r)=>s+amountOf(r),0);
+  const vat=Number($('sVat').value)||0;
+  const adj=sub*vat/100;
+  const grand=sub+adj;
+  const terms=parseInt($('sTerms').value,10)||0;
+  const due=new Date(Date.now()+terms*864e5).toISOString().slice(0,10);
+  const client=$('sClient').value;
+  const adjLabel=vat>0?'Add: VAT 12%':vat<0?'Less: Withholding tax 2%':'';
+
+  $('printRoot').innerHTML=`
+  <div class="stmt">
+    <div class="stmt-hd">
+      <div class="m">RSR</div>
+      <div>
+        <h1>${esc(cfg.company||'RSR ENGINEERING SERVICES')}</h1>
+        <p>${esc(cfg.address||'').replace(/\n/g,'<br>')}${cfg.contact?'<br>'+esc(cfg.contact):''}</p>
+      </div>
+      <div class="rt">
+        <div class="t">Statement of Account</div>
+        <div class="n">${esc($('sNo').value)}</div>
+        <div class="d">${fmtDate(today())}</div>
+      </div>
+    </div>
+    <div class="stmt-meta">
+      <div><div class="k">Billed to</div><div class="v">${esc(client)}</div></div>
+      <div><div class="k">Period covered</div><div class="v mono">${fmtDate($('sFrom').value)} — ${fmtDate($('sTo').value)}</div></div>
+      <div><div class="k">Terms</div><div class="v mono">${terms} days</div></div>
+      <div><div class="k">Due on</div><div class="v mono">${fmtDate(due)}</div></div>
+    </div>
+    <table class="stmt-t">
+      <thead><tr>
+        <th style="width:104px">Code</th><th style="width:66px">Date</th><th>Vessel</th>
+        <th>Drawing</th><th style="width:34px" class="c">Qty</th>
+        <th style="width:74px" class="r">Rate</th><th style="width:86px" class="r">Amount</th>
+      </tr></thead>
+      <tbody>${list.map(r=>`<tr>
+        <td class="cd">${esc(r.code)}</td>
+        <td class="cd">${fmtDate(r.bill_date)}</td>
+        <td>${esc(r.vessel||'—')}</td>
+        <td>${esc(r.drawing_title)}${r.drawing_no?`<br><span style="font-family:var(--mono);font-size:9px;color:#555">${esc(r.drawing_no)}</span>`:''}</td>
+        <td class="c">${esc(r.qty)}</td>
+        <td class="r">${money(r.rate).replace('₱','')}</td>
+        <td class="r">${money(amountOf(r)).replace('₱','')}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <table class="stmt-tot" style="width:100%">
+      <tr><td class="lbl">Subtotal — ${list.length} drawing${list.length===1?'':'s'}</td><td class="amt">${money(sub)}</td></tr>
+      ${vat?`<tr><td class="lbl">${adjLabel}</td><td class="amt">${money(adj)}</td></tr>`:''}
+      <tr class="grand"><td class="lbl">Total amount due</td><td class="amt">${money(grand)}</td></tr>
+    </table>
+    <div class="words"><b>Amount in words</b><br>${esc(pesoWords(grand))}</div>
+    <div class="stmt-sig">
+      <div><div class="k">Prepared by</div><div class="l">${esc(cfg.signer||'')}</div><div class="r">${esc(cfg.role||'')}</div></div>
+      <div><div class="k">Received / conforme</div><div class="l">&nbsp;</div><div class="r">${esc(client)} — signature over printed name / date</div></div>
+    </div>
+    <div class="stmt-ft"><span>Please reference the billing code on payment advice.</span><span>${esc($('sNo').value)}</span></div>
+  </div>`;
+}
+
+/* ---- settings ---- */
+const SQL=`-- RSR Drawing Billing — run once in Supabase SQL Editor
+create table if not exists drawing_billing (
+  id            uuid primary key default gen_random_uuid(),
+  code          text unique not null,
+  bill_date     date not null default current_date,
+  client        text not null,
+  vessel        text,
+  drawing_no    text,
+  drawing_title text not null,
+  qty           integer not null default 1,
+  rate          numeric(12,2) not null default 0,
+  status        text not null default 'DRAFT'
+                check (status in ('DRAFT','BILLED','PAID')),
+  billed_date   date,
+  paid_date     date,
+  invoice_no    text,
+  remarks       text,
+  file_name     text,
+  file_url      text,
+  pages         integer,
+  created_at    timestamptz default now()
+);
+
+-- if the table already existed, add the PDF columns
+alter table drawing_billing add column if not exists file_name text;
+alter table drawing_billing add column if not exists file_url  text;
+alter table drawing_billing add column if not exists pages     integer;
+
+create index if not exists idx_db_client on drawing_billing(client);
+create index if not exists idx_db_status on drawing_billing(status);
+create index if not exists idx_db_date   on drawing_billing(bill_date desc);
+
+alter table drawing_billing enable row level security;
+
+-- Internal tool: the anon key in this file can read/write.
+-- Keep the HTML private. For stricter control, replace with
+-- an authenticated policy and add Supabase Auth.
+drop policy if exists db_anon_all on drawing_billing;
+create policy db_anon_all on drawing_billing
+  for all to anon using (true) with check (true);
+
+-- Optional: PDF attachments. Storage -> New bucket -> name "drawings",
+-- tick Public, then run this so the app can upload.
+insert into storage.buckets (id, name, public)
+values ('drawings','drawings',true)
+on conflict (id) do update set public = true;
+
+drop policy if exists dwg_anon_rw on storage.objects;
+create policy dwg_anon_rw on storage.objects
+  for all to anon
+  using (bucket_id = 'drawings')
+  with check (bucket_id = 'drawings');`;
+
+function openCfg(){
+  $('cUrl').value=cfg.url;$('cKey').value=cfg.key;$('cTable').value=cfg.table;$('cBucket').value=cfg.bucket||'';
+  $('cRate').value=cfg.rate||'';$('cPrefix').value=cfg.prefix;
+  $('cCo').value=cfg.company;$('cAddr').value=cfg.address;$('cContact').value=cfg.contact;
+  $('cSigner').value=cfg.signer;$('cRole').value=cfg.role;
+  $('cSqlBox').value=SQL;
+  const who=authed();
+  $('cWho').textContent=who?(session.email||'Signed in'):'Not signed in';
+  $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Records are local to this device.');
+  $('cSignOut').hidden=!who;
+  $('cSignIn').hidden=who||!cfg.url;
+  sample();show('sheetCfg');
+}
+function sample(){
+  const d=new Date(),mm=String(d.getMonth()+1).padStart(2,'0')+d.getFullYear();
+  $('codeSample').textContent=($('cPrefix').value||'RSR-DWG')+'-'+mm+'-001';
+}
+$('cPrefix').oninput=sample;
+$('cSql').onclick=()=>{const w=$('sqlWrap');w.hidden=!w.hidden;if(!w.hidden){$('cSqlBox').select();}};
+$('cTest').onclick=async()=>{
+  const bak={url:cfg.url,key:cfg.key,table:cfg.table};
+  cfg.url=$('cUrl').value.trim();cfg.key=$('cKey').value.trim();cfg.table=$('cTable').value.trim()||'drawing_billing';
+  try{await sb(cfg.table+'?select=id&limit=1');toast('Connected — table found');}
+  catch(e){toast(e.message||'Connection failed',true);Object.assign(cfg,bak);}
+};
+$('cSignOut').onclick=doSignOut;
+$('cSignIn').onclick=()=>{hide();showGate();};
+$('cSave').onclick=async()=>{
+  cfg.url=$('cUrl').value.trim();cfg.key=$('cKey').value.trim();
+  cfg.table=$('cTable').value.trim()||'drawing_billing';
+  cfg.bucket=$('cBucket').value.trim().replace(/[^\w\-]/g,'');
+  cfg.rate=Number($('cRate').value)||0;cfg.prefix=$('cPrefix').value.trim()||'RSR-DWG';
+  cfg.company=$('cCo').value.trim();cfg.address=$('cAddr').value.trim();cfg.contact=$('cContact').value.trim();
+  cfg.signer=$('cSigner').value.trim();cfg.role=$('cRole').value.trim();
+  saveCfg();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
+  hide();toast('Settings saved');
+  if(online()&&!authed()){showGate();return;}
+  await pull();
+};
+function download(name,text,type){
+  const b=new Blob([text],{type:type||'text/plain'});const u=URL.createObjectURL(b);
+  const a=document.createElement('a');a.href=u;a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(u),1500);
+}
+$('cExport').onclick=()=>download('rsr-drawing-billing-'+today()+'.json',JSON.stringify(rows,null,2),'application/json');
+$('cCsv').onclick=()=>{
+  const head=['code','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','amount','status','billed_date','paid_date','invoice_no','remarks'];
+  const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const csv=[head.join(',')].concat(rows.map(r=>head.map(h=>q(h==='amount'?amountOf(r):r[h])).join(','))).join('\n');
+  download('rsr-drawing-billing-'+today()+'.csv','\ufeff'+csv,'text/csv');
+};
+
+/* ================= wiring ================= */
+$('btnNew').onclick=()=>openEntry(null);
+$('btnImport').onclick=()=>openImport(false);
+$('btnStmt').onclick=openStmt;
+$('btnSettings').onclick=openCfg;
+$('btnSync').onclick=()=>pull();
+$('q').oninput=e=>{filters.q=e.target.value;render();};
+$('fClient').onchange=e=>{filters.client=e.target.value;render();};
+$('fMonth').onchange=e=>{filters.month=e.target.value;render();};
+$('chips').addEventListener('click',e=>{
+  const b=e.target.closest('[data-status]');if(!b)return;
+  filters.status=b.dataset.status;render();
+});
+$('list').addEventListener('click',e=>{
+  const ed=e.target.closest('[data-edit]');if(ed){openEntry(ed.dataset.edit);return;}
+  const mk=e.target.closest('[data-mark]');if(mk){markStatus(mk.dataset.id,mk.dataset.mark);return;}
+});
+window.addEventListener('online',()=>pull(true));
+
+/* ================= boot ================= */
+$('brandSub').textContent=cfg.company||'RSR Engineering Services';
+render();
+if(online())pull(true);
+else setSync('off','Local only');
+if(!cfg.url&&!rows.length)setTimeout(openCfg,500);
+})();
+</script>
+</body>
+</html>
