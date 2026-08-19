@@ -1472,7 +1472,11 @@ function renderStatement(list){
 }
 
 /* ---- settings ---- */
-const SQL=`-- RSR Drawing Billing — run once in Supabase SQL Editor
+// The bucket name is configurable, so the script is generated against
+// whatever is in the Storage bucket field rather than a hard-coded name.
+function sqlText(){
+  const b=(($('cBucket')&&$('cBucket').value.trim())||cfg.bucket||'drawings').replace(/[^\w\-]/g,'');
+  return `-- RSR Drawing Billing — run once in Supabase SQL Editor
 create table if not exists drawing_billing (
   id            uuid primary key default gen_random_uuid(),
   code          text unique not null,
@@ -1509,30 +1513,46 @@ alter table drawing_billing enable row level security;
 -- Signed-in users only. The anon key alone can no longer read or write:
 -- every request must carry a Supabase Auth access token.
 -- Create the accounts under Authentication -> Users.
-drop policy if exists db_anon_all      on drawing_billing;
-drop policy if exists db_authed_all    on drawing_billing;
-create policy db_authed_all on drawing_billing
+drop policy if exists db_anon_all             on drawing_billing;
+drop policy if exists db_authed_all           on drawing_billing;
+drop policy if exists rsr_dwg_billing_authed  on drawing_billing;
+create policy rsr_dwg_billing_authed on drawing_billing
   for all to authenticated using (true) with check (true);
 
--- Optional: PDF attachments. Storage -> New bucket -> name "drawings".
+-- ---------------------------------------------------------------
+-- Storage. This project is shared with other RSR apps, so every
+-- statement below touches only the ${b} bucket:
+--   * the bucket row is addressed by id, so other buckets keep
+--     their own public/private setting
+--   * the policy is PERMISSIVE and its USING clause pins
+--     bucket_id = '${b}', so it grants nothing anywhere else and
+--     does not narrow whatever policies other apps already have
+--   * the policy names are app-prefixed so a re-run cannot clobber
+--     a policy belonging to another RSR app
+-- ---------------------------------------------------------------
 insert into storage.buckets (id, name, public)
-values ('drawings','drawings',true)
+values ('${b}','${b}',true)
 on conflict (id) do update set public = true;
 
--- Uploads and listings require a signed-in user too.
-drop policy if exists dwg_anon_rw   on storage.objects;
-drop policy if exists dwg_authed_rw on storage.objects;
-create policy dwg_authed_rw on storage.objects
+drop policy if exists dwg_anon_rw             on storage.objects;
+drop policy if exists dwg_authed_rw           on storage.objects;
+drop policy if exists rsr_dwg_storage_authed  on storage.objects;
+create policy rsr_dwg_storage_authed on storage.objects
   for all to authenticated
-  using (bucket_id = 'drawings')
-  with check (bucket_id = 'drawings');`;
+  using       (bucket_id = '${b}')
+  with check  (bucket_id = '${b}');
+
+-- Check what ended up on storage.objects across the whole project:
+-- select policyname, roles, qual from pg_policies
+--  where schemaname = 'storage' and tablename = 'objects';`;
+}
 
 function openCfg(){
   $('cUrl').value=cfg.url;$('cKey').value=cfg.key;$('cTable').value=cfg.table;$('cBucket').value=cfg.bucket||'';
   $('cRate').value=cfg.rate||'';$('cPrefix').value=cfg.prefix;
   $('cCo').value=cfg.company;$('cAddr').value=cfg.address;$('cContact').value=cfg.contact;
   $('cSigner').value=cfg.signer;$('cRole').value=cfg.role;
-  $('cSqlBox').value=SQL;
+  $('cSqlBox').value=sqlText();
   const who=authed();
   $('cWho').textContent=who?(session.email||'Signed in'):'Not signed in';
   $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Records are local to this device.');
@@ -1545,7 +1565,12 @@ function sample(){
   $('codeSample').textContent=($('cPrefix').value||'RSR-DWG')+'-'+mm+'-001';
 }
 $('cPrefix').oninput=sample;
-$('cSql').onclick=()=>{const w=$('sqlWrap');w.hidden=!w.hidden;if(!w.hidden){$('cSqlBox').select();}};
+$('cSql').onclick=()=>{
+  const w=$('sqlWrap');w.hidden=!w.hidden;
+  // regenerate so a bucket name typed but not yet saved is reflected
+  if(!w.hidden){$('cSqlBox').value=sqlText();$('cSqlBox').select();}
+};
+$('cBucket').oninput=()=>{if(!$('sqlWrap').hidden)$('cSqlBox').value=sqlText();};
 $('cTest').onclick=async()=>{
   const bak={url:cfg.url,key:cfg.key,table:cfg.table};
   cfg.url=$('cUrl').value.trim();cfg.key=$('cKey').value.trim();cfg.table=$('cTable').value.trim()||'drawing_billing';
