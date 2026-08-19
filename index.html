@@ -246,60 +246,6 @@ header.top{
   .sheet-head{border-radius:16px 16px 0 0}
 }
 
-/* ---------- sign-in gate ---------- */
-#gate{
-  position:fixed;inset:0;z-index:100;display:none;place-items:center;padding:24px;
-  background:var(--ink);color:#fff;
-  background-image:
-    linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);
-  background-size:26px 26px
-}
-#gate.on{display:grid}
-.gate-card{width:100%;max-width:330px}
-.gate-card .mark{width:42px;height:42px;border-radius:10px;font-size:15px;margin-bottom:18px}
-.gate-card h2{margin:0;font-size:20px;font-weight:800;letter-spacing:-.015em}
-.gate-card p.sub{margin:5px 0 22px;font-size:12.5px;color:rgba(255,255,255,.55);line-height:1.5}
-.gate-card label{display:block;font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600;margin-bottom:5px}
-.gate-card input{
-  width:100%;padding:12px 13px;border-radius:10px;margin-bottom:13px;font-size:15px;
-  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:#fff
-}
-.gate-card input::placeholder{color:rgba(255,255,255,.32)}
-.gate-card input:focus{border-color:var(--weld);outline:none;background:rgba(255,255,255,.1)}
-.gate-card .go{width:100%;padding:14px;border-radius:11px;background:var(--rsr);color:#fff;font-weight:700;font-size:14.5px;letter-spacing:.01em}
-.gate-card .go[disabled]{opacity:.6}
-.gate-err{font-size:12.5px;color:#FF9AA6;margin:0 0 13px;min-height:0}
-.gate-links{display:flex;margin-top:16px;gap:14px}
-.gate-links button{font-size:12px;color:rgba(255,255,255,.55);text-decoration:underline;text-underline-offset:3px}
-.gate-links button:hover{color:#fff}
-.gate-links .r{margin-left:auto}
-
-/* ---------- sign-in gate ---------- */
-#gate{
-  position:fixed;inset:0;z-index:45;background:var(--ink);color:#fff;
-  display:none;place-items:center;padding:24px;
-  background-image:
-    linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);
-  background-size:26px 26px
-}
-#gate.on{display:grid}
-.gate-b{width:100%;max-width:330px}
-.gate-b .mark{width:42px;height:42px;font-size:15px;margin-bottom:16px}
-.gate-b h2{margin:0;font-size:20px;font-weight:800;letter-spacing:-.02em}
-.gate-b p{margin:5px 0 20px;font-size:13px;color:rgba(255,255,255,.6)}
-.gate-b label{display:block;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:rgba(255,255,255,.5);font-weight:600;margin-bottom:5px}
-.gate-b input{
-  width:100%;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,.2);
-  background:rgba(255,255,255,.07);color:#fff;font-size:15px;margin-bottom:12px
-}
-.gate-b input::placeholder{color:rgba(255,255,255,.35)}
-.gate-b .go{width:100%;padding:14px;border-radius:11px;background:var(--rsr);color:#fff;font-weight:700;font-size:15px}
-.gate-b .go[disabled]{opacity:.6}
-.gate-b .err{font-size:12.5px;color:#FF9AA6;margin:0 0 12px;min-height:16px}
-.gate-b .alt{display:block;width:100%;margin-top:14px;font-size:12px;color:rgba(255,255,255,.55);text-decoration:underline;text-align:center}
-
 /* ---------- import from PDF ---------- */
 .drop{
   border:2px dashed var(--line);border-radius:14px;background:var(--card);
@@ -356,7 +302,8 @@ header.top{
 #gIn{width:100%;padding:14px;border-radius:11px;background:var(--rsr);color:#fff;font-weight:700;font-size:14.5px;margin-top:4px}
 #gIn[disabled]{opacity:.6}
 #gErr{margin-top:12px;font-size:12.5px;color:#FF9A9A;min-height:17px;line-height:1.4}
-#gCfg{margin-top:20px;font-size:12px;color:rgba(255,255,255,.5);border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:1px}
+#gCfg,#gFor{margin-top:20px;font-size:12px;color:rgba(255,255,255,.5);border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:1px}
+#gFor{margin-right:18px}
 .acct{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 13px;display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .acct .who{min-width:0}
 .acct .who .e{font-family:var(--mono);font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -427,24 +374,6 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 <body>
 
 <div id="gate">
-  <div class="gate-card">
-    <div class="mark">RSR</div>
-    <h2>Drawing Billing</h2>
-    <p class="sub">Sign in to reach the billing records. This page is public, the data behind it is not.</p>
-    <p class="gate-err" id="gateErr" role="alert"></p>
-    <label for="gEmail">Email</label>
-    <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" spellcheck="false">
-    <label for="gPw">Password</label>
-    <input id="gPw" type="password" autocomplete="current-password" placeholder="••••••••">
-    <button class="go" id="gGo" type="button">Sign in</button>
-    <div class="gate-links">
-      <button id="gForgot" type="button">Forgot password</button>
-      <button id="gCfg" type="button" class="r">Project settings</button>
-    </div>
-  </div>
-</div>
-
-<div id="gate">
   <div class="gate-box">
     <div class="mark">RSR</div>
     <div class="eb">RSR Engineering Services</div>
@@ -454,9 +383,10 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" autocapitalize="off" spellcheck="false">
     <label for="gPw">Password</label>
     <input id="gPw" type="password" autocomplete="current-password" placeholder="••••••••">
-    <button id="gIn">Sign in</button>
+    <button id="gIn" type="button">Sign in</button>
     <div id="gErr" role="alert"></div>
-    <button id="gCfg">Connection settings</button>
+    <button id="gFor" type="button">Forgot password</button>
+    <button id="gCfg" type="button">Connection settings</button>
   </div>
 </div>
 
@@ -678,31 +608,12 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <div class="f"><label for="cRole">Position</label><input id="cRole"></div>
     </div>
 
-    <div class="sect-t">Account</div>
-    <div class="chk" style="cursor:default"><span style="flex:1">Signed in<span class="s" id="cWho">Not signed in</span></span></div>
-    <div style="display:flex;gap:8px"><button class="act" id="cOut" style="color:var(--rsr)">Sign out</button></div>
-
     <div class="sect-t">Backup</div>
     <div style="display:flex;gap:8px"><button class="act" id="cExport">Export JSON</button><button class="act" id="cCsv">Export CSV</button></div>
   </div>
   <div class="sheet-foot">
     <button class="btn-ghost" data-close>Close</button>
     <button class="btn-fill" id="cSave">Save settings</button>
-  </div>
-</div>
-
-<div id="gate">
-  <div class="gate-b">
-    <div class="mark">RSR</div>
-    <h2>Drawing Billing</h2>
-    <p>Sign in to reach the billing records.</p>
-    <label for="gEmail">Email</label>
-    <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" spellcheck="false">
-    <label for="gPw">Password</label>
-    <input id="gPw" type="password" autocomplete="current-password" placeholder="••••••••">
-    <p class="err" id="gErr"></p>
-    <button class="go" id="gGo">Sign in</button>
-    <button class="alt" id="gCfg">Connection settings</button>
   </div>
 </div>
 
@@ -719,6 +630,12 @@ const STATUSES=['DRAFT','BILLED','PAID'];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'₱'+(Number(n)||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+// escaping alone does not stop javascript:/data: in an href, so vet the scheme
+function safeUrl(u){
+  if(!u)return'';
+  try{const p=new URL(String(u),location.href);return /^https?:$/.test(p.protocol)?p.href:'';}
+  catch(e){return'';}
+}
 const moneyShort=n=>{n=Number(n)||0;return n>=1e6?'₱'+(n/1e6).toFixed(2)+'M':money(n).replace(/\.00$/,'');};
 const today=()=>new Date().toISOString().slice(0,10);
 const uid=()=>'loc-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
@@ -790,11 +707,18 @@ function setSession(d){
 function clearSession(){session={};localStorage.removeItem(LS_SES);}
 
 async function authPost(path,body){
-  const res=await fetch(cfg.url.replace(/\/+$/,'')+'/auth/v1/'+path,{
-    method:'POST',
-    headers:{'apikey':cfg.key,'Content-Type':'application/json'},
-    body:JSON.stringify(body||{})
-  });
+  let res;
+  try{
+    res=await fetch(cfg.url.replace(/\/+$/,'')+'/auth/v1/'+path,{
+      method:'POST',
+      headers:{'apikey':cfg.key,'Content-Type':'application/json'},
+      body:JSON.stringify(body||{})
+    });
+  }catch(e){
+    // no network at all — the caller must not treat this as a rejected credential
+    const err=new Error('Cannot reach the server. Check your connection.');
+    err.network=true;throw err;
+  }
   let d={};try{d=await res.json();}catch(e){}
   if(!res.ok)throw new Error(d.error_description||d.msg||d.message||d.error||('HTTP '+res.status));
   return d;
@@ -802,7 +726,12 @@ async function authPost(path,body){
 async function refreshSession(){
   if(!session.refresh_token)return false;
   try{setSession(await authPost('token?grant_type=refresh_token',{refresh_token:session.refresh_token}));return true;}
-  catch(e){clearSession();return false;}
+  catch(e){
+    // Offline: keep the session so queued edits survive until we are back.
+    // Only a real rejection from the server clears it.
+    if(!e.network)clearSession();
+    return false;
+  }
 }
 async function ensureFresh(){
   if(!authed())return false;
@@ -946,7 +875,8 @@ function render(){
     meta.push(`<span class="m">${fmtDate(r.bill_date)}</span>`);
     if(Number(r.qty)>1)meta.push(`<span class="m">${r.qty} × ${money(r.rate)}</span>`);
     if(r.invoice_no)meta.push(`<span class="m">SI ${esc(r.invoice_no)}</span>`);
-    if(r.file_url)meta.push(`<a class="pdflink" href="${esc(r.file_url)}" target="_blank" rel="noopener">PDF</a>`);
+    const href=safeUrl(r.file_url);
+    if(href)meta.push(`<a class="pdflink" href="${esc(href)}" target="_blank" rel="noopener noreferrer">PDF</a>`);
     else if(r.file_name)meta.push(`<span class="m" title="${esc(r.file_name)}">PDF</span>`);
     let acts='';
     if(r.status==='DRAFT')acts=`<button class="act primary" data-mark="BILLED" data-id="${esc(r.id)}">Mark billed</button>`;
@@ -1022,8 +952,10 @@ function markStatus(id,status){
 }
 
 /* ================= sign-in gate ================= */
+let gateOpen=false;
 function showGate(msg){
-  $('gateErr').textContent=msg||'';
+  gateOpen=true;
+  $('gErr').textContent=msg||'';
   $('gate').classList.add('on');
   document.body.style.overflow='hidden';
   if(session.email)$('gEmail').value=session.email;
@@ -1031,34 +963,39 @@ function showGate(msg){
   setTimeout(()=>{($('gEmail').value?$('gPw'):$('gEmail')).focus();},120);
 }
 function hideGate(){
+  gateOpen=false;
   $('gate').classList.remove('on');
   document.body.style.overflow='';
-  $('gPw').value='';$('gateErr').textContent='';
+  $('gPw').value='';$('gErr').textContent='';
 }
 async function doSignIn(){
   const email=$('gEmail').value.trim(),pw=$('gPw').value;
-  if(!email||!pw){$('gateErr').textContent='Enter your email and password.';return;}
-  if(!online()){$('gateErr').textContent='Set the Supabase project first — tap Project settings.';return;}
-  const btn=$('gGo');btn.disabled=true;btn.textContent='Signing in…';
+  if(!email||!pw){$('gErr').textContent='Enter your email and password.';return;}
+  if(!online()){$('gErr').textContent='Set the Supabase project first — tap Connection settings.';return;}
+  const btn=$('gIn');btn.disabled=true;btn.textContent='Signing in…';
   try{
     setSession(await authPost('token?grant_type=password',{email:email,password:pw}));
     hideGate();
     toast('Signed in');
     await pull();
   }catch(e){
-    $('gateErr').textContent=/invalid/i.test(e.message)?'That email and password do not match an account.':e.message;
+    $('gErr').textContent=/invalid/i.test(e.message)?'That email and password do not match an account.':e.message;
   }finally{btn.disabled=false;btn.textContent='Sign in';}
 }
-$('gGo').onclick=doSignIn;
+$('gIn').onclick=doSignIn;
 $('gPw').addEventListener('keydown',e=>{if(e.key==='Enter')doSignIn();});
 $('gEmail').addEventListener('keydown',e=>{if(e.key==='Enter')$('gPw').focus();});
-$('gCfg').onclick=()=>{$('gate').classList.remove('on');document.body.style.overflow='';openCfg();};
-$('gForgot').onclick=async()=>{
+$('gCfg').onclick=()=>{
+  // step 5: reach settings before the first sign-in so URL/key can be set
+  $('gate').classList.remove('on');document.body.style.overflow='';
+  openCfg();
+};
+$('gFor').onclick=async()=>{
   const email=$('gEmail').value.trim();
-  if(!email){$('gateErr').textContent='Type your email first, then tap Forgot password.';return;}
-  if(!online()){$('gateErr').textContent='Set the Supabase project first.';return;}
-  try{await authPost('recover',{email:email});$('gateErr').textContent='';toast('Reset link sent to '+email);}
-  catch(e){$('gateErr').textContent=e.message;}
+  if(!email){$('gErr').textContent='Type your email first, then tap Forgot password.';return;}
+  if(!online()){$('gErr').textContent='Set the Supabase project first.';return;}
+  try{await authPost('recover',{email:email});$('gErr').textContent='';toast('Reset link sent to '+email);}
+  catch(e){$('gErr').textContent=e.message;}
 };
 async function doSignOut(){
   if(queue.length&&!confirm(queue.length+' change(s) have not synced yet and will be lost. Sign out anyway?'))return;
@@ -1078,6 +1015,8 @@ function show(id){
 function hide(){
   if(openSheet){$(openSheet).classList.remove('on');openSheet=null;}
   $('scrim').classList.remove('on');document.body.style.overflow='';
+  // settings opened from the gate: closing it must not drop us into the app
+  if(gateOpen&&!authed())showGate($('gErr').textContent);
 }
 $('scrim').onclick=hide;
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=hide);
@@ -1335,14 +1274,19 @@ $('impList').addEventListener('input',e=>{
   else f.vessel=t.value;
 });
 
-async function uploadPdf(file,code){
+async function uploadPdf(file,code,retried){
   const base=cfg.url.replace(/\/+$/,'');
   const safe=code.replace(/[^\w\-]/g,'_')+'__'+file.name.replace(/[^\w.\-]/g,'_');
   const res=await fetch(base+'/storage/v1/object/'+encodeURIComponent(cfg.bucket)+'/'+encodeURIComponent(safe),{
     method:'POST',
-    headers:{'apikey':cfg.key,'Authorization':'Bearer '+cfg.key,'Content-Type':'application/pdf','x-upsert':'true'},
+    headers:{'apikey':cfg.key,'Authorization':'Bearer '+bearer(),'Content-Type':'application/pdf','x-upsert':'true'},
     body:file
   });
+  if((res.status===401||res.status===403)&&!retried&&authed()){
+    if(await refreshSession())return uploadPdf(file,code,true);
+    showGate('Your session expired. Sign in again.');
+    throw new Error('Session expired');
+  }
   if(!res.ok){let m='';try{m=(await res.json()).message||'';}catch(e){}throw new Error(m||('HTTP '+res.status));}
   return base+'/storage/v1/object/public/'+encodeURIComponent(cfg.bucket)+'/'+encodeURIComponent(safe);
 }
@@ -1562,22 +1506,24 @@ create index if not exists idx_db_date   on drawing_billing(bill_date desc);
 
 alter table drawing_billing enable row level security;
 
--- Internal tool: the anon key in this file can read/write.
--- Keep the HTML private. For stricter control, replace with
--- an authenticated policy and add Supabase Auth.
-drop policy if exists db_anon_all on drawing_billing;
-create policy db_anon_all on drawing_billing
-  for all to anon using (true) with check (true);
+-- Signed-in users only. The anon key alone can no longer read or write:
+-- every request must carry a Supabase Auth access token.
+-- Create the accounts under Authentication -> Users.
+drop policy if exists db_anon_all      on drawing_billing;
+drop policy if exists db_authed_all    on drawing_billing;
+create policy db_authed_all on drawing_billing
+  for all to authenticated using (true) with check (true);
 
--- Optional: PDF attachments. Storage -> New bucket -> name "drawings",
--- tick Public, then run this so the app can upload.
+-- Optional: PDF attachments. Storage -> New bucket -> name "drawings".
 insert into storage.buckets (id, name, public)
 values ('drawings','drawings',true)
 on conflict (id) do update set public = true;
 
-drop policy if exists dwg_anon_rw on storage.objects;
-create policy dwg_anon_rw on storage.objects
-  for all to anon
+-- Uploads and listings require a signed-in user too.
+drop policy if exists dwg_anon_rw   on storage.objects;
+drop policy if exists dwg_authed_rw on storage.objects;
+create policy dwg_authed_rw on storage.objects
+  for all to authenticated
   using (bucket_id = 'drawings')
   with check (bucket_id = 'drawings');`;
 
@@ -1603,6 +1549,11 @@ $('cSql').onclick=()=>{const w=$('sqlWrap');w.hidden=!w.hidden;if(!w.hidden){$('
 $('cTest').onclick=async()=>{
   const bak={url:cfg.url,key:cfg.key,table:cfg.table};
   cfg.url=$('cUrl').value.trim();cfg.key=$('cKey').value.trim();cfg.table=$('cTable').value.trim()||'drawing_billing';
+  if(!authed()){
+    // policies are authenticated-only, so an unsigned probe always fails
+    toast('Save these settings, then sign in — the table only answers signed-in users.',true);
+    Object.assign(cfg,bak);return;
+  }
   try{await sb(cfg.table+'?select=id&limit=1');toast('Connected — table found');}
   catch(e){toast(e.message||'Connection failed',true);Object.assign(cfg,bak);}
 };
@@ -1653,11 +1604,27 @@ $('list').addEventListener('click',e=>{
 window.addEventListener('online',()=>pull(true));
 
 /* ================= boot ================= */
-$('brandSub').textContent=cfg.company||'RSR Engineering Services';
-render();
-if(online())pull(true);
-else setSync('off','Local only');
-if(!cfg.url&&!rows.length)setTimeout(openCfg,500);
+(async function boot(){
+  $('brandSub').textContent=cfg.company||'RSR Engineering Services';
+  render();
+
+  // No project set: local-only device mode, no sign-in to enforce.
+  if(!online()){
+    setSync('off','Local only');
+    if(!cfg.url&&!rows.length)setTimeout(openCfg,500);
+    return;
+  }
+
+  // Project set but never signed in.
+  if(!authed()){showGate();return;}
+
+  // Have a session: refresh it if it is close to expiry. When that fails
+  // because we are offline the session is kept, so queued edits survive.
+  await ensureFresh();
+  if(!authed()){showGate('Your session expired. Sign in again.');return;}
+
+  pull(true);
+})();
 })();
 </script>
 </body>
