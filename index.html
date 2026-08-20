@@ -427,6 +427,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <input id="q" type="search" placeholder="Search code, vessel, drawing, client…" autocomplete="off">
     </div>
     <div class="selects">
+      <select id="fType" aria-label="Filter by document type"><option value="">All types</option></select>
       <select id="fClient"><option value="">All clients</option></select>
       <select id="fMonth"><option value="">All months</option></select>
     </div>
@@ -469,9 +470,10 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   <div class="sheet-body">
     <div class="amt-preview"><div><div class="lbl">Amount</div></div><div class="val" id="ePrev">₱0.00</div></div>
     <div class="f-row">
-      <div class="f" style="flex:1.4"><label for="eCode">Billing code</label><input id="eCode" class="mono-in" autocomplete="off"></div>
+      <div class="f"><label for="eType">Document type</label><select id="eType"></select></div>
       <div class="f"><label for="eDate">Date</label><input id="eDate" type="date"></div>
     </div>
+    <div class="f"><label for="eCode">Billing code</label><input id="eCode" class="mono-in" autocomplete="off"></div>
     <div class="f"><label for="eClient">Client</label><input id="eClient" list="dlClients" autocomplete="off" placeholder="e.g. Seaford Shipping Lines"><datalist id="dlClients"></datalist></div>
     <div class="f"><label for="eVessel">Vessel</label><input id="eVessel" list="dlVessels" autocomplete="off" placeholder="e.g. MV SF Voyager"><datalist id="dlVessels"></datalist></div>
     <div class="f-row">
@@ -525,6 +527,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
         <div class="f" style="flex:1.4"><label for="iVessel">Vessel</label><input id="iVessel" list="dlVessels" autocomplete="off" placeholder="detected from title block"></div>
         <div class="f"><label for="iDate">Date</label><input id="iDate" type="date"></div>
       </div>
+      <div class="f"><label for="iType">Document type</label><select id="iType"></select></div>
       <div class="f"><label for="iRate">Rate per drawing (₱)</label><input id="iRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
       <label class="chk"><input type="checkbox" id="iPages"><span>Charge each sheet<span class="s">A 3-page PDF bills as qty 3 instead of qty 1.</span></span></label>
       <label class="chk" id="iUpWrap" hidden><input type="checkbox" id="iUpload"><span>Attach the PDF to each record<span class="s">Uploads to Supabase Storage so the file opens from the billing line.</span></span></label>
@@ -568,8 +571,9 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
         <div class="f"><label for="kDate">Date</label><input id="kDate" type="date"></div>
       </div>
       <div class="f"><label for="kRate">Rate per drawing (₱)</label><input id="kRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"><div class="hint">Items with their own default rate keep it.</div></div>
+      <div class="f"><label for="kType">Document type</label><select id="kType"></select><div class="hint">Each item carries its own type — this only narrows the list below.</div></div>
 
-      <div class="sect-t" style="display:flex;align-items:center">Drawings<span style="margin-left:auto;font-family:var(--mono);font-size:12px;letter-spacing:0;text-transform:none" id="kTotal">₱0.00</span></div>
+      <div class="sect-t" style="display:flex;align-items:center">Documents<span style="margin-left:auto;font-family:var(--mono);font-size:12px;letter-spacing:0;text-transform:none" id="kTotal">₱0.00</span></div>
       <div style="display:flex;gap:8px;margin-bottom:9px">
         <button class="act" id="kAll" type="button">Select all</button>
         <button class="act" id="kNone" type="button">Clear</button>
@@ -604,7 +608,8 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="f"><label for="sVat">Add-on</label>
       <select id="sVat"><option value="0">None</option><option value="12">Plus 12% VAT</option><option value="-2">Less 2% withholding tax</option></select>
     </div>
-    <div class="sect-t">Include these drawings</div>
+    <div class="f"><label for="sType">Document type</label><select id="sType"></select></div>
+    <div class="sect-t">Include these documents</div>
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <button class="act" id="sAll">Select all</button>
       <button class="act" id="sNone">Clear</button>
@@ -643,6 +648,11 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="sect-t">PDF attachments</div>
     <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. If set, create a <b>public</b> bucket with that name under Storage.</div></div>
 
+    <div class="sect-t">Document types</div>
+    <div class="hint" style="margin:-4px 0 9px">The code goes into every billing number — <span style="font-family:var(--mono)" id="typeSample"></span> — and each type counts on its own each month. Changing a code here does not touch records already saved.</div>
+    <div class="pick" id="cTypeList"></div>
+    <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cTypeAdd" type="button">Add type</button></div>
+
     <div class="sect-t" style="display:flex;align-items:center">Drawing catalog<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCatCount"></span></div>
     <div class="hint" style="margin:-4px 0 9px">Your standard drawings, offered under <b>From catalog</b>. Unticking keeps past billing intact and only hides the item from the picker.</div>
     <div class="pick" id="cCatList"></div>
@@ -650,7 +660,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 
     <div class="sect-t">Billing defaults</div>
     <div class="f"><label for="cRate">Standard rate per drawing (₱)</label><input id="cRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
-    <div class="f"><label for="cPrefix">Code prefix</label><input id="cPrefix" class="mono-in"><div class="hint">Codes come out as <span id="codeSample" style="font-family:var(--mono)"></span> and reset each month.</div></div>
+    <div class="f"><label for="cPrefix">Code root</label><input id="cPrefix" class="mono-in"><div class="hint">Codes come out as <span id="codeSample" style="font-family:var(--mono)"></span> — root, document type, month — and each type restarts at 001 every month.</div></div>
 
     <div class="sect-t">Company details on statements</div>
     <div class="f"><label for="cCo">Company name</label><input id="cCo"></div>
@@ -727,8 +737,32 @@ const DEFAULT_CFG={
 };
 let cfg=Object.assign({},DEFAULT_CFG);
 try{Object.assign(cfg,JSON.parse(localStorage.getItem(LS_CFG)||'{}'));}catch(e){}
+
+/* ================= document types ================= */
+const DEF_TYPE='DW';
+// Codes used to be {prefix}-MMYYYY-### with one prefix for everything. They are
+// now {root}-{type}-MMYYYY-###, so the old prefix is split into a root once.
+if(!cfg.root)cfg.root=String(cfg.prefix||'RSR-DWG').replace(/-DWG$/i,'')||'RSR';
+if(!Array.isArray(cfg.types)||!cfg.types.length)
+  cfg.types=[{code:'DW',label:'Drawing'},{code:'DC',label:'Drydocking Certificate'}];
+
 const saveCfg=()=>localStorage.setItem(LS_CFG,JSON.stringify(cfg));
 const online=()=>!!(cfg.url&&cfg.key);
+
+const typeList=()=>cfg.types.filter(t=>t&&t.code);
+const typeOf=r=>String((r&&r.doc_type)||DEF_TYPE).toUpperCase();
+function typeLabel(c){
+  const t=typeList().find(x=>x.code===String(c||'').toUpperCase());
+  return t?t.label:String(c||'');
+}
+// keeps a record's own type selectable even if that type was later removed
+function typeOptions(cur,allLabel){
+  const c=String(cur||'').toUpperCase();
+  const list=typeList().slice();
+  if(c&&!list.some(t=>t.code===c))list.push({code:c,label:c+' (removed)'});
+  return (allLabel?`<option value="">${esc(allLabel)}</option>`:'')+
+    list.map(t=>`<option value="${esc(t.code)}"${t.code===c?' selected':''}>${esc(t.code)} — ${esc(t.label)}</option>`).join('');
+}
 
 /* ================= state ================= */
 let rows=[];
@@ -743,17 +777,22 @@ const persist=()=>{
   localStorage.setItem(LS_CAT,JSON.stringify(catalog));
 };
 
-let filters={q:'',status:'ALL',client:'',month:''};
+let filters={q:'',status:'ALL',client:'',month:'',type:''};
 let editingId=null;
 
-const FIELDS=['code','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
-function payloadOf(r){const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;return o;}
+const FIELDS=['code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
+function payloadOf(r){
+  const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});
+  o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;o.doc_type=typeOf(r);
+  return o;
+}
 const amountOf=r=>(Number(r.qty)||0)*(Number(r.rate)||0);
 
-const CAT_FIELDS=['name','drawing_no','default_rate','sort_order','active'];
+const CAT_FIELDS=['name','doc_type','drawing_no','default_rate','sort_order','active'];
 function catPayload(c){
   const o={};CAT_FIELDS.forEach(k=>{o[k]=c[k]===''?null:c[k];});
   o.name=String(c.name||'').trim();
+  o.doc_type=typeOf(c);
   o.sort_order=Number(c.sort_order)||0;
   o.active=c.active!==false;
   o.default_rate=hasRate(c)?Number(c.default_rate):null;
@@ -884,13 +923,27 @@ async function pull(quiet){
 }
 
 /* ================= codes ================= */
-function nextCode(dateStr,extra){
+function codePrefix(dateStr,type){
   const d=(dateStr||today()).slice(0,10).split('-');
   const stamp=d[1]+d[0]; // MMYYYY, matches RSR report numbering
-  const pre=(cfg.prefix||'RSR-DWG')+'-'+stamp+'-';
+  return (cfg.root||'RSR')+'-'+String(type||DEF_TYPE).toUpperCase()+'-'+stamp+'-';
+}
+// Each type runs its own monthly sequence.
+function nextCode(dateStr,type,extra){
+  const t=String(type||DEF_TYPE).toUpperCase();
+  const pre=codePrefix(dateStr,t);
+  const d=(dateStr||today()).slice(0,10).split('-');
+  // Records written before document types existed carry the old single prefix.
+  // They stay as they are, but the default type keeps counting on from them so
+  // one month cannot produce both RSR-DWG-082026-001 and RSR-DW-082026-001.
+  const legacy=t===DEF_TYPE?((cfg.prefix||'RSR-DWG')+'-'+d[1]+d[0]+'-'):null;
   let max=0;
   rows.concat(extra||[]).forEach(r=>{
-    if(r.code&&r.code.indexOf(pre)===0){const n=parseInt(r.code.slice(pre.length),10);if(n>max)max=n;}
+    if(!r.code)return;
+    let n=NaN;
+    if(r.code.indexOf(pre)===0)n=parseInt(r.code.slice(pre.length),10);
+    else if(legacy&&r.code.indexOf(legacy)===0)n=parseInt(r.code.slice(legacy.length),10);
+    if(n>max)max=n;
   });
   return pre+String(max+1).padStart(3,'0');
 }
@@ -900,6 +953,7 @@ function visible(){
   const q=filters.q.trim().toLowerCase();
   return rows.filter(r=>{
     if(filters.status!=='ALL'&&r.status!==filters.status)return false;
+    if(filters.type&&typeOf(r)!==filters.type)return false;
     if(filters.client&&r.client!==filters.client)return false;
     if(filters.month&&monthKey(r.bill_date)!==filters.month)return false;
     if(q){
@@ -916,6 +970,7 @@ function render(){
 
   // totals over current filter (status chip ignored so the three cells stay comparable)
   const scope=rows.filter(r=>{
+    if(filters.type&&typeOf(r)!==filters.type)return false;
     if(filters.client&&r.client!==filters.client)return false;
     if(filters.month&&monthKey(r.bill_date)!==filters.month)return false;
     const q=filters.q.trim().toLowerCase();
@@ -934,7 +989,9 @@ function render(){
   $('chips').innerHTML=['ALL'].concat(STATUSES).map(s=>
     `<button class="chip${filters.status===s?' on':''}" data-status="${s}">${labels[s]}<span class="n">${counts[s]||0}</span></button>`).join('');
 
-  // filter dropdowns
+  // filter dropdowns — offer every configured type plus any legacy code still on a record
+  const typesSeen=uniq(typeList().map(t=>t.code).concat(rows.map(typeOf)));
+  syncSelect($('fType'),typesSeen,filters.type,'All types',c=>c+' — '+typeLabel(c));
   syncSelect($('fClient'),uniq(rows.map(r=>r.client)),filters.client,'All clients');
   syncSelect($('fMonth'),uniq(rows.map(r=>monthKey(r.bill_date))).sort().reverse(),filters.month,'All months',monthLabel);
 
@@ -948,7 +1005,7 @@ function render(){
     L.innerHTML=rows.length
       ? `<div class="empty"><h3>Nothing matches</h3><p>Try a different status, client or month.</p><button class="act" id="clearF">Clear filters</button></div>`
       : `<div class="empty"><h3>No drawings billed yet</h3><p>Add your first drawing and the tracking code is generated for you.</p><button class="act" id="firstAdd">Add a drawing</button></div>`;
-    const cf=$('clearF');if(cf)cf.onclick=()=>{filters={q:'',status:'ALL',client:'',month:''};$('q').value='';render();};
+    const cf=$('clearF');if(cf)cf.onclick=()=>{filters={q:'',status:'ALL',client:'',month:'',type:''};$('q').value='';render();};
     const fa=$('firstAdd');if(fa)fa.onclick=()=>openEntry(null);
     return;
   }
@@ -1161,7 +1218,8 @@ function openEntry(id){
   $('entryTitle').textContent=r?'Edit drawing':'Drawing details';
   $('eDelete').hidden=!r;
   $('eDate').value=r?String(r.bill_date||today()).slice(0,10):today();
-  $('eCode').value=r?(r.code||''):nextCode($('eDate').value);
+  $('eType').innerHTML=typeOptions(r?typeOf(r):DEF_TYPE);
+  $('eCode').value=r?(r.code||''):nextCode($('eDate').value,$('eType').value);
   $('eClient').value=r?(r.client||''):(filters.client||'');
   $('eVessel').value=r?(r.vessel||''):'';
   $('eDwgNo').value=r?(r.drawing_no||''):'';
@@ -1177,7 +1235,9 @@ function openEntry(id){
 }
 function prev(){$('ePrev').textContent=money((Number($('eQty').value)||0)*(Number($('eRate').value)||0));}
 $('eQty').oninput=prev;$('eRate').oninput=prev;
-$('eDate').onchange=()=>{if(!editingId)$('eCode').value=nextCode($('eDate').value);};
+const reCode=()=>{if(!editingId)$('eCode').value=nextCode($('eDate').value,$('eType').value);};
+$('eDate').onchange=reCode;
+$('eType').onchange=reCode;
 
 $('eSave').onclick=async()=>{
   const title=$('eTitle').value.trim();
@@ -1185,7 +1245,8 @@ $('eSave').onclick=async()=>{
   if(!$('eClient').value.trim()){toast('Add a client first',true);$('eClient').focus();return;}
   const base=editingId?Object.assign({},rows.find(r=>r.id===editingId)):{};
   const row=Object.assign(base,{
-    code:$('eCode').value.trim()||nextCode($('eDate').value),
+    doc_type:$('eType').value||DEF_TYPE,
+    code:$('eCode').value.trim()||nextCode($('eDate').value,$('eType').value),
     bill_date:$('eDate').value||today(),
     client:$('eClient').value.trim(),
     vessel:$('eVessel').value.trim(),
@@ -1367,6 +1428,7 @@ function renderImp(){
 function openImport(keep){
   if(!keep&&!impFiles.length){$('impForm').hidden=true;$('impStatus').hidden=true;}
   if(!$('iDate').value)$('iDate').value=today();
+  if(!$('iType').options.length)$('iType').innerHTML=typeOptions(DEF_TYPE);
   if(!$('iRate').value)$('iRate').value=cfg.rate||'';
   if(!$('iClient').value&&filters.client)$('iClient').value=filters.client;
   $('iUpWrap').hidden=!(cfg.bucket&&online());
@@ -1431,20 +1493,21 @@ $('iCommit').onclick=async()=>{
   const rate=Number($('iRate').value)||0;
   const byPage=$('iPages').checked;
   const batchVessel=$('iVessel').value.trim();
+  const docType=$('iType').value||DEF_TYPE;
   const doUp=$('iUpload').checked&&cfg.bucket&&online();
   const btn=$('iCommit');
   btn.disabled=true;
   const built=[];
   let upFail=0;
   for(const f of picked){
-    const code=nextCode(date,built);
+    const code=nextCode(date,docType,built);
     let url=null;
     if(doUp){
       btn.textContent='Uploading '+(built.length+1)+' of '+picked.length+'…';
       try{url=await uploadPdf(f.file,code);}catch(e){upFail++;}
     }
     built.push({
-      code:code,bill_date:date,client:client,
+      code:code,doc_type:docType,bill_date:date,client:client,
       vessel:(f.vessel||batchVessel).trim(),
       drawing_no:(f.dwg||'').trim(),
       drawing_title:(f.title||'').trim()||f.name.replace(/\.pdf$/i,''),
@@ -1472,37 +1535,45 @@ function openCat(){
   if(!$('kDate').value)$('kDate').value=today();
   if(!$('kRate').value)$('kRate').value=cfg.rate||'';
   if(!$('kClient').value&&filters.client)$('kClient').value=filters.client;
+  // defaults to every type: opening the picker should not hide half the catalog
+  $('kType').innerHTML=typeOptions($('kType').value,'All types');
   items.forEach(c=>{if(!(c.id in kPicked))kPicked[c.id]=true;});
   renderCat();show('sheetCat');
 }
+const catShown=()=>{
+  const t=$('kType').value;
+  return catActive().filter(c=>!t||typeOf(c)===t);
+};
 function renderCat(){
   const batch=Number($('kRate').value)||0;
-  const items=catActive();
-  $('kPick').innerHTML=items.map(c=>`
+  const items=catShown();
+  $('kPick').innerHTML=items.length?items.map(c=>`
     <label class="pick-item">
       <input type="checkbox" data-k="${esc(c.id)}"${kPicked[c.id]?' checked':''}>
       <span style="min-width:0">
         <span class="t">${esc(c.name||'Untitled')}</span><br>
-        <span class="s">${c.drawing_no?esc(c.drawing_no)+' · ':''}${hasRate(c)?'own rate':'batch rate'}</span>
+        <span class="s">${esc(typeOf(c))}${c.drawing_no?' · '+esc(c.drawing_no):''} · ${hasRate(c)?'own rate':'batch rate'}</span>
       </span>
       <span class="a">${money(effRate(c,batch))}</span>
-    </label>`).join('');
+    </label>`).join('')
+    : `<div style="padding:18px;text-align:center;color:var(--slate);font-size:13px">No catalog items of that type.</div>`;
   const on=items.filter(c=>kPicked[c.id]);
   $('kTotal').textContent=money(on.reduce((s,c)=>s+effRate(c,batch),0));
-  $('kCommit').textContent=on.length?('Add '+on.length+' drawing'+(on.length===1?'':'s')):'Add drawings';
+  $('kCommit').textContent=on.length?('Add '+on.length+' document'+(on.length===1?'':'s')):'Add documents';
 }
+$('kType').onchange=renderCat;
 $('kPick').addEventListener('change',e=>{
   const c=e.target.closest('[data-k]');if(!c)return;
   kPicked[c.dataset.k]=c.checked;renderCat();
 });
 $('kRate').oninput=renderCat;
-$('kAll').onclick=()=>{catActive().forEach(c=>{kPicked[c.id]=true;});renderCat();};
-$('kNone').onclick=()=>{catActive().forEach(c=>{kPicked[c.id]=false;});renderCat();};
+$('kAll').onclick=()=>{catShown().forEach(c=>{kPicked[c.id]=true;});renderCat();};
+$('kNone').onclick=()=>{catShown().forEach(c=>{kPicked[c.id]=false;});renderCat();};
 $('catToCfg').onclick=()=>{hide();openCfg();};
 
 $('kCommit').onclick=async()=>{
-  const picked=catActive().filter(c=>kPicked[c.id]);
-  if(!picked.length){toast('Tick at least one drawing',true);return;}
+  const picked=catShown().filter(c=>kPicked[c.id]);
+  if(!picked.length){toast('Tick at least one document',true);return;}
   const client=$('kClient').value.trim();
   if(!client){toast('Set the client for this batch',true);$('kClient').focus();return;}
   const date=$('kDate').value||today();
@@ -1511,7 +1582,9 @@ $('kCommit').onclick=async()=>{
   const built=[];
   picked.forEach(c=>{
     built.push({
-      code:nextCode(date,built),      // sequential, same helper the PDF import uses
+      // each type keeps its own run, even inside one mixed batch
+      code:nextCode(date,typeOf(c),built),
+      doc_type:typeOf(c),
       bill_date:date,client:client,vessel:vessel,
       drawing_no:(c.drawing_no||'').trim(),
       drawing_title:String(c.name||'').trim()||'Untitled drawing',
@@ -1525,6 +1598,65 @@ $('kCommit').onclick=async()=>{
   toast(built.length+' draft'+(built.length===1?'':'s')+' added');
 };
 
+/* ---- manage document types (settings) ---- */
+const typeInUse=code=>rows.some(r=>typeOf(r)===code)||catalog.some(c=>typeOf(c)===code);
+function renderTypes(){
+  // the editor works on the raw list so a half-typed new row stays visible
+  const list=cfg.types;
+  $('cTypeList').innerHTML=list.map((t,i)=>`
+    <div class="imp">
+      <div class="imp-h">
+        <input class="mono-in" data-tf="code" data-ti="${i}" value="${esc(t.code)}"
+               maxlength="3" size="3" placeholder="DW" autocomplete="off"
+               style="width:62px;flex:0 0 auto;text-transform:uppercase;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-size:13px">
+        <input data-tf="label" data-ti="${i}" value="${esc(t.label||'')}" placeholder="Label"
+               autocomplete="off"
+               style="flex:1;min-width:0;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-size:13px">
+        <button class="mini del" data-trm="${i}" title="Remove" aria-label="Remove"${list.length<2?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+    </div>`).join('');
+  typeSample();
+}
+function typeSample(){
+  const t=typeList()[0];
+  $('typeSample').textContent=codePrefix(today(),t?t.code:DEF_TYPE)+'001';
+}
+$('cTypeList').addEventListener('input',e=>{
+  const t=e.target.closest('[data-tf]');if(!t)return;
+  const item=cfg.types[+t.dataset.ti];if(!item)return;
+  if(t.dataset.tf==='code')item.code=t.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,3);
+  else item.label=t.value;
+  typeSample();
+});
+$('cTypeList').addEventListener('change',e=>{
+  const t=e.target.closest('[data-tf]');if(!t)return;
+  const item=cfg.types[+t.dataset.ti];if(!item)return;
+  const c=String(item.code||'').toUpperCase();
+  if(t.dataset.tf==='code'){
+    if(c&&c.length<2){toast('Type codes are 2–3 letters',true);}
+    else if(c&&cfg.types.filter(x=>String(x.code||'').toUpperCase()===c).length>1){
+      toast('That code is already used',true);
+    }
+  }
+  saveCfg();renderTypes();renderCatMgr();render();
+});
+$('cTypeList').addEventListener('click',e=>{
+  const rm=e.target.closest('[data-trm]');if(!rm)return;
+  const i=+rm.dataset.trm;
+  const item=cfg.types[i];
+  if(!item||typeList().length<2)return;
+  if(item.code&&typeInUse(String(item.code).toUpperCase())&&
+     !confirm('"'+item.code+'" is used by existing records. Removing it here leaves those records alone — the code just stops being offered. Remove it?'))return;
+  cfg.types.splice(i,1);
+  saveCfg();renderTypes();renderCatMgr();render();
+});
+$('cTypeAdd').onclick=()=>{
+  cfg.types.push({code:'',label:''});
+  saveCfg();renderTypes();
+  const f=$('cTypeList').querySelector('[data-tf="code"][data-ti="'+(cfg.types.length-1)+'"]');
+  if(f)f.focus();
+};
+
 /* ---- manage the catalog (settings) ---- */
 function renderCatMgr(){
   const list=catSorted();
@@ -1534,14 +1666,15 @@ function renderCatMgr(){
     <div class="imp${c.active===false?' off':''}">
       <div class="imp-h">
         <input type="checkbox" data-ca="${esc(c.id)}"${c.active!==false?' checked':''} aria-label="Show in picker">
-        <span class="fn">${c.active===false?'Hidden from the picker':'In the picker'}</span>
+        <span class="fn">${esc(typeOf(c))} · ${c.active===false?'hidden from the picker':'in the picker'}</span>
         <button class="mini" data-cup="${esc(c.id)}"${i===0?' disabled':''} title="Move up" aria-label="Move up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg></button>
         <button class="mini" data-cdn="${esc(c.id)}"${i===list.length-1?' disabled':''} title="Move down" aria-label="Move down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
         <button class="mini del" data-crm="${esc(c.id)}" title="Remove" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <div class="imp-f">
-        <input data-cf="name" data-ci="${esc(c.id)}" value="${esc(c.name||'')}" placeholder="Drawing name" autocomplete="off">
+        <input data-cf="name" data-ci="${esc(c.id)}" value="${esc(c.name||'')}" placeholder="Document name" autocomplete="off">
         <div class="two">
+          <select data-cf="doc_type" data-ci="${esc(c.id)}">${typeOptions(typeOf(c))}</select>
           <input data-cf="drawing_no" data-ci="${esc(c.id)}" value="${esc(c.drawing_no||'')}" placeholder="Drawing no." autocomplete="off">
           <input data-cf="default_rate" data-ci="${esc(c.id)}" value="${c.default_rate==null?'':esc(c.default_rate)}" placeholder="Default rate" type="number" min="0" step="0.01" inputmode="decimal">
         </div>
@@ -1590,7 +1723,7 @@ $('cCatList').addEventListener('click',async e=>{
 });
 $('cCatAdd').onclick=async()=>{
   const max=catalog.reduce((m,c)=>Math.max(m,Number(c.sort_order)||0),-1);
-  const item={name:'New drawing',drawing_no:'',default_rate:null,sort_order:max+1,active:true};
+  const item={name:'New document',doc_type:DEF_TYPE,drawing_no:'',default_rate:null,sort_order:max+1,active:true};
   await catSave(item,true);
   renderCatMgr();
   const f=$('cCatList').querySelector('[data-cf="name"][data-ci="'+item.id+'"]');
@@ -1629,11 +1762,13 @@ function openStmt(){
   $('sTo').value=today();
   const mm=String(d.getMonth()+1).padStart(2,'0')+d.getFullYear();
   $('sNo').value='RSR-SOA-'+mm+'-001';
+  $('sType').innerHTML=typeOptions(filters.type,'All types');
   buildPick();show('sheetStmt');
 }
 function stmtCandidates(){
-  const c=$('sClient').value,f=$('sFrom').value,t=$('sTo').value;
+  const c=$('sClient').value,f=$('sFrom').value,t=$('sTo').value,ty=$('sType').value;
   return rows.filter(r=>r.client===c&&r.status!=='PAID'
+    &&(!ty||typeOf(r)===ty)
     &&(!f||String(r.bill_date)>=f)&&(!t||String(r.bill_date)<=t))
     .sort((a,b)=>String(a.bill_date).localeCompare(String(b.bill_date))||String(a.code).localeCompare(String(b.code)));
 }
@@ -1644,11 +1779,11 @@ function buildPick(){
       <input type="checkbox" checked value="${esc(r.id)}">
       <span style="min-width:0">
         <span class="t">${esc(r.drawing_title)}</span><br>
-        <span class="s">${esc(r.code)}${r.vessel?' · '+esc(r.vessel):''}</span>
+        <span class="s">${esc(typeOf(r))} · ${esc(r.code)}${r.vessel?' · '+esc(r.vessel):''}</span>
       </span>
       <span class="a">${money(amountOf(r))}</span>
     </label>`).join('')
-    : `<div style="padding:18px;text-align:center;color:var(--slate);font-size:13px">No unpaid drawings for this client in that date range.</div>`;
+    : `<div style="padding:18px;text-align:center;color:var(--slate);font-size:13px">No unpaid documents for this client in that range.</div>`;
   $('sPick').querySelectorAll('input').forEach(i=>i.onchange=pickTotal);
   pickTotal();
 }
@@ -1659,6 +1794,7 @@ function pickedRows(){
 }
 function pickTotal(){$('sTotal').textContent=money(pickedRows().reduce((s,r)=>s+amountOf(r),0));}
 $('sClient').onchange=buildPick;$('sFrom').onchange=buildPick;$('sTo').onchange=buildPick;
+$('sType').onchange=buildPick;
 $('sAll').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=true);pickTotal();};
 $('sNone').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=false);pickTotal();};
 
@@ -1747,6 +1883,7 @@ function sqlText(){
 create table if not exists drawing_billing (
   id            uuid primary key default gen_random_uuid(),
   code          text unique not null,
+  doc_type      text not null default 'DW',
   bill_date     date not null default current_date,
   client        text not null,
   vessel        text,
@@ -1771,9 +1908,15 @@ alter table drawing_billing add column if not exists file_name text;
 alter table drawing_billing add column if not exists file_url  text;
 alter table drawing_billing add column if not exists pages     integer;
 
+-- Document type. Existing rows become 'DW' (Drawing), which is what they
+-- were. Their RSR-DWG-* codes are left exactly as they are.
+alter table drawing_billing
+  add column if not exists doc_type text not null default 'DW';
+
 create index if not exists idx_db_client on drawing_billing(client);
 create index if not exists idx_db_status on drawing_billing(status);
 create index if not exists idx_db_date   on drawing_billing(bill_date desc);
+create index if not exists idx_db_type   on drawing_billing(doc_type);
 
 alter table drawing_billing enable row level security;
 
@@ -1795,12 +1938,17 @@ create policy rsr_dwg_billing_authed on drawing_billing
 create table if not exists drawing_catalog (
   id            uuid primary key default gen_random_uuid(),
   name          text not null,
+  doc_type      text not null default 'DW',
   drawing_no    text,
   default_rate  numeric(12,2),
   sort_order    integer not null default 0,
   active        boolean not null default true,
   created_at    timestamptz default now()
 );
+
+-- so a catalog built before document types keeps working
+alter table drawing_catalog
+  add column if not exists doc_type text not null default 'DW';
 
 create index if not exists idx_dc_order on drawing_catalog(sort_order, name);
 
@@ -1840,7 +1988,7 @@ create policy rsr_dwg_storage_authed on storage.objects
 
 function openCfg(){
   $('cUrl').value=cfg.url;$('cKey').value=cfg.key;$('cTable').value=cfg.table;$('cBucket').value=cfg.bucket||'';
-  $('cRate').value=cfg.rate||'';$('cPrefix').value=cfg.prefix;
+  $('cRate').value=cfg.rate||'';$('cPrefix').value=cfg.root;
   $('cCo').value=cfg.company;$('cAddr').value=cfg.address;$('cContact').value=cfg.contact;
   $('cSigner').value=cfg.signer;$('cRole').value=cfg.role;
   $('cSqlBox').value=sqlText();
@@ -1849,14 +1997,15 @@ function openCfg(){
   $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Records are local to this device.');
   $('cSignOut').hidden=!who;
   $('cSignIn').hidden=who||!cfg.url;
-  renderCatMgr();
+  renderTypes();renderCatMgr();
   sample();show('sheetCfg');
 }
 function sample(){
   const d=new Date(),mm=String(d.getMonth()+1).padStart(2,'0')+d.getFullYear();
-  $('codeSample').textContent=($('cPrefix').value||'RSR-DWG')+'-'+mm+'-001';
+  const t=typeList()[0];
+  $('codeSample').textContent=($('cPrefix').value||'RSR')+'-'+(t?t.code:DEF_TYPE)+'-'+mm+'-001';
 }
-$('cPrefix').oninput=sample;
+$('cPrefix').oninput=()=>{sample();typeSample();};
 $('cSql').onclick=()=>{
   const w=$('sqlWrap');w.hidden=!w.hidden;
   // regenerate so a bucket name typed but not yet saved is reflected
@@ -1880,7 +2029,11 @@ $('cSave').onclick=async()=>{
   cfg.url=$('cUrl').value.trim();cfg.key=$('cKey').value.trim();
   cfg.table=$('cTable').value.trim()||'drawing_billing';
   cfg.bucket=$('cBucket').value.trim().replace(/[^\w\-]/g,'');
-  cfg.rate=Number($('cRate').value)||0;cfg.prefix=$('cPrefix').value.trim()||'RSR-DWG';
+  cfg.rate=Number($('cRate').value)||0;
+  cfg.root=$('cPrefix').value.trim().replace(/-+$/,'')||'RSR';
+  // drop any type rows left blank in the editor
+  cfg.types=typeList();
+  if(!cfg.types.length)cfg.types=[{code:DEF_TYPE,label:'Drawing'}];
   cfg.company=$('cCo').value.trim();cfg.address=$('cAddr').value.trim();cfg.contact=$('cContact').value.trim();
   cfg.signer=$('cSigner').value.trim();cfg.role=$('cRole').value.trim();
   saveCfg();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
@@ -1909,6 +2062,7 @@ $('btnStmt').onclick=openStmt;
 $('btnSettings').onclick=openCfg;
 $('btnSync').onclick=()=>pull();
 $('q').oninput=e=>{filters.q=e.target.value;render();};
+$('fType').onchange=e=>{filters.type=e.target.value;render();};
 $('fClient').onchange=e=>{filters.client=e.target.value;render();};
 $('fMonth').onchange=e=>{filters.month=e.target.value;render();};
 $('chips').addEventListener('click',e=>{
