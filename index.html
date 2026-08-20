@@ -269,6 +269,12 @@ header.top{
 .imp-f .two{display:flex;gap:6px}
 .imp-f .two input{flex:1;min-width:0;font-family:var(--mono);font-size:12px}
 .warn{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--weld);border:1px solid currentColor;border-radius:4px;padding:1px 5px;white-space:nowrap}
+/* compact row controls for the catalog manager */
+.mini{width:28px;height:28px;flex:0 0 auto;border:1px solid var(--line);border-radius:7px;display:grid;place-items:center;color:var(--slate);background:var(--card)}
+.mini:hover{background:var(--paper);color:var(--ink)}
+.mini[disabled]{opacity:.3;pointer-events:none}
+.mini svg{width:13px;height:13px}
+.mini.del{color:var(--rsr)}
 .imp-status{font-size:12.5px;color:var(--slate);padding:12px 2px;display:flex;align-items:center;gap:9px}
 .spin{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:spin .7s linear infinite;flex:0 0 auto}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -437,6 +443,9 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
     New drawing
   </button>
+  <button class="fab alt" id="btnCat" title="From catalog" aria-label="Add from drawing catalog">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>
+  </button>
   <button class="fab alt" id="btnImport" title="Import PDF drawings" aria-label="Import PDF drawings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 9l5-5 5 5"/><path d="M12 4v12"/></svg>
   </button>
@@ -535,6 +544,45 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   </div>
 </div>
 
+<!-- Catalog sheet -->
+<div class="sheet" id="sheetCat" role="dialog" aria-modal="true" aria-labelledby="catTitle">
+  <div class="sheet-head">
+    <div><div class="eyebrow">Standard drawings</div><h2 id="catTitle">From catalog</h2></div>
+    <button class="icon-btn" style="margin-left:auto;color:var(--slate);border-color:var(--line)" data-close aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div id="catEmpty" hidden>
+      <div class="empty" style="padding:34px 10px">
+        <h3>No catalog items yet</h3>
+        <p>Add the drawings you bill over and over — shell expansion, midship section, docking plan — then pick them here.</p>
+        <button class="act" id="catToCfg" type="button">Set up the catalog</button>
+      </div>
+    </div>
+    <div id="catForm" hidden>
+      <div class="sect-t">Applies to every drawing</div>
+      <div class="f"><label for="kClient">Client</label><input id="kClient" list="dlClients" autocomplete="off" placeholder="e.g. Seaford Shipping Lines"></div>
+      <div class="f-row">
+        <div class="f" style="flex:1.4"><label for="kVessel">Vessel</label><input id="kVessel" list="dlVessels" autocomplete="off" placeholder="e.g. MV SF Voyager"></div>
+        <div class="f"><label for="kDate">Date</label><input id="kDate" type="date"></div>
+      </div>
+      <div class="f"><label for="kRate">Rate per drawing (₱)</label><input id="kRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"><div class="hint">Items with their own default rate keep it.</div></div>
+
+      <div class="sect-t" style="display:flex;align-items:center">Drawings<span style="margin-left:auto;font-family:var(--mono);font-size:12px;letter-spacing:0;text-transform:none" id="kTotal">₱0.00</span></div>
+      <div style="display:flex;gap:8px;margin-bottom:9px">
+        <button class="act" id="kAll" type="button">Select all</button>
+        <button class="act" id="kNone" type="button">Clear</button>
+      </div>
+      <div class="pick" id="kPick"></div>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn-ghost" data-close>Cancel</button>
+    <button class="btn-fill" id="kCommit">Add drawings</button>
+  </div>
+</div>
+
 <!-- Statement sheet -->
 <div class="sheet" id="sheetStmt" role="dialog" aria-modal="true" aria-labelledby="stmtTitle">
   <div class="sheet-head">
@@ -595,6 +643,11 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="sect-t">PDF attachments</div>
     <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. If set, create a <b>public</b> bucket with that name under Storage.</div></div>
 
+    <div class="sect-t" style="display:flex;align-items:center">Drawing catalog<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCatCount"></span></div>
+    <div class="hint" style="margin:-4px 0 9px">Your standard drawings, offered under <b>From catalog</b>. Unticking keeps past billing intact and only hides the item from the picker.</div>
+    <div class="pick" id="cCatList"></div>
+    <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cCatAdd" type="button">Add item</button></div>
+
     <div class="sect-t">Billing defaults</div>
     <div class="f"><label for="cRate">Standard rate per drawing (₱)</label><input id="cRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
     <div class="f"><label for="cPrefix">Code prefix</label><input id="cPrefix" class="mono-in"><div class="hint">Codes come out as <span id="codeSample" style="font-family:var(--mono)"></span> and reset each month.</div></div>
@@ -626,6 +679,8 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 
 /* ================= constants & helpers ================= */
 const LS_CFG='rsr_dwg_cfg_v1', LS_ROWS='rsr_dwg_rows_v1', LS_Q='rsr_dwg_queue_v1';
+const LS_CAT='rsr_dwg_catalog_v1';
+const CAT_TABLE='drawing_catalog';
 const STATUSES=['DRAFT','BILLED','PAID'];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -678,9 +733,15 @@ const online=()=>!!(cfg.url&&cfg.key);
 /* ================= state ================= */
 let rows=[];
 let queue=[];
+let catalog=[];
 try{rows=JSON.parse(localStorage.getItem(LS_ROWS)||'[]');}catch(e){rows=[];}
 try{queue=JSON.parse(localStorage.getItem(LS_Q)||'[]');}catch(e){queue=[];}
-const persist=()=>{localStorage.setItem(LS_ROWS,JSON.stringify(rows));localStorage.setItem(LS_Q,JSON.stringify(queue));};
+try{catalog=JSON.parse(localStorage.getItem(LS_CAT)||'[]');}catch(e){catalog=[];}
+const persist=()=>{
+  localStorage.setItem(LS_ROWS,JSON.stringify(rows));
+  localStorage.setItem(LS_Q,JSON.stringify(queue));
+  localStorage.setItem(LS_CAT,JSON.stringify(catalog));
+};
 
 let filters={q:'',status:'ALL',client:'',month:''};
 let editingId=null;
@@ -688,6 +749,22 @@ let editingId=null;
 const FIELDS=['code','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
 function payloadOf(r){const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;return o;}
 const amountOf=r=>(Number(r.qty)||0)*(Number(r.rate)||0);
+
+const CAT_FIELDS=['name','drawing_no','default_rate','sort_order','active'];
+function catPayload(c){
+  const o={};CAT_FIELDS.forEach(k=>{o[k]=c[k]===''?null:c[k];});
+  o.name=String(c.name||'').trim();
+  o.sort_order=Number(c.sort_order)||0;
+  o.active=c.active!==false;
+  o.default_rate=hasRate(c)?Number(c.default_rate):null;
+  return o;
+}
+// a blank default_rate falls back to the batch rate; 0 is a deliberate zero
+const hasRate=c=>c&&c.default_rate!=null&&c.default_rate!=='';
+const catSorted=()=>catalog.slice().sort((a,b)=>
+  (Number(a.sort_order)||0)-(Number(b.sort_order)||0)||
+  String(a.name||'').localeCompare(String(b.name||'')));
+const catActive=()=>catSorted().filter(c=>c.active!==false);
 
 /* ================= auth session ================= */
 const LS_SES='rsr_dwg_session_v1';
@@ -765,15 +842,18 @@ async function flushQueue(){
   if(!online()||!queue.length)return;
   const still=[];
   for(const job of queue){
+    // jobs written before the catalog existed carry neither field
+    const tbl=job.table||cfg.table;
+    const store=job.store==='catalog'?catalog:rows;
     try{
       if(job.op==='insert'){
-        const out=await sb(cfg.table,{method:'POST',body:JSON.stringify(job.data)});
+        const out=await sb(tbl,{method:'POST',body:JSON.stringify(job.data)});
         const srv=out&&out[0];
-        if(srv){const i=rows.findIndex(r=>r.id===job.localId);if(i>-1)rows[i]=srv;}
+        if(srv){const i=store.findIndex(r=>r.id===job.localId);if(i>-1)store[i]=srv;}
       }else if(job.op==='update'){
-        await sb(cfg.table+'?id=eq.'+encodeURIComponent(job.id),{method:'PATCH',body:JSON.stringify(job.data)});
+        await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'PATCH',body:JSON.stringify(job.data)});
       }else if(job.op==='delete'){
-        await sb(cfg.table+'?id=eq.'+encodeURIComponent(job.id),{method:'DELETE'});
+        await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'DELETE'});
       }
     }catch(err){still.push(job);}
   }
@@ -790,6 +870,11 @@ async function pull(quiet){
     const data=await sb(cfg.table+'?select=*&order=bill_date.desc,code.desc');
     const pendingLocal=rows.filter(r=>String(r.id).startsWith('loc-'));
     rows=(data||[]).concat(pendingLocal);
+    try{
+      const cat=await sb(CAT_TABLE+'?select=*&order=sort_order.asc,name.asc');
+      const catPending=catalog.filter(c=>String(c.id).startsWith('loc-'));
+      catalog=(cat||[]).concat(catPending);
+    }catch(e){/* catalog table not created yet — the cached copy still works */}
     persist();render();
     setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
   }catch(err){
@@ -934,6 +1019,52 @@ async function saveBatch(list){
     setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
   }else setSync('off','Local');
 }
+/* ---- catalog writes: same queue, so they sync offline like the rest ---- */
+async function catSave(item,isNew){
+  if(isNew){
+    item.id=uid();
+    catalog.push(item);
+    queue.push({op:'insert',store:'catalog',table:CAT_TABLE,localId:item.id,data:catPayload(item)});
+  }else{
+    const i=catalog.findIndex(c=>c.id===item.id);if(i>-1)catalog[i]=item;
+    if(String(item.id).startsWith('loc-')){
+      const j=queue.find(q=>q.op==='insert'&&q.localId===item.id);
+      if(j)j.data=catPayload(item);
+      else queue.push({op:'insert',store:'catalog',table:CAT_TABLE,localId:item.id,data:catPayload(item)});
+    }else{
+      queue=queue.filter(q=>!(q.op==='update'&&q.id===item.id));
+      queue.push({op:'update',store:'catalog',table:CAT_TABLE,id:item.id,data:catPayload(item)});
+    }
+  }
+  persist();
+  if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+  else setSync('off','Local');
+}
+async function catDelete(id){
+  catalog=catalog.filter(c=>c.id!==id);
+  if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
+  else{queue=queue.filter(q=>q.id!==id);queue.push({op:'delete',store:'catalog',table:CAT_TABLE,id:id});}
+  persist();
+  if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+}
+// persist a whole reordered list in one pass
+async function catReorder(list){
+  list.forEach((c,i)=>{c.sort_order=i;});
+  catalog=list.concat(catalog.filter(c=>!list.some(l=>l.id===c.id)));
+  for(const c of list){
+    if(String(c.id).startsWith('loc-')){
+      const j=queue.find(q=>q.op==='insert'&&q.localId===c.id);
+      if(j)j.data=catPayload(c);
+    }else{
+      queue=queue.filter(q=>!(q.op==='update'&&q.id===c.id));
+      queue.push({op:'update',store:'catalog',table:CAT_TABLE,id:c.id,data:catPayload(c)});
+    }
+  }
+  persist();
+  if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+}
+const syncBadge=()=>setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
+
 async function deleteRow(id){
   rows=rows.filter(r=>r.id!==id);
   if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
@@ -1330,6 +1461,142 @@ $('iCommit').onclick=async()=>{
   toast(built.length+' draft'+(built.length===1?'':'s')+' added'+(upFail?' — '+upFail+' upload(s) failed':''));
 };
 
+/* ---- from catalog ---- */
+let kPicked={};
+const effRate=(c,batch)=>hasRate(c)?Number(c.default_rate):batch;
+
+function openCat(){
+  const items=catActive();
+  $('catEmpty').hidden=items.length>0;
+  $('catForm').hidden=items.length===0;
+  if(!$('kDate').value)$('kDate').value=today();
+  if(!$('kRate').value)$('kRate').value=cfg.rate||'';
+  if(!$('kClient').value&&filters.client)$('kClient').value=filters.client;
+  items.forEach(c=>{if(!(c.id in kPicked))kPicked[c.id]=true;});
+  renderCat();show('sheetCat');
+}
+function renderCat(){
+  const batch=Number($('kRate').value)||0;
+  const items=catActive();
+  $('kPick').innerHTML=items.map(c=>`
+    <label class="pick-item">
+      <input type="checkbox" data-k="${esc(c.id)}"${kPicked[c.id]?' checked':''}>
+      <span style="min-width:0">
+        <span class="t">${esc(c.name||'Untitled')}</span><br>
+        <span class="s">${c.drawing_no?esc(c.drawing_no)+' · ':''}${hasRate(c)?'own rate':'batch rate'}</span>
+      </span>
+      <span class="a">${money(effRate(c,batch))}</span>
+    </label>`).join('');
+  const on=items.filter(c=>kPicked[c.id]);
+  $('kTotal').textContent=money(on.reduce((s,c)=>s+effRate(c,batch),0));
+  $('kCommit').textContent=on.length?('Add '+on.length+' drawing'+(on.length===1?'':'s')):'Add drawings';
+}
+$('kPick').addEventListener('change',e=>{
+  const c=e.target.closest('[data-k]');if(!c)return;
+  kPicked[c.dataset.k]=c.checked;renderCat();
+});
+$('kRate').oninput=renderCat;
+$('kAll').onclick=()=>{catActive().forEach(c=>{kPicked[c.id]=true;});renderCat();};
+$('kNone').onclick=()=>{catActive().forEach(c=>{kPicked[c.id]=false;});renderCat();};
+$('catToCfg').onclick=()=>{hide();openCfg();};
+
+$('kCommit').onclick=async()=>{
+  const picked=catActive().filter(c=>kPicked[c.id]);
+  if(!picked.length){toast('Tick at least one drawing',true);return;}
+  const client=$('kClient').value.trim();
+  if(!client){toast('Set the client for this batch',true);$('kClient').focus();return;}
+  const date=$('kDate').value||today();
+  const vessel=$('kVessel').value.trim();
+  const batch=Number($('kRate').value)||0;
+  const built=[];
+  picked.forEach(c=>{
+    built.push({
+      code:nextCode(date,built),      // sequential, same helper the PDF import uses
+      bill_date:date,client:client,vessel:vessel,
+      drawing_no:(c.drawing_no||'').trim(),
+      drawing_title:String(c.name||'').trim()||'Untitled drawing',
+      qty:1,rate:effRate(c,batch),status:'DRAFT',
+      billed_date:null,paid_date:null,invoice_no:'',remarks:'',
+      file_name:null,file_url:null,pages:null
+    });
+  });
+  hide();
+  await saveBatch(built);
+  toast(built.length+' draft'+(built.length===1?'':'s')+' added');
+};
+
+/* ---- manage the catalog (settings) ---- */
+function renderCatMgr(){
+  const list=catSorted();
+  const live=list.filter(c=>c.active!==false).length;
+  $('cCatCount').textContent=list.length?(live+' active of '+list.length):'';
+  $('cCatList').innerHTML=list.length?list.map((c,i)=>`
+    <div class="imp${c.active===false?' off':''}">
+      <div class="imp-h">
+        <input type="checkbox" data-ca="${esc(c.id)}"${c.active!==false?' checked':''} aria-label="Show in picker">
+        <span class="fn">${c.active===false?'Hidden from the picker':'In the picker'}</span>
+        <button class="mini" data-cup="${esc(c.id)}"${i===0?' disabled':''} title="Move up" aria-label="Move up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg></button>
+        <button class="mini" data-cdn="${esc(c.id)}"${i===list.length-1?' disabled':''} title="Move down" aria-label="Move down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="mini del" data-crm="${esc(c.id)}" title="Remove" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="imp-f">
+        <input data-cf="name" data-ci="${esc(c.id)}" value="${esc(c.name||'')}" placeholder="Drawing name" autocomplete="off">
+        <div class="two">
+          <input data-cf="drawing_no" data-ci="${esc(c.id)}" value="${esc(c.drawing_no||'')}" placeholder="Drawing no." autocomplete="off">
+          <input data-cf="default_rate" data-ci="${esc(c.id)}" value="${c.default_rate==null?'':esc(c.default_rate)}" placeholder="Default rate" type="number" min="0" step="0.01" inputmode="decimal">
+        </div>
+      </div>
+    </div>`).join('')
+    : `<div style="padding:16px;text-align:center;color:var(--slate);font-size:13px">Nothing here yet — add the drawings you bill repeatedly.</div>`;
+}
+// typing updates the item; the write is queued on blur so we do not
+// push a job per keystroke
+$('cCatList').addEventListener('input',e=>{
+  const t=e.target.closest('[data-cf]');if(!t)return;
+  const c=catalog.find(x=>x.id===t.dataset.ci);if(!c)return;
+  c[t.dataset.cf]=t.dataset.cf==='default_rate'?(t.value===''?null:t.value):t.value;
+});
+$('cCatList').addEventListener('change',async e=>{
+  const t=e.target.closest('[data-cf]');
+  if(t){
+    const c=catalog.find(x=>x.id===t.dataset.ci);if(!c)return;
+    if(!String(c.name||'').trim()){toast('Give the item a name',true);return;}
+    await catSave(c,false);renderCatMgr();return;
+  }
+  const a=e.target.closest('[data-ca]');
+  if(a){
+    const c=catalog.find(x=>x.id===a.dataset.ca);if(!c)return;
+    c.active=a.checked;
+    delete kPicked[c.id];
+    await catSave(c,false);renderCatMgr();
+  }
+});
+$('cCatList').addEventListener('click',async e=>{
+  const rm=e.target.closest('[data-crm]');
+  if(rm){
+    const c=catalog.find(x=>x.id===rm.dataset.crm);if(!c)return;
+    if(!confirm('Remove "'+(c.name||'this item')+'" from the catalog? Drawings already billed keep their records.'))return;
+    delete kPicked[c.id];
+    await catDelete(c.id);renderCatMgr();return;
+  }
+  const up=e.target.closest('[data-cup]'),dn=e.target.closest('[data-cdn]');
+  if(!up&&!dn)return;
+  const list=catSorted();
+  const id=up?up.dataset.cup:dn.dataset.cdn;
+  const i=list.findIndex(c=>c.id===id),j=up?i-1:i+1;
+  if(i<0||j<0||j>=list.length)return;
+  const swap=list[i];list[i]=list[j];list[j]=swap;
+  await catReorder(list);renderCatMgr();
+});
+$('cCatAdd').onclick=async()=>{
+  const max=catalog.reduce((m,c)=>Math.max(m,Number(c.sort_order)||0),-1);
+  const item={name:'New drawing',drawing_no:'',default_rate:null,sort_order:max+1,active:true};
+  await catSave(item,true);
+  renderCatMgr();
+  const f=$('cCatList').querySelector('[data-cf="name"][data-ci="'+item.id+'"]');
+  if(f){f.focus();f.select();}
+};
+
 /* ---- drag and drop anywhere ---- */
 let dragDepth=0;
 function hasFiles(e){
@@ -1520,6 +1787,30 @@ create policy rsr_dwg_billing_authed on drawing_billing
   for all to authenticated using (true) with check (true);
 
 -- ---------------------------------------------------------------
+-- Catalog of standard drawings, for billing the same set repeatedly.
+-- Starts empty on purpose — add your own from Settings -> Drawing
+-- catalog. Deactivating keeps history intact; it only hides the row
+-- from the "From catalog" picker.
+-- ---------------------------------------------------------------
+create table if not exists drawing_catalog (
+  id            uuid primary key default gen_random_uuid(),
+  name          text not null,
+  drawing_no    text,
+  default_rate  numeric(12,2),
+  sort_order    integer not null default 0,
+  active        boolean not null default true,
+  created_at    timestamptz default now()
+);
+
+create index if not exists idx_dc_order on drawing_catalog(sort_order, name);
+
+alter table drawing_catalog enable row level security;
+
+drop policy if exists rsr_dwg_catalog_authed on drawing_catalog;
+create policy rsr_dwg_catalog_authed on drawing_catalog
+  for all to authenticated using (true) with check (true);
+
+-- ---------------------------------------------------------------
 -- Storage. This project is shared with other RSR apps, so every
 -- statement below touches only the ${b} bucket:
 --   * the bucket row is addressed by id, so other buckets keep
@@ -1558,6 +1849,7 @@ function openCfg(){
   $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Records are local to this device.');
   $('cSignOut').hidden=!who;
   $('cSignIn').hidden=who||!cfg.url;
+  renderCatMgr();
   sample();show('sheetCfg');
 }
 function sample(){
@@ -1611,6 +1903,7 @@ $('cCsv').onclick=()=>{
 
 /* ================= wiring ================= */
 $('btnNew').onclick=()=>openEntry(null);
+$('btnCat').onclick=openCat;
 $('btnImport').onclick=()=>openImport(false);
 $('btnStmt').onclick=openStmt;
 $('btnSettings').onclick=openCfg;
