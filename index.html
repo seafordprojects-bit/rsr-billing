@@ -185,7 +185,7 @@ header.top{
 .badge.DRAFT{color:var(--slate)}
 .badge.BILLED{color:var(--rsr);background:rgba(180,20,42,.06)}
 .badge.PAID{color:var(--paid);background:rgba(11,110,79,.07)}
-.row-amt{margin-left:auto;font-family:var(--mono);font-size:15px;font-weight:600;letter-spacing:-.02em}
+.row-amt{margin-left:auto;font-family:var(--mono);font-size:15px;font-weight:600;letter-spacing:-.02em;white-space:nowrap}
 
 .row-title{margin:8px 0 2px;font-size:14.5px;font-weight:600;line-height:1.3}
 .row-meta{font-size:12px;color:var(--slate);display:flex;flex-wrap:wrap;gap:4px 10px}
@@ -204,6 +204,7 @@ header.top{
 .gl.free .a{color:var(--slate);font-style:italic}
 .gl .t .revchip{margin-left:6px;vertical-align:1px}
 .revlink{font-family:var(--mono);font-size:10.5px;color:var(--rsr);border-bottom:1px solid currentColor;font-weight:600}
+.revgone{font-family:var(--mono);font-size:10.5px;color:var(--slate);font-style:italic}
 .badge.free{color:var(--slate)}
 .row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
 .act{
@@ -458,10 +459,10 @@ table.pay-t .ac{font-family:var(--mono);white-space:nowrap;text-align:right}
 
 /* title-block style meta strip */
 .stmt-meta{display:flex;border:1px solid #000;border-top:0;margin-top:0}
-.stmt-meta div{flex:1;padding:7px 10px;border-right:1px solid #000}
+.stmt-meta div{flex:1;min-width:0;padding:7px 10px;border-right:1px solid #000}
 .stmt-meta div:last-child{border-right:0}
 .stmt-meta .k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:700}
-.stmt-meta .v{font-size:11.5px;font-weight:600;margin-top:2px}
+.stmt-meta .v{font-size:11.5px;font-weight:600;margin-top:2px;overflow-wrap:break-word}
 .stmt-meta .v.mono{font-family:var(--mono)}
 
 table.stmt-t{width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px}
@@ -1422,6 +1423,7 @@ function render(){
       else if(r.file_name)bits.push('PDF');
       const src=r.rev_of?rows.find(x=>String(x.id)===String(r.rev_of)):null;
       if(src)bits.push(`<button type="button" class="revlink" data-revsrc="${esc(src.id)}">revision of ${esc(src.code||'—')}</button>`);
+      else if(r.rev_of)bits.push('<span class="revgone">original deleted</span>');
       return `<div class="gl${noCharge(r)?' free':''}">
         <span class="n">${i+1}.0</span>
         <span class="t">${esc(r.drawing_title||'Untitled')}${r.rev_no?`<span class="revchip">Rev ${esc(r.rev_no)}</span>`:''}${bits.length?`<span class="s">${bits.join(' · ')}</span>`:''}</span>
@@ -1676,7 +1678,20 @@ function cliPayload(c){
   o.name=String(c.name||'').trim();
   return o;
 }
-const clientRec=name=>clients.find(c=>String(c.name||'')===String(name||''));
+// A client typed as "seaford " must land on the same record as "Seaford";
+// the first spelling used wins so existing billings keep matching.
+function canonClient(name){
+  const t=String(name||'').trim().replace(/\s+/g,' ');
+  if(!t)return '';
+  const lc=t.toLowerCase();
+  const known=clients.map(c=>c.name).concat(rows.map(r=>r.client));
+  const hit=known.find(n=>String(n||'').trim().replace(/\s+/g,' ').toLowerCase()===lc);
+  return hit?String(hit).trim().replace(/\s+/g,' '):t;
+}
+const clientRec=name=>{
+  const t=String(name||'').trim().replace(/\s+/g,' ').toLowerCase();
+  return clients.find(c=>String(c.name||'').trim().replace(/\s+/g,' ').toLowerCase()===t);
+};
 const billingEmail=name=>{const c=clientRec(name);return c?(c.billing_email||''):'';};
 const cliSorted=()=>clients.slice().sort((a,b)=>
   String(a.name||'').localeCompare(String(b.name||'')));
@@ -1827,6 +1842,7 @@ function show(id){
   document.body.style.overflow='hidden';
 }
 function hide(){
+  cmbHide();                       // a suggestion list must not outlive its sheet
   if(openSheet){$(openSheet).classList.remove('on');openSheet=null;}
   $('scrim').classList.remove('on');document.body.style.overflow='';
   // settings opened from the gate: closing it must not drop us into the app
@@ -1960,7 +1976,12 @@ function comboAttach(inputId,popId,supply,onPick){
 
 /* ---- client suggestions: the clients table plus names already billed ---- */
 function clientSuggest(q){
-  const names=uniq(clients.map(c=>c.name).concat(rows.map(r=>r.client)));
+  const seen={},names=[];
+  uniq(clients.map(c=>c.name).concat(rows.map(r=>r.client))).forEach(n=>{
+    const k=String(n||'').trim().replace(/\s+/g,' ').toLowerCase();
+    if(!k||seen[k])return;
+    seen[k]=1;names.push(String(n).trim().replace(/\s+/g,' '));
+  });
   return cmbFilter(names,q).map(n=>{
     const rec=clientRec(n);
     const bits=rec?[rec.contact_person,rec.billing_email,rec.address].filter(Boolean):[];
@@ -1969,7 +1990,7 @@ function clientSuggest(q){
 }
 // a name first used on a billing becomes a client, so it suggests next time
 async function rememberClient(name){
-  name=String(name||'').trim();
+  name=canonClient(name);
   if(!name||clientRec(name))return;
   await cliSave({name:name,contact_person:'',address:'',billing_email:''},true);
 }
@@ -2131,7 +2152,8 @@ $('eDate').onchange=reCode;
 $('eType').onchange=()=>{$('eRefLbl').textContent=refLabel($('eType').value);reCode();};
 
 $('eSave').onclick=async()=>{
-  const client=$('eClient').value.trim();
+  const client=canonClient($('eClient').value);
+  $('eClient').value=client;
   if(!client){toast('Add a client first',true);$('eClient').focus();return;}
   const lines=mlFilled();
   if(!lines.length){toast('Give at least one line a title',true);return;}
@@ -2495,7 +2517,8 @@ async function openPdf(id){
 $('iCommit').onclick=async()=>{
   const picked=impFiles.filter(f=>f.on);
   if(!picked.length){toast('Tick at least one file',true);return;}
-  const client=$('iClient').value.trim();
+  const client=canonClient($('iClient').value);
+  $('iClient').value=client;
   if(!client){toast('Set the client for this batch',true);$('iClient').focus();return;}
   const date=$('iDate').value||today();
   const rate=Number($('iRate').value)||0;
@@ -2595,7 +2618,8 @@ $('catToCfg').onclick=()=>{hide();openCfg();};
 $('kCommit').onclick=async()=>{
   const picked=catShown().filter(c=>kPicked[c.id]);
   if(!picked.length){toast('Tick at least one document',true);return;}
-  const client=$('kClient').value.trim();
+  const client=canonClient($('kClient').value);
+  $('kClient').value=client;
   if(!client){toast('Set the client for this batch',true);$('kClient').focus();return;}
   const date=$('kDate').value||today();
   const vessel=$('kVessel').value.trim();
@@ -2807,6 +2831,19 @@ $('cTypeList').addEventListener('click',e=>{
   cfg.types.splice(i,1);
   saveCfg();pushSharedSettings();renderTypes();renderCatMgr();render();
 });
+// the highest number already sitting on a billing of this type this year
+function maxIssuedNo(code){
+  const t=String(code||'').toUpperCase(),pre=billPrefixOf(t)+'-'+yy2()+'-';
+  let mx=0;
+  rows.forEach(r=>{
+    if(typeOf(r)!==t)return;
+    const b=String(r.bill_no||'');
+    if(b.indexOf(pre)!==0)return;
+    const n=parseInt(b.slice(pre.length),10);
+    if(n>mx)mx=n;
+  });
+  return mx;
+}
 const billSeqOf=code=>{
   const s=cfg.billSeries[String(code||'').toUpperCase()];
   return s&&String(s.y)===yy2()?(Number(s.n)||0):0;
@@ -2831,9 +2868,15 @@ $('cTypeList').addEventListener('click',async e=>{
   const n0=parseInt(want,10);
   if(!(n0>=0)){toast('The counter has to be 0 or more',true);return;}
   const cur=billSeqOf(item.code);
+  const issued=maxIssuedNo(item.code);
+  const br='\n\n';
+  const clash=n0<issued
+    ? br+'WARNING: '+billPrefixOf(item.code)+'-'+yy2()+'-'+String(issued).padStart(3,'0')+
+      ' is already on a billing. Going below '+issued+' will hand out numbers that exist.'
+    : '';
   if(!confirm('Set the '+item.code+' counter to '+n0+
               '? The next billing becomes '+(n0+1)+
-              '. It is currently at '+cur+'.'))return;
+              '. It is currently at '+cur+'.'+clash))return;
   const n=await setBillSeq(item.code,n0);
   delete seqDraft[rs.dataset.treset];
   renderTypes();
@@ -3144,7 +3187,7 @@ table.pay-t .ac{font-family:Consolas,monospace;white-space:nowrap;text-align:rig
 table.stmt-t .sub{display:block;font-family:Consolas,monospace;font-size:9px;color:#555;margin-top:2px}
 table.stmt-t .nc{font-family:Arial,Helvetica,sans-serif;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#555;font-style:italic}
 .stmt-meta{display:flex;border:1px solid #000;border-top:0}
-.stmt-meta div{flex:1;padding:7px 10px;border-right:1px solid #000}
+.stmt-meta div{flex:1;min-width:0;padding:7px 10px;border-right:1px solid #000}
 .stmt-meta div:last-child{border-right:0}
 .stmt-meta .k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:bold}
 .stmt-meta .v{font-size:11.5px;font-weight:bold;margin-top:2px}
