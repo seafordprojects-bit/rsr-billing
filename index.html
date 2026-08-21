@@ -473,21 +473,34 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-tot .grand td{font-size:13px;font-weight:800;border-top:1px solid #000;padding-top:8px}
 .words{margin-top:8px;font-size:10.5px;font-style:italic;border:1px solid #000;padding:7px 10px}
 .words b{font-style:normal;letter-spacing:.1em;font-size:8.5px;text-transform:uppercase}
-.stmt-sig{display:flex;gap:40px;margin-top:34px}
-.stmt-sig div{flex:1}
-.stmt-sig .k{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:#555;font-weight:700;margin-bottom:34px}
-.stmt-sig .l{border-top:1px solid #000;padding-top:4px;font-size:11px;font-weight:700}
-.stmt-sig .r{font-size:9.5px;color:#444}
+.stmt-hd .rt .pv{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--rsr);font-weight:700;margin-top:2px}
+.stmt-close{margin-top:16px}
+.stmt-close .ty{font-size:11.5px;font-weight:600}
+.stmt-close .pb{font-size:10.5px;color:#333;margin-top:5px}
 .stmt-ft{margin-top:22px;padding-top:8px;border-top:1px solid #ccc;font-size:9px;color:#666;display:flex}
 .stmt-ft span:last-child{margin-left:auto;font-family:var(--mono)}
 
 @media print{
-  @page{size:A4;margin:13mm}
-  body{background:#fff}
+  @page{size:A4;margin:16mm}
+  html,body{background:#fff;margin:0;padding:0;width:100%}
   #app,.fab-bar,.scrim,.sheet,.toast,#dropOverlay,#gate{display:none !important}
   #printRoot{display:block !important}
-  table.stmt-t tbody tr{break-inside:avoid}
-  .stmt-sig{break-inside:avoid}
+  /* the sheet already reserves the margin, so the document fills the width */
+  .stmt{width:100%;max-width:none;margin:0;padding:0}
+  table.stmt-t{width:100%;table-layout:fixed}
+  table.stmt-t td{word-wrap:break-word;overflow-wrap:break-word}
+  /* a long line list repeats its header on each page and never splits a row */
+  table.stmt-t thead{display:table-header-group}
+  table.stmt-t tfoot{display:table-footer-group}
+  table.stmt-t tbody tr{break-inside:avoid;page-break-inside:avoid}
+  /* the totals must not float away from the last line, and the closing
+     block travels with them */
+  .stmt-tot{break-inside:avoid;page-break-inside:avoid;break-before:avoid;page-break-before:avoid}
+  .words,.pay,.stmt-close,.bill-to,.stmt-meta{break-inside:avoid;page-break-inside:avoid}
+  .words,.pay{break-before:avoid;page-break-before:avoid}
+  .stmt-ft{break-inside:avoid;page-break-inside:avoid}
+  /* nothing is left alone at the top or bottom of a page */
+  p,div{orphans:3;widows:3}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
 </style>
@@ -765,7 +778,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <div class="f"><label for="sTo">To</label><input id="sTo" type="date"></div>
     </div>
     <div class="f-row">
-      <div class="f" style="flex:1.3"><label for="sNo">Billing no.</label><input id="sNo" class="mono-in"></div>
+      <div class="f" style="flex:1.3"><label for="sNo">Billing no.</label><input id="sNo" class="mono-in"><div class="hint" id="sNoHint" hidden></div></div>
       <div class="f"><label for="sTerms">Terms (days)</label><input id="sTerms" type="number" inputmode="numeric" min="0" step="1" value="30"></div>
     </div>
     <div class="f"><label for="sVat">Add-on</label>
@@ -782,7 +795,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="pick" id="sPick"></div>
   </div>
   <div class="sheet-foot">
-    <button class="btn-ghost" data-close>Cancel</button>
+    <button class="btn-ghost" id="sPreview">Preview</button>
     <button class="btn-ghost" id="sEmailBtn">Email</button>
     <button class="btn-fill" id="sPrint">Print</button>
   </div>
@@ -847,6 +860,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <div class="f"><label for="cSigner">Prepared by</label><input id="cSigner"></div>
       <div class="f"><label for="cRole">Position</label><input id="cRole"></div>
     </div>
+    <label class="chk"><input type="checkbox" id="cPrepared"><span>Print "Prepared by" on the billing<span class="s">A plain text line under the closing note. Billings carry no signature block.</span></span></label>
 
     <div class="sect-t">Backup</div>
     <div style="display:flex;gap:8px"><button class="act" id="cExport">Export JSON</button><button class="act" id="cCsv">Export CSV</button></div>
@@ -908,7 +922,7 @@ const DEFAULT_CFG={
   signer:'',role:'Naval Architect & Marine Engineer',
   // billing document
   billPrefix:'BILLDWG',billYear:'',billSeq:0,
-  payee:'',remitEmail:'',
+  payee:'',remitEmail:'',showPrepared:false,
   banks:[]
 };
 let cfg=Object.assign({},DEFAULT_CFG);
@@ -1046,7 +1060,7 @@ const persist=()=>{
 let filters={q:'',status:'ALL',client:'',month:'',type:''};
 let editingId=null;
 
-const FIELDS=['group_id','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
+const FIELDS=['group_id','bill_no','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
 function payloadOf(r){
   const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});
   o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;o.doc_type=typeOf(r);
@@ -1058,7 +1072,7 @@ const amountOf=r=>(Number(r.qty)||0)*(Number(r.rate)||0);
 // A group is one billing: several lines sharing a tracking code. Group-level
 // fields are repeated on every line, so the existing row-based queue and sync
 // carry them unchanged; acting on a group just touches all of its lines.
-const GROUP_FIELDS=['code','doc_type','bill_date','client','vessel','status',
+const GROUP_FIELDS=['code','bill_no','doc_type','bill_date','client','vessel','status',
                     'billed_date','paid_date','invoice_no','remarks'];
 const groupIdOf=r=>String((r&&r.group_id)||(r&&r.id)||'');
 // rows written before grouping become single-line groups keeping their code
@@ -1889,7 +1903,7 @@ function clientSuggest(q){
   const names=uniq(clients.map(c=>c.name).concat(rows.map(r=>r.client)));
   return cmbFilter(names,q).map(n=>{
     const rec=clientRec(n);
-    const bits=rec?[rec.contact_person,rec.address].filter(Boolean):[];
+    const bits=rec?[rec.contact_person,rec.billing_email,rec.address].filter(Boolean):[];
     return {label:n,sub:bits.join(' · '),value:n};
   });
 }
@@ -2606,7 +2620,12 @@ function renderTypes(){
         <input class="mono-in" data-tf="bill" data-ti="${i}" value="${esc(t.bill||'')}"
                placeholder="Billing no. prefix" autocomplete="off"
                style="text-transform:uppercase">
-        <div class="hint" style="margin:0">Billing numbers: <span style="font-family:var(--mono)">${esc(billSampleFor(t))}</span></div>
+        <div class="two">
+          <input class="mono-in" data-tf="seq" data-ti="${i}" value="${esc(billSeqOf(t.code))}"
+                 type="number" min="0" step="1" inputmode="numeric" placeholder="Last no.">
+          <button class="act" data-treset="${i}" type="button">Set counter</button>
+        </div>
+        <div class="hint" style="margin:0">Next: <span style="font-family:var(--mono)">${esc(billSampleFor(t))}</span></div>
       </div>
     </div>`).join('');
   typeSample();
@@ -2651,6 +2670,33 @@ $('cTypeList').addEventListener('click',e=>{
      !confirm('"'+item.code+'" is used by existing records. Removing it here leaves those records alone — the code just stops being offered. Remove it?'))return;
   cfg.types.splice(i,1);
   saveCfg();pushSharedSettings();renderTypes();renderCatMgr();render();
+});
+const billSeqOf=code=>{
+  const s=cfg.billSeries[String(code||'').toUpperCase()];
+  return s&&String(s.y)===yy2()?(Number(s.n)||0):0;
+};
+// A deliberate reset, so unlike raiseBillNo this is allowed to go backwards —
+// it overwrites the shared counter rather than only raising it.
+async function setBillSeq(code,n){
+  const t=String(code||'').toUpperCase(),y=yy2();
+  n=Math.max(0,parseInt(n,10)||0);
+  cfg.billSeries[t]={y:y,n:n};saveCfg();
+  queueSetting('billseq:'+t,{seq_year:y,seq_n:n});
+  if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+  return n;
+}
+$('cTypeList').addEventListener('click',async e=>{
+  const rs=e.target.closest('[data-treset]');if(!rs)return;
+  const item=cfg.types[+rs.dataset.treset];if(!item||!item.code)return;
+  const inp=$('cTypeList').querySelector('[data-tf="seq"][data-ti="'+rs.dataset.treset+'"]');
+  const want=inp?inp.value:'';
+  const cur=billSeqOf(item.code);
+  if(!confirm('Set the '+item.code+' counter to '+(parseInt(want,10)||0)+
+              '? The next billing becomes '+((parseInt(want,10)||0)+1)+
+              '. It is currently at '+cur+'.'))return;
+  const n=await setBillSeq(item.code,want);
+  renderTypes();
+  toast(item.code+' counter set to '+n);
 });
 $('cTypeAdd').onclick=()=>{
   cfg.types.push({code:'',label:''});
@@ -2806,12 +2852,31 @@ function billTypeFor(){
   return DEF_TYPE;
 }
 let sNoAuto='';
+// Once a billing has been issued it keeps its number; the field then shows
+// what is stored rather than a fresh preview.
 function refreshBillNo(force){
+  const groups=pickedRows();
+  const have=uniq(groups.map(g=>g.bill_no).filter(Boolean));
   const cur=$('sNo').value.trim();
-  // a number typed by hand is left alone
+  if(have.length){
+    const val=have.join(', ');
+    if(force||!cur||cur===sNoAuto){$('sNo').value=val;sNoAuto=val;}
+    $('sNoHint').textContent=groups.length===1&&groups[0].status==='DRAFT'
+      ? 'Already issued. Editable while this billing is a draft.'
+      : 'Already issued — reused on every print.';
+    $('sNoHint').hidden=false;
+    return;
+  }
   if(!force&&cur&&cur!==sNoAuto)return;
   sNoAuto=nextBillNo(billTypeFor());
   $('sNo').value=sNoAuto;
+  $('sNoHint').textContent='Claimed when you print or email.';
+  $('sNoHint').hidden=false;
+}
+// write the number onto every line of the group
+async function setGroupBillNo(g,no){
+  for(const r of g.lines){r.bill_no=no;saveRow(r,false);}
+  g.bill_no=no;
 }
 function pickTotal(){
   $('sTotal').textContent=money(pickedRows().reduce((s,g)=>s+g.total,0));
@@ -2820,32 +2885,40 @@ function pickTotal(){
 // Called at the moment a billing is actually issued. The number shown until
 // now was only a preview from the local cache; the real one is taken from the
 // shared counter so two devices cannot mint the same one.
-async function issueBillNo(){
-  const t=billTypeFor();
+// Claims a number for any picked billing that has not been issued yet, and
+// reuses the stored one for those that have.
+async function issueBillNos(){
+  const groups=pickedRows();
+  if(!groups.length)return '';
   const typed=$('sNo').value.trim();
-  if(typed&&typed!==sNoAuto){        // hand-typed: keep it, raise the counter
-    await raiseBillNo(t,typed);
+  const single=groups.length===1?groups[0]:null;
+
+  // one draft billing with a hand-typed number: honour it, stored or not
+  if(single&&single.status==='DRAFT'&&typed&&typed!==single.bill_no){
+    await raiseBillNo(typeOf(single),typed);
+    await setGroupBillNo(single,typed);
+    $('sNo').value=typed;sNoAuto=typed;
     return typed;
   }
-  if(online()&&authed()){
-    try{
+  for(const g of groups){
+    if(g.bill_no)continue;                 // already issued — never re-claim
+    const t=typeOf(g);
+    let no;
+    if(online()&&authed()){
       const n=await claimBillNo(t);
-      const no=billPrefixOf(t)+'-'+yy2()+'-'+String(n).padStart(3,'0');
-      $('sNo').value=no;sNoAuto=no;
-      return no;
-    }catch(e){
-      toast(e.message||'Could not reserve a billing number',true);
-      throw e;
+      no=billPrefixOf(t)+'-'+yy2()+'-'+String(n).padStart(3,'0');
+    }else{
+      no=nextBillNo(t);commitBillNo(no,t);
+      toast('Offline — '+no+' is provisional, check it once synced',true);
     }
+    await setGroupBillNo(g,no);
   }
-  // Offline: fall back to the device's own counter and say so, because
-  // another device could be issuing the same number right now.
-  const no=nextBillNo(t);
-  commitBillNo(no,t);
-  $('sNo').value=no;sNoAuto=no;
-  toast('Offline — '+no+' is provisional, check it once synced',true);
-  return no;
+  const all=uniq(groups.map(g=>g.bill_no).filter(Boolean));
+  const val=all.join(', ');
+  $('sNo').value=val;sNoAuto=val;
+  return val;
 }
+
 $('sClient').onchange=()=>{$('sEmail').value=billingEmail($('sClient').value);buildPick();};
 $('sFrom').onchange=buildPick;$('sTo').onchange=buildPick;
 $('sType').onchange=buildPick;
@@ -2860,11 +2933,19 @@ function offerMarkBilled(list){
   toast(list.length+' marked billed');
 }
 
+// Preview prints the document without claiming a number or marking anything.
+$('sPreview').onclick=()=>{
+  const list=pickedRows();
+  if(!list.length){toast('Pick at least one billing',true);return;}
+  renderStatement(list,{preview:!list.every(g=>g.bill_no)});
+  hide();
+  setTimeout(()=>window.print(),220);
+};
 $('sPrint').onclick=async()=>{
   const list=pickedRows();
   if(!list.length){toast('Pick at least one document',true);return;}
   const btn=$('sPrint');btn.disabled=true;
-  try{ await issueBillNo(); }
+  try{ await issueBillNos(); }
   finally{ btn.disabled=false; }
   renderStatement(list);
   hide();
@@ -2923,11 +3004,10 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-tot .grand td{font-size:13px;font-weight:bold;border-top:1px solid #000;padding-top:8px}
 .words{margin-top:8px;font-size:10.5px;font-style:italic;border:1px solid #000;padding:7px 10px}
 .words b{font-style:normal;letter-spacing:.1em;font-size:8.5px;text-transform:uppercase}
-.stmt-sig{display:flex;gap:40px;margin-top:34px}
-.stmt-sig div{flex:1}
-.stmt-sig .k{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:#555;font-weight:bold;margin-bottom:34px}
-.stmt-sig .l{border-top:1px solid #000;padding-top:4px;font-size:11px;font-weight:bold}
-.stmt-sig .r{font-size:9.5px;color:#444}
+.stmt-hd .rt .pv{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#B4142A;font-weight:bold;margin-top:2px}
+.stmt-close{margin-top:16px}
+.stmt-close .ty{font-size:11.5px;font-weight:bold}
+.stmt-close .pb{font-size:10.5px;color:#333;margin-top:5px}
 .stmt-ft{margin-top:22px;padding-top:8px;border-top:1px solid #ccc;font-size:9px;color:#666;display:flex}
 .stmt-ft span:last-child{margin-left:auto;font-family:Consolas,monospace}`;
 
@@ -2943,7 +3023,12 @@ $('sEmailBtn').onclick=async()=>{
   if(!list.length){toast('Pick at least one document',true);return;}
   if(!online()||!authed()){toast('Sign in to email a statement',true);return;}
   if(queue.length){toast('Sync the '+queue.length+' pending change(s) first',true);return;}
-  const to=$('sEmail').value.trim();
+  let to=$('sEmail').value.trim();
+  if(!to){
+    // nothing on file for this client yet — ask once, then remember it
+    to=String(prompt('Billing email for '+$('sClient').value+':','')||'').trim();
+    $('sEmail').value=to;
+  }
   if(!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(to)){
     toast('Add a valid billing email first',true);$('sEmail').focus();return;
   }
@@ -2959,7 +3044,7 @@ $('sEmailBtn').onclick=async()=>{
       toast('Could not save the billing email — try again once synced',true);
       return;
     }
-    const issued=await issueBillNo();
+    const issued=await issueBillNos();
     renderStatement(list);
     await fnPost('send-statement',{
       to:to,
@@ -2993,10 +3078,11 @@ function payBlock(){
     </div>`;
 }
 
-function renderStatement(picked){
+function renderStatement(picked,opts){
   const rec=clientRec($('sClient').value);
   // accept a bare row as a group of one, so a caller holding a single line
   // does not have to build the wrapper itself
+  const o=opts||{};
   const groups=(picked||[]).filter(Boolean).map(g=>g.lines?g:groupOf([g]));
   const list=groups.reduce((a,g)=>a.concat(g.lines),[]);
   const codes=uniq(groups.map(g=>g.code));
@@ -3020,6 +3106,7 @@ function renderStatement(picked){
       <div class="rt">
         <div class="t">Billing</div>
         <div class="n">${esc($('sNo').value)}</div>
+        ${o.preview?`<div class="pv">Preview — not yet issued</div>`:''}
         <div class="d">${fmtDate(today())}</div>
       </div>
     </div>
@@ -3057,9 +3144,9 @@ function renderStatement(picked){
     </table>
     <div class="words"><b>Amount in words</b><br>${esc(pesoWords(grand))}</div>
     ${payBlock()}
-    <div class="stmt-sig">
-      <div><div class="k">Prepared by</div><div class="l">${esc(cfg.signer||'')}</div><div class="r">${esc(cfg.role||'')}</div></div>
-      <div><div class="k">Received / conforme</div><div class="l">&nbsp;</div><div class="r">${esc(client)} — signature over printed name / date</div></div>
+    <div class="stmt-close">
+      <div class="ty">Thank you for your business.</div>
+      ${cfg.showPrepared&&cfg.signer?`<div class="pb">Prepared by: ${esc(cfg.signer)}${cfg.role?', '+esc(cfg.role):''}</div>`:''}
     </div>
     <div class="stmt-ft"><span>Please reference the billing code on payment advice.</span><span>${esc($('sNo').value)}</span></div>
   </div>`;
@@ -3108,6 +3195,8 @@ alter table drawing_billing
 -- group's id and its shared tracking code, so the code is no longer unique
 -- per row. Existing rows become single-line groups keeping their own code.
 alter table drawing_billing add column if not exists group_id text;
+-- the billing number, claimed once for a group and reused by later prints
+alter table drawing_billing add column if not exists bill_no text;
 alter table drawing_billing drop constraint if exists drawing_billing_code_key;
 update drawing_billing set group_id = id::text where group_id is null;
 
@@ -3275,6 +3364,7 @@ function openCfg(){
   $('cRate').value=cfg.rate||'';$('cPrefix').value=cfg.root;
   $('cCo').value=cfg.company;$('cAddr').value=cfg.address;$('cContact').value=cfg.contact;
   $('cSigner').value=cfg.signer;$('cRole').value=cfg.role;
+  $('cPrepared').checked=!!cfg.showPrepared;
   $('cSqlBox').value=sqlText();
   const who=authed();
   $('cWho').textContent=who?(session.email||'Signed in'):'Not signed in';
@@ -3324,6 +3414,7 @@ $('cSave').onclick=async()=>{
   if(!cfg.types.length)cfg.types=[{code:DEF_TYPE,label:'Drawing'}];
   cfg.company=$('cCo').value.trim();cfg.address=$('cAddr').value.trim();cfg.contact=$('cContact').value.trim();
   cfg.signer=$('cSigner').value.trim();cfg.role=$('cRole').value.trim();
+  cfg.showPrepared=$('cPrepared').checked;
   saveCfg();pushSharedSettings();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
   hide();toast('Settings saved');
   if(online()&&!authed()){showGate();return;}
