@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#101F2E">
-<title>RSR Drawing Billing</title>
+<meta name="robots" content="noindex, nofollow">
+<title>RSR Billing</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -71,6 +72,52 @@ header.top{
 .dot.err{background:var(--rsr)}
 .dot.busy{background:#43C08A;animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ---------- segmented controls ---------- */
+.seg{
+  display:flex;gap:4px;padding:4px;margin:0 16px 12px;border-radius:11px;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)
+}
+.seg button{
+  flex:1;min-width:0;padding:9px 8px;border-radius:8px;font-size:13px;font-weight:600;
+  color:rgba(255,255,255,.62);letter-spacing:.01em;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;transition:background .15s,color .15s
+}
+.seg button.on{background:var(--rsr);color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18)}
+.seg button:not(.on):hover{color:#fff;background:rgba(255,255,255,.07)}
+/* the sub row sits on paper, not on the dark header */
+.seg.sub{
+  margin:0;background:var(--card);border:1px solid var(--line);width:100%
+}
+.seg.sub button{color:var(--slate);font-size:12.5px;padding:9px 6px}
+.seg.sub button.on{background:var(--ink);color:#fff}
+.seg.sub button:not(.on):hover{color:var(--ink);background:var(--paper)}
+
+/* ---------- create billing ---------- */
+.make{padding:14px 16px 0;display:flex;flex-direction:column;gap:10px}
+.make-hd{display:flex;align-items:center;gap:11px;margin-bottom:2px}
+.make-t h2{margin:0;font-size:16px;font-weight:700;letter-spacing:-.01em}
+.make-t p{margin:1px 0 0;font-size:12.5px;color:var(--slate);line-height:1.4}
+.mk{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:14px 13px;box-shadow:var(--shadow)
+}
+.mk:hover{border-color:var(--ink2)}
+.mk .ic{
+  width:38px;height:38px;flex:0 0 auto;border-radius:10px;display:grid;place-items:center;
+  background:var(--paper);color:var(--ink);border:1px solid var(--line)
+}
+.mk .ic svg{width:18px;height:18px}
+.mk .tx{min-width:0;flex:1}
+.mk .tx b{display:block;font-size:14.5px;font-weight:700}
+.mk .tx i{display:block;font-style:normal;font-size:12px;color:var(--slate);margin-top:2px;line-height:1.35}
+.mk .ch{margin-left:auto;color:var(--slate);font-size:19px;line-height:1}
+.mk-recent{margin-top:4px;display:flex;flex-direction:column;gap:9px}
+.mk-recent .rt{
+  font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--slate);
+  font-weight:700;padding-bottom:6px;border-bottom:1px solid var(--line)
+}
 
 /* ---------- totals ---------- */
 .totals{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
@@ -233,6 +280,9 @@ header.top{
 
 /* ---------- desktop ---------- */
 @media(min-width:760px){
+  .seg{max-width:340px;margin-left:16px}
+  .seg.sub{max-width:460px;margin:0}
+  .make{padding:18px 20px 0;max-width:560px}
   .totals{grid-template-columns:repeat(3,1fr)}
   .tcell{padding:16px 20px}
   .tcell .val{font-size:22px}
@@ -383,7 +433,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   <div class="gate-box">
     <div class="mark">RSR</div>
     <div class="eb">RSR Engineering Services</div>
-    <h2>Drawing Billing</h2>
+    <h2>RSR Billing</h2>
     <p id="gMsg">Sign in to open the billing records.</p>
     <label for="gEmail">Email</label>
     <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" autocapitalize="off" spellcheck="false">
@@ -401,7 +451,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="top-in">
       <div class="mark">RSR</div>
       <div class="brand">
-        <h1>Drawing Billing</h1>
+        <h1>RSR Billing</h1>
         <p id="brandSub">RSR Engineering Services</p>
       </div>
       <div class="top-actions">
@@ -414,44 +464,78 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
         </button>
       </div>
     </div>
-    <div class="totals">
+    <div class="seg" id="mainTabs" role="tablist" aria-label="Sections">
+      <button role="tab" data-tab="mon" class="on" aria-selected="true">Monitoring</button>
+      <button role="tab" data-tab="new" aria-selected="false">Create Billing</button>
+    </div>
+    <div class="totals" id="totals">
       <div class="tcell draft"><div class="lbl">Unbilled</div><div class="val" id="tDraft">₱0</div><div class="sub" id="cDraft">0 items</div></div>
       <div class="tcell recv"><div class="lbl">Receivable</div><div class="val" id="tRecv">₱0</div><div class="sub" id="cRecv">0 items</div></div>
       <div class="tcell paid"><div class="lbl">Collected</div><div class="val" id="tPaid">₱0</div><div class="sub" id="cPaid">0 items</div></div>
     </div>
   </header>
 
-  <div class="toolbar">
-    <div class="search">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-      <input id="q" type="search" placeholder="Search code, vessel, drawing, client…" autocomplete="off">
+  <!-- ===== Monitoring ===== -->
+  <section id="viewMon">
+    <div class="toolbar">
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="q" type="search" placeholder="Search code, vessel, title, client…" autocomplete="off">
+      </div>
+      <div class="selects">
+        <select id="fType" aria-label="Filter by document type"><option value="">All types</option></select>
+        <select id="fClient"><option value="">All clients</option></select>
+        <select id="fMonth"><option value="">All months</option></select>
+      </div>
     </div>
-    <div class="selects">
-      <select id="fType" aria-label="Filter by document type"><option value="">All types</option></select>
-      <select id="fClient"><option value="">All clients</option></select>
-      <select id="fMonth"><option value="">All months</option></select>
+    <div class="toolbar" style="padding-top:0">
+      <div class="chips" id="chips"></div>
     </div>
-  </div>
-  <div class="toolbar" style="padding-top:0">
-    <div class="chips" id="chips"></div>
-  </div>
+    <div class="list" id="list"></div>
+  </section>
 
-  <div class="list" id="list"></div>
+  <!-- ===== Create Billing ===== -->
+  <section id="viewNew" hidden>
+    <div class="toolbar">
+      <div class="seg sub" id="typeTabs" role="tablist" aria-label="Document type">
+        <button role="tab" data-type="UT" aria-selected="false">UTG</button>
+        <button role="tab" data-type="DW" class="on" aria-selected="true">Drawing</button>
+        <button role="tab" data-type="DC" aria-selected="false">Drydocking Cert</button>
+      </div>
+    </div>
+    <div class="make">
+      <div class="make-hd">
+        <span class="code" id="mkCode">—</span>
+        <div class="make-t"><h2 id="mkTitle">Drawing</h2><p id="mkSub">Everything added here is billed as a drawing.</p></div>
+      </div>
+
+      <button class="drop" id="mkDrop" type="button" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15l3-3 3 3"/></svg>
+        <div class="t">Drop PDF drawings here</div>
+        <div class="s">or tap to choose files — one PDF, one billing line</div>
+      </button>
+
+      <button class="mk" id="mkCat" type="button">
+        <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg></span>
+        <span class="tx"><b>From catalog</b><i id="mkCatSub">Tick your standard items and bill them in one go.</i></span>
+        <span class="ch">›</span>
+      </button>
+
+      <button class="mk" id="mkOne" type="button">
+        <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+        <span class="tx"><b>Add manually</b><i id="mkOneSub">One record, filled in by hand.</i></span>
+        <span class="ch">›</span>
+      </button>
+
+      <div class="mk-recent" id="mkRecent"></div>
+    </div>
+  </section>
 </div>
 
-<div class="fab-bar">
-  <button class="fab" id="btnNew">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-    New drawing
-  </button>
-  <button class="fab alt" id="btnCat" title="From catalog" aria-label="Add from drawing catalog">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>
-  </button>
-  <button class="fab alt" id="btnImport" title="Import PDF drawings" aria-label="Import PDF drawings">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 9l5-5 5 5"/><path d="M12 4v12"/></svg>
-  </button>
-  <button class="fab alt" id="btnStmt" title="Billing statement" aria-label="Billing statement">
+<div class="fab-bar" id="fabMon">
+  <button class="fab" id="btnStmt">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><path d="M6 17H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/></svg>
+    Billing statement
   </button>
 </div>
 
@@ -470,18 +554,18 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   <div class="sheet-body">
     <div class="amt-preview"><div><div class="lbl">Amount</div></div><div class="val" id="ePrev">₱0.00</div></div>
     <div class="f-row">
-      <div class="f"><label for="eType">Document type</label><select id="eType"></select></div>
+      <div class="f"><label for="eType">Document type</label><select id="eType"></select><div class="hint" id="eTypeHint" hidden>Set by the tab you opened this from.</div></div>
       <div class="f"><label for="eDate">Date</label><input id="eDate" type="date"></div>
     </div>
     <div class="f"><label for="eCode">Billing code</label><input id="eCode" class="mono-in" autocomplete="off"></div>
     <div class="f"><label for="eClient">Client</label><input id="eClient" list="dlClients" autocomplete="off" placeholder="e.g. Seaford Shipping Lines"><datalist id="dlClients"></datalist></div>
     <div class="f"><label for="eVessel">Vessel</label><input id="eVessel" list="dlVessels" autocomplete="off" placeholder="e.g. MV SF Voyager"><datalist id="dlVessels"></datalist></div>
     <div class="f-row">
-      <div class="f" style="flex:1"><label for="eDwgNo">Drawing no.</label><input id="eDwgNo" class="mono-in" autocomplete="off" placeholder="optional"></div>
+      <div class="f" style="flex:1"><label for="eDwgNo" id="eRefLbl">Drawing no.</label><input id="eDwgNo" class="mono-in" autocomplete="off" placeholder="optional"></div>
       <div class="f" style="flex:0 0 96px"><label for="eQty">Qty</label><input id="eQty" type="number" inputmode="numeric" min="1" step="1" value="1"></div>
     </div>
-    <div class="f"><label for="eTitle">Drawing title</label><input id="eTitle" autocomplete="off" placeholder="e.g. Shell Expansion Plan"></div>
-    <div class="f"><label for="eRate">Rate per drawing (₱)</label><input id="eRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
+    <div class="f"><label for="eTitle">Title</label><input id="eTitle" autocomplete="off" placeholder="e.g. Shell Expansion Plan"></div>
+    <div class="f"><label for="eRate">Rate per item (₱)</label><input id="eRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
 
     <div class="sect-t">Status</div>
     <div class="f-row">
@@ -527,7 +611,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
         <div class="f" style="flex:1.4"><label for="iVessel">Vessel</label><input id="iVessel" list="dlVessels" autocomplete="off" placeholder="detected from title block"></div>
         <div class="f"><label for="iDate">Date</label><input id="iDate" type="date"></div>
       </div>
-      <div class="f"><label for="iType">Document type</label><select id="iType"></select></div>
+      <div class="f" id="iTypeWrap" hidden><label for="iType">Document type</label><select id="iType"></select></div>
       <div class="f"><label for="iRate">Rate per drawing (₱)</label><input id="iRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
       <label class="chk"><input type="checkbox" id="iPages"><span>Charge each sheet<span class="s">A 3-page PDF bills as qty 3 instead of qty 1.</span></span></label>
       <label class="chk" id="iUpWrap" hidden><input type="checkbox" id="iUpload"><span>Attach the PDF to each record<span class="s">Uploads to Supabase Storage so the file opens from the billing line.</span></span></label>
@@ -559,7 +643,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div id="catEmpty" hidden>
       <div class="empty" style="padding:34px 10px">
         <h3>No catalog items yet</h3>
-        <p>Add the drawings you bill over and over — shell expansion, midship section, docking plan — then pick them here.</p>
+        <p id="catEmptyMsg">Add the items you bill over and over, then pick them here.</p>
         <button class="act" id="catToCfg" type="button">Set up the catalog</button>
       </div>
     </div>
@@ -570,8 +654,8 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
         <div class="f" style="flex:1.4"><label for="kVessel">Vessel</label><input id="kVessel" list="dlVessels" autocomplete="off" placeholder="e.g. MV SF Voyager"></div>
         <div class="f"><label for="kDate">Date</label><input id="kDate" type="date"></div>
       </div>
-      <div class="f"><label for="kRate">Rate per drawing (₱)</label><input id="kRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"><div class="hint">Items with their own default rate keep it.</div></div>
-      <div class="f"><label for="kType">Document type</label><select id="kType"></select><div class="hint">Each item carries its own type — this only narrows the list below.</div></div>
+      <div class="f"><label for="kRate">Rate per item (₱)</label><input id="kRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"><div class="hint">Items with their own default rate keep it.</div></div>
+      <div class="f" id="kTypeWrap"><label for="kType">Document type</label><select id="kType"></select><div class="hint">Each item carries its own type — this only narrows the list below.</div></div>
 
       <div class="sect-t" style="display:flex;align-items:center">Documents<span style="margin-left:auto;font-family:var(--mono);font-size:12px;letter-spacing:0;text-transform:none" id="kTotal">₱0.00</span></div>
       <div style="display:flex;gap:8px;margin-bottom:9px">
@@ -609,6 +693,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <select id="sVat"><option value="0">None</option><option value="12">Plus 12% VAT</option><option value="-2">Less 2% withholding tax</option></select>
     </div>
     <div class="f"><label for="sType">Document type</label><select id="sType"></select></div>
+    <div class="f"><label for="sEmail">Billing email</label><input id="sEmail" type="email" inputmode="email" autocomplete="off" spellcheck="false" placeholder="billing@client.com"><div class="hint">Saved against this client and reused next time.</div></div>
     <div class="sect-t">Include these documents</div>
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <button class="act" id="sAll">Select all</button>
@@ -619,7 +704,8 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   </div>
   <div class="sheet-foot">
     <button class="btn-ghost" data-close>Cancel</button>
-    <button class="btn-fill" id="sPrint">Print statement</button>
+    <button class="btn-ghost" id="sEmailBtn">Email</button>
+    <button class="btn-fill" id="sPrint">Print</button>
   </div>
 </div>
 
@@ -646,20 +732,20 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="f" id="sqlWrap" hidden><textarea id="cSqlBox" readonly class="mono-in" style="min-height:210px;font-size:11px;line-height:1.5"></textarea><div class="hint">Copy this into Supabase → SQL Editor → Run. Safe to re-run on an existing table.</div></div>
 
     <div class="sect-t">PDF attachments</div>
-    <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. If set, create a <b>public</b> bucket with that name under Storage.</div></div>
+    <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. The SQL below creates this bucket <b>private</b> — attachments open through a link that is signed for one hour when you tap them, so the files are never public.</div></div>
 
     <div class="sect-t">Document types</div>
     <div class="hint" style="margin:-4px 0 9px">The code goes into every billing number — <span style="font-family:var(--mono)" id="typeSample"></span> — and each type counts on its own each month. Changing a code here does not touch records already saved.</div>
     <div class="pick" id="cTypeList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cTypeAdd" type="button">Add type</button></div>
 
-    <div class="sect-t" style="display:flex;align-items:center">Drawing catalog<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCatCount"></span></div>
-    <div class="hint" style="margin:-4px 0 9px">Your standard drawings, offered under <b>From catalog</b>. Unticking keeps past billing intact and only hides the item from the picker.</div>
+    <div class="sect-t" style="display:flex;align-items:center">Catalog<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCatCount"></span></div>
+    <div class="hint" style="margin:-4px 0 9px">Your standard items, offered under <b>From catalog</b>. Unticking keeps past billing intact and only hides the item from the picker.</div>
     <div class="pick" id="cCatList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cCatAdd" type="button">Add item</button></div>
 
     <div class="sect-t">Billing defaults</div>
-    <div class="f"><label for="cRate">Standard rate per drawing (₱)</label><input id="cRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
+    <div class="f"><label for="cRate">Standard rate per item (₱)</label><input id="cRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
     <div class="f"><label for="cPrefix">Code root</label><input id="cPrefix" class="mono-in"><div class="hint">Codes come out as <span id="codeSample" style="font-family:var(--mono)"></span> — root, document type, month — and each type restarts at 001 every month.</div></div>
 
     <div class="sect-t">Company details on statements</div>
@@ -689,18 +775,12 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 
 /* ================= constants & helpers ================= */
 const LS_CFG='rsr_dwg_cfg_v1', LS_ROWS='rsr_dwg_rows_v1', LS_Q='rsr_dwg_queue_v1';
-const LS_CAT='rsr_dwg_catalog_v1';
-const CAT_TABLE='drawing_catalog';
+const LS_CAT='rsr_dwg_catalog_v1', LS_CLI='rsr_dwg_clients_v1';
+const CAT_TABLE='drawing_catalog', CLI_TABLE='clients';
 const STATUSES=['DRAFT','BILLED','PAID'];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'₱'+(Number(n)||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
-// escaping alone does not stop javascript:/data: in an href, so vet the scheme
-function safeUrl(u){
-  if(!u)return'';
-  try{const p=new URL(String(u),location.href);return /^https?:$/.test(p.protocol)?p.href:'';}
-  catch(e){return'';}
-}
 const moneyShort=n=>{n=Number(n)||0;return n>=1e6?'₱'+(n/1e6).toFixed(2)+'M':money(n).replace(/\.00$/,'');};
 const today=()=>new Date().toISOString().slice(0,10);
 const uid=()=>'loc-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
@@ -740,11 +820,36 @@ try{Object.assign(cfg,JSON.parse(localStorage.getItem(LS_CFG)||'{}'));}catch(e){
 
 /* ================= document types ================= */
 const DEF_TYPE='DW';
+// The three types the Create Billing tabs are built around. Extra types can
+// still be added in Settings; they show up in the filters and on records,
+// they just do not get a tab of their own.
+const BUILT_IN=[
+  {code:'UT',label:'UTG Report',            ref:'Report no.',      tab:'UTG',
+   title:'UTG report',            sub:'Everything added here is billed as a UTG report.'},
+  {code:'DW',label:'Drawing',               ref:'Drawing no.',     tab:'Drawing',
+   title:'Drawing',               sub:'Everything added here is billed as a drawing.'},
+  {code:'DC',label:'Drydocking Certificate',ref:'Certificate no.', tab:'Drydocking Cert',
+   title:'Drydocking certificate',sub:'Everything added here is billed as a drydocking certificate.'}
+];
+const TAB_TYPES=BUILT_IN.map(t=>t.code);
+const builtIn=c=>BUILT_IN.find(t=>t.code===String(c||'').toUpperCase());
+
 // Codes used to be {prefix}-MMYYYY-### with one prefix for everything. They are
 // now {root}-{type}-MMYYYY-###, so the old prefix is split into a root once.
 if(!cfg.root)cfg.root=String(cfg.prefix||'RSR-DWG').replace(/-DWG$/i,'')||'RSR';
 if(!Array.isArray(cfg.types)||!cfg.types.length)
-  cfg.types=[{code:'DW',label:'Drawing'},{code:'DC',label:'Drydocking Certificate'}];
+  cfg.types=BUILT_IN.map(t=>({code:t.code,label:t.label,ref:t.ref}));
+// an older install has DW and DC but no UT, and no ref labels
+BUILT_IN.forEach(b=>{
+  const t=cfg.types.find(x=>String(x.code||'').toUpperCase()===b.code);
+  if(!t)cfg.types.push({code:b.code,label:b.label,ref:b.ref});
+  else if(!t.ref)t.ref=b.ref;
+});
+cfg.types.sort((a,b)=>{
+  const ia=TAB_TYPES.indexOf(String(a.code||'').toUpperCase());
+  const ib=TAB_TYPES.indexOf(String(b.code||'').toUpperCase());
+  return (ia<0?99:ia)-(ib<0?99:ib);
+});
 
 const saveCfg=()=>localStorage.setItem(LS_CFG,JSON.stringify(cfg));
 const online=()=>!!(cfg.url&&cfg.key);
@@ -753,7 +858,16 @@ const typeList=()=>cfg.types.filter(t=>t&&t.code);
 const typeOf=r=>String((r&&r.doc_type)||DEF_TYPE).toUpperCase();
 function typeLabel(c){
   const t=typeList().find(x=>x.code===String(c||'').toUpperCase());
-  return t?t.label:String(c||'');
+  if(t&&t.label)return t.label;
+  const b=builtIn(c);
+  return b?b.label:String(c||'');
+}
+// what the reference-number field is called for a given type
+function refLabel(c){
+  const t=typeList().find(x=>x.code===String(c||'').toUpperCase());
+  if(t&&t.ref)return t.ref;
+  const b=builtIn(c);
+  return b?b.ref:'Ref no.';
 }
 // keeps a record's own type selectable even if that type was later removed
 function typeOptions(cur,allLabel){
@@ -768,13 +882,16 @@ function typeOptions(cur,allLabel){
 let rows=[];
 let queue=[];
 let catalog=[];
+let clients=[];
 try{rows=JSON.parse(localStorage.getItem(LS_ROWS)||'[]');}catch(e){rows=[];}
 try{queue=JSON.parse(localStorage.getItem(LS_Q)||'[]');}catch(e){queue=[];}
 try{catalog=JSON.parse(localStorage.getItem(LS_CAT)||'[]');}catch(e){catalog=[];}
+try{clients=JSON.parse(localStorage.getItem(LS_CLI)||'[]');}catch(e){clients=[];}
 const persist=()=>{
   localStorage.setItem(LS_ROWS,JSON.stringify(rows));
   localStorage.setItem(LS_Q,JSON.stringify(queue));
   localStorage.setItem(LS_CAT,JSON.stringify(catalog));
+  localStorage.setItem(LS_CLI,JSON.stringify(clients));
 };
 
 let filters={q:'',status:'ALL',client:'',month:'',type:''};
@@ -883,7 +1000,7 @@ async function flushQueue(){
   for(const job of queue){
     // jobs written before the catalog existed carry neither field
     const tbl=job.table||cfg.table;
-    const store=job.store==='catalog'?catalog:rows;
+    const store=job.store==='catalog'?catalog:job.store==='clients'?clients:rows;
     try{
       if(job.op==='insert'){
         const out=await sb(tbl,{method:'POST',body:JSON.stringify(job.data)});
@@ -914,6 +1031,11 @@ async function pull(quiet){
       const catPending=catalog.filter(c=>String(c.id).startsWith('loc-'));
       catalog=(cat||[]).concat(catPending);
     }catch(e){/* catalog table not created yet — the cached copy still works */}
+    try{
+      const cl=await sb(CLI_TABLE+'?select=*&order=name.asc');
+      const cliPending=clients.filter(c=>String(c.id).startsWith('loc-'));
+      clients=(cl||[]).concat(cliPending);
+    }catch(e){/* clients table not created yet */}
     persist();render();
     setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
   }catch(err){
@@ -1004,7 +1126,7 @@ function render(){
   if(!vis.length){
     L.innerHTML=rows.length
       ? `<div class="empty"><h3>Nothing matches</h3><p>Try a different status, client or month.</p><button class="act" id="clearF">Clear filters</button></div>`
-      : `<div class="empty"><h3>No drawings billed yet</h3><p>Add your first drawing and the tracking code is generated for you.</p><button class="act" id="firstAdd">Add a drawing</button></div>`;
+      : `<div class="empty"><h3>Nothing billed yet</h3><p>Add your first item and the tracking code is generated for you.</p><button class="act" id="firstAdd">Add an item</button></div>`;
     const cf=$('clearF');if(cf)cf.onclick=()=>{filters={q:'',status:'ALL',client:'',month:'',type:''};$('q').value='';render();};
     const fa=$('firstAdd');if(fa)fa.onclick=()=>openEntry(null);
     return;
@@ -1017,8 +1139,8 @@ function render(){
     meta.push(`<span class="m">${fmtDate(r.bill_date)}</span>`);
     if(Number(r.qty)>1)meta.push(`<span class="m">${r.qty} × ${money(r.rate)}</span>`);
     if(r.invoice_no)meta.push(`<span class="m">SI ${esc(r.invoice_no)}</span>`);
-    const href=safeUrl(r.file_url);
-    if(href)meta.push(`<a class="pdflink" href="${esc(href)}" target="_blank" rel="noopener noreferrer">PDF</a>`);
+    // private bucket: the URL is signed at tap time, so this is a button
+    if(r.file_url)meta.push(`<button type="button" class="pdflink" data-pdf="${esc(r.id)}">PDF</button>`);
     else if(r.file_name)meta.push(`<span class="m" title="${esc(r.file_name)}">PDF</span>`);
     let acts='';
     if(r.status==='DRAFT')acts=`<button class="act primary" data-mark="BILLED" data-id="${esc(r.id)}">Mark billed</button>`;
@@ -1122,6 +1244,54 @@ async function catReorder(list){
 }
 const syncBadge=()=>setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
 
+/* ---- per-client billing email ---- */
+const clientRec=name=>clients.find(c=>String(c.name||'')===String(name||''));
+const billingEmail=name=>{const c=clientRec(name);return c?(c.billing_email||''):'';};
+async function setBillingEmail(name,email){
+  name=String(name||'').trim();
+  if(!name)return;
+  let c=clientRec(name);
+  if(c){
+    if(String(c.billing_email||'')===String(email||''))return;
+    c.billing_email=email;
+    if(String(c.id).startsWith('loc-')){
+      const j=queue.find(q=>q.op==='insert'&&q.localId===c.id);
+      if(j)j.data={name:c.name,billing_email:email};
+    }else{
+      queue=queue.filter(q=>!(q.op==='update'&&q.id===c.id));
+      queue.push({op:'update',store:'clients',table:CLI_TABLE,id:c.id,data:{name:name,billing_email:email}});
+    }
+  }else{
+    c={id:uid(),name:name,billing_email:email};
+    clients.push(c);
+    queue.push({op:'insert',store:'clients',table:CLI_TABLE,localId:c.id,data:{name:name,billing_email:email}});
+  }
+  persist();
+  if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+}
+
+/* ---- edge functions ---- */
+async function fnPost(name,body,retried){
+  if(!online())throw new Error('No project configured');
+  if(!authed())throw new Error('Sign in first');
+  const res=await fetch(cfg.url.replace(/\/+$/,'')+'/functions/v1/'+name,{
+    method:'POST',
+    headers:{'apikey':cfg.key,'Authorization':'Bearer '+bearer(),'Content-Type':'application/json'},
+    body:JSON.stringify(body||{})
+  });
+  if((res.status===401||res.status===403)&&!retried&&authed()){
+    if(await refreshSession())return fnPost(name,body,true);
+    showGate('Your session expired. Sign in again.');
+    throw new Error('Session expired');
+  }
+  let d={};try{d=await res.json();}catch(e){}
+  if(!res.ok||d.ok===false){
+    if(res.status===404)throw new Error('The send-statement function is not deployed yet');
+    throw new Error(d.error||d.message||('HTTP '+res.status));
+  }
+  return d;
+}
+
 async function deleteRow(id){
   rows=rows.filter(r=>r.id!==id);
   if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
@@ -1211,15 +1381,22 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=hide);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')hide();});
 
 /* ---- entry ---- */
-function openEntry(id){
+function openEntry(id,forceType){
   editingId=id;
   const r=id?rows.find(x=>x.id===id):null;
-  $('entryEyebrow').textContent=r?'Record '+(r.code||''):'New record';
-  $('entryTitle').textContent=r?'Edit drawing':'Drawing details';
+  const t=r?typeOf(r):(forceType||DEF_TYPE);
+  const b=builtIn(t);
+  $('entryEyebrow').textContent=r?'Record '+(r.code||''):'New '+(b?b.title.toLowerCase():'record');
+  $('entryTitle').textContent=r?'Edit record':(b?b.title:'Details');
   $('eDelete').hidden=!r;
   $('eDate').value=r?String(r.bill_date||today()).slice(0,10):today();
-  $('eType').innerHTML=typeOptions(r?typeOf(r):DEF_TYPE);
-  $('eCode').value=r?(r.code||''):nextCode($('eDate').value,$('eType').value);
+  $('eType').innerHTML=typeOptions(t);
+  // opened from a Create Billing tab, the type is what that tab is for
+  const locked=!r&&!!forceType;
+  $('eType').disabled=locked;
+  $('eTypeHint').hidden=!locked;
+  $('eRefLbl').textContent=refLabel(t);
+  $('eCode').value=r?(r.code||''):nextCode($('eDate').value,t);
   $('eClient').value=r?(r.client||''):(filters.client||'');
   $('eVessel').value=r?(r.vessel||''):'';
   $('eDwgNo').value=r?(r.drawing_no||''):'';
@@ -1237,11 +1414,11 @@ function prev(){$('ePrev').textContent=money((Number($('eQty').value)||0)*(Numbe
 $('eQty').oninput=prev;$('eRate').oninput=prev;
 const reCode=()=>{if(!editingId)$('eCode').value=nextCode($('eDate').value,$('eType').value);};
 $('eDate').onchange=reCode;
-$('eType').onchange=reCode;
+$('eType').onchange=()=>{$('eRefLbl').textContent=refLabel($('eType').value);reCode();};
 
 $('eSave').onclick=async()=>{
   const title=$('eTitle').value.trim();
-  if(!title){toast('Add a drawing title first',true);$('eTitle').focus();return;}
+  if(!title){toast('Add a title first',true);$('eTitle').focus();return;}
   if(!$('eClient').value.trim()){toast('Add a client first',true);$('eClient').focus();return;}
   const base=editingId?Object.assign({},rows.find(r=>r.id===editingId)):{};
   const row=Object.assign(base,{
@@ -1266,7 +1443,7 @@ $('eSave').onclick=async()=>{
   if(dup){toast('That code is already used',true);return;}
   hide();
   await saveRow(row,!editingId);
-  toast(editingId?'Changes saved':'Drawing added — '+row.code);
+  toast(editingId?'Changes saved':'Added — '+row.code);
 };
 $('eDelete').onclick=async()=>{
   if(!editingId)return;
@@ -1284,11 +1461,16 @@ function loadPdfJs(){
     if(window.pdfjsLib){res(window.pdfjsLib);return;}
     const s=document.createElement('script');
     s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    // pinned to the published hash for 3.11.174 — a tampered or swapped file
+    // on the CDN will fail to execute rather than run in this page
+    s.integrity='sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ==';
+    s.crossOrigin='anonymous';
+    s.referrerPolicy='no-referrer';
     s.onload=()=>{
       try{window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}catch(e){}
       res(window.pdfjsLib);
     };
-    s.onerror=()=>{pdfLib=null;rej(new Error('reader unavailable'));};
+    s.onerror=()=>{pdfLib=null;rej(new Error('reader unavailable — the PDF library failed its integrity check or could not load'));};
     document.head.appendChild(s);
   });
   return pdfLib;
@@ -1428,7 +1610,9 @@ function renderImp(){
 function openImport(keep){
   if(!keep&&!impFiles.length){$('impForm').hidden=true;$('impStatus').hidden=true;}
   if(!$('iDate').value)$('iDate').value=today();
-  if(!$('iType').options.length)$('iType').innerHTML=typeOptions(DEF_TYPE);
+  // the PDF route only exists under the Drawing tab, so it is always DW
+  $('iType').innerHTML=typeOptions('DW');
+  $('iType').value='DW';
   if(!$('iRate').value)$('iRate').value=cfg.rate||'';
   if(!$('iClient').value&&filters.client)$('iClient').value=filters.client;
   $('iUpWrap').hidden=!(cfg.bucket&&online());
@@ -1481,7 +1665,53 @@ async function uploadPdf(file,code,retried){
     throw new Error('Session expired');
   }
   if(!res.ok){let m='';try{m=(await res.json()).message||'';}catch(e){}throw new Error(m||('HTTP '+res.status));}
-  return base+'/storage/v1/object/public/'+encodeURIComponent(cfg.bucket)+'/'+encodeURIComponent(safe);
+  return safe;   // the bucket is private, so records store the path, not a URL
+}
+
+/* ---- private attachments: sign on demand ---- */
+// tolerates rows written before the bucket was made private
+function objectPath(u){
+  if(!u)return'';
+  let s=String(u).split('?')[0];
+  const m=s.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/[^/]+\/(.+)$/);
+  if(m)s=m[1];
+  try{s=decodeURIComponent(s);}catch(e){}
+  return s.replace(/^\/+/,'');
+}
+async function signedUrl(path,retried){
+  if(!cfg.bucket)throw new Error('No storage bucket configured');
+  const base=cfg.url.replace(/\/+$/,'');
+  const res=await fetch(base+'/storage/v1/object/sign/'+encodeURIComponent(cfg.bucket)+'/'+
+      objectPath(path).split('/').map(encodeURIComponent).join('/'),{
+    method:'POST',
+    headers:{'apikey':cfg.key,'Authorization':'Bearer '+bearer(),'Content-Type':'application/json'},
+    body:JSON.stringify({expiresIn:3600})
+  });
+  if((res.status===401||res.status===403)&&!retried&&authed()){
+    if(await refreshSession())return signedUrl(path,true);
+    showGate('Your session expired. Sign in again.');
+    throw new Error('Session expired');
+  }
+  if(!res.ok){let m='';try{m=(await res.json()).message||'';}catch(e){}throw new Error(m||('HTTP '+res.status));}
+  const d=await res.json();
+  const rel=d.signedURL||d.signedUrl||'';
+  if(!rel)throw new Error('No signed URL returned');
+  return rel.indexOf('http')===0?rel:base+'/storage/v1'+(rel.indexOf('/')===0?'':'/')+rel;
+}
+async function openPdf(id){
+  const r=rows.find(x=>String(x.id)===String(id));
+  if(!r||!r.file_url)return;
+  if(!online()||!authed()){toast('Sign in to open the attachment',true);return;}
+  // opened up front so the tap still counts as a user gesture once signing returns
+  const w=window.open('','_blank');
+  if(w)try{w.opener=null;}catch(e){}
+  try{
+    const u=await signedUrl(r.file_url);
+    if(w)w.location=u;else window.open(u,'_blank','noopener');
+  }catch(e){
+    if(w)try{w.close();}catch(err){}
+    toast(e.message||'Could not open the PDF',true);
+  }
 }
 
 $('iCommit').onclick=async()=>{
@@ -1528,15 +1758,24 @@ $('iCommit').onclick=async()=>{
 let kPicked={};
 const effRate=(c,batch)=>hasRate(c)?Number(c.default_rate):batch;
 
-function openCat(){
-  const items=catActive();
+function openCat(forceType){
+  // opened from a Create Billing tab, the picker only ever shows that type
+  const locked=TAB_TYPES.indexOf(forceType)>-1;
+  $('kTypeWrap').hidden=locked;
+  // unscoped means every type — never inherit the last tab's narrowing
+  $('kType').innerHTML=locked?typeOptions(forceType):typeOptions('','All types');
+  $('kType').value=locked?forceType:'';
+  const items=catShown();
+  const b=locked?builtIn(forceType):null;
+  $('catTitle').textContent=b?('From catalog — '+b.title):'From catalog';
   $('catEmpty').hidden=items.length>0;
   $('catForm').hidden=items.length===0;
+  $('catEmptyMsg').textContent=b
+    ? 'Nothing in the catalog for '+b.title.toLowerCase()+'s yet. Add the ones you bill over and over, then pick them here.'
+    : 'Add the items you bill over and over, then pick them here.';
   if(!$('kDate').value)$('kDate').value=today();
   if(!$('kRate').value)$('kRate').value=cfg.rate||'';
   if(!$('kClient').value&&filters.client)$('kClient').value=filters.client;
-  // defaults to every type: opening the picker should not hide half the catalog
-  $('kType').innerHTML=typeOptions($('kType').value,'All types');
   items.forEach(c=>{if(!(c.id in kPicked))kPicked[c.id]=true;});
   renderCat();show('sheetCat');
 }
@@ -1675,7 +1914,7 @@ function renderCatMgr(){
         <input data-cf="name" data-ci="${esc(c.id)}" value="${esc(c.name||'')}" placeholder="Document name" autocomplete="off">
         <div class="two">
           <select data-cf="doc_type" data-ci="${esc(c.id)}">${typeOptions(typeOf(c))}</select>
-          <input data-cf="drawing_no" data-ci="${esc(c.id)}" value="${esc(c.drawing_no||'')}" placeholder="Drawing no." autocomplete="off">
+          <input data-cf="drawing_no" data-ci="${esc(c.id)}" value="${esc(c.drawing_no||'')}" placeholder="${esc(refLabel(typeOf(c)))}" autocomplete="off">
           <input data-cf="default_rate" data-ci="${esc(c.id)}" value="${c.default_rate==null?'':esc(c.default_rate)}" placeholder="Default rate" type="number" min="0" step="0.01" inputmode="decimal">
         </div>
       </div>
@@ -1763,6 +2002,7 @@ function openStmt(){
   const mm=String(d.getMonth()+1).padStart(2,'0')+d.getFullYear();
   $('sNo').value='RSR-SOA-'+mm+'-001';
   $('sType').innerHTML=typeOptions(filters.type,'All types');
+  $('sEmail').value=billingEmail($('sClient').value);
   buildPick();show('sheetStmt');
 }
 function stmtCandidates(){
@@ -1793,25 +2033,106 @@ function pickedRows(){
     .sort((a,b)=>String(a.bill_date).localeCompare(String(b.bill_date))||String(a.code).localeCompare(String(b.code)));
 }
 function pickTotal(){$('sTotal').textContent=money(pickedRows().reduce((s,r)=>s+amountOf(r),0));}
-$('sClient').onchange=buildPick;$('sFrom').onchange=buildPick;$('sTo').onchange=buildPick;
+$('sClient').onchange=()=>{$('sEmail').value=billingEmail($('sClient').value);buildPick();};
+$('sFrom').onchange=buildPick;$('sTo').onchange=buildPick;
 $('sType').onchange=buildPick;
 $('sAll').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=true);pickTotal();};
 $('sNone').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=false);pickTotal();};
 
+function offerMarkBilled(list){
+  if(!confirm('Mark these '+list.length+' document(s) as BILLED?'))return;
+  list.forEach(r=>{r.status='BILLED';if(!r.billed_date)r.billed_date=today();saveRow(r,false);});
+  toast(list.length+' marked billed');
+}
+
 $('sPrint').onclick=()=>{
   const list=pickedRows();
-  if(!list.length){toast('Pick at least one drawing',true);return;}
+  if(!list.length){toast('Pick at least one document',true);return;}
   renderStatement(list);
   hide();
   setTimeout(()=>{
     window.print();
-    setTimeout(()=>{
-      if(confirm('Mark these '+list.length+' drawing(s) as BILLED?')){
-        list.forEach(r=>{r.status='BILLED';if(!r.billed_date)r.billed_date=today();saveRow(r,false);});
-        toast(list.length+' marked billed');
-      }
-    },400);
+    setTimeout(()=>offerMarkBilled(list),400);
   },220);
+};
+
+/* ---- email the statement ---- */
+// The on-screen statement styling leans on CSS variables and a webfont;
+// neither survives in a mail client, so the emailed copy carries its own
+// stylesheet with literal values.
+const STMT_MAIL_CSS=`
+body{margin:0;padding:18px;background:#fff;color:#000;font-family:Arial,Helvetica,sans-serif;font-size:12px}
+.stmt{max-width:760px;margin:0 auto}
+.stmt-hd{display:flex;gap:14px;align-items:flex-start;border-bottom:3px solid #101F2E;padding-bottom:10px}
+.stmt-hd .m{width:46px;height:46px;background:#B4142A;color:#fff;text-align:center;line-height:46px;font-weight:bold;font-size:16px;border-radius:8px}
+.stmt-hd h1{margin:0;font-size:17px;font-weight:bold}
+.stmt-hd p{margin:1px 0 0;font-size:10.5px;color:#333;line-height:1.4}
+.stmt-hd .rt{margin-left:auto;text-align:right}
+.stmt-hd .rt .t{font-size:11px;letter-spacing:.18em;text-transform:uppercase;font-weight:bold}
+.stmt-hd .rt .n{font-family:Consolas,monospace;font-size:13px;font-weight:bold;margin-top:3px}
+.stmt-hd .rt .d{font-family:Consolas,monospace;font-size:10.5px;color:#444}
+.stmt-meta{display:flex;border:1px solid #000;border-top:0}
+.stmt-meta div{flex:1;padding:7px 10px;border-right:1px solid #000}
+.stmt-meta div:last-child{border-right:0}
+.stmt-meta .k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:bold}
+.stmt-meta .v{font-size:11.5px;font-weight:bold;margin-top:2px}
+.stmt-meta .v.mono{font-family:Consolas,monospace}
+table.stmt-t{width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px}
+table.stmt-t th{background:#101F2E;color:#fff;text-align:left;padding:7px 8px;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase}
+table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
+table.stmt-t .r{text-align:right;font-family:Consolas,monospace;white-space:nowrap}
+table.stmt-t .c{text-align:center;font-family:Consolas,monospace}
+table.stmt-t .cd{font-family:Consolas,monospace;font-size:9.5px;white-space:nowrap}
+table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
+.stmt-tot{width:100%;border-top:2px solid #101F2E;border-collapse:collapse}
+.stmt-tot td{padding:6px 8px;font-size:11px;border:0}
+.stmt-tot .lbl{text-align:right;font-weight:bold}
+.stmt-tot .amt{text-align:right;font-family:Consolas,monospace;font-weight:bold;white-space:nowrap;width:120px}
+.stmt-tot .grand td{font-size:13px;font-weight:bold;border-top:1px solid #000;padding-top:8px}
+.words{margin-top:8px;font-size:10.5px;font-style:italic;border:1px solid #000;padding:7px 10px}
+.words b{font-style:normal;letter-spacing:.1em;font-size:8.5px;text-transform:uppercase}
+.stmt-sig{display:flex;gap:40px;margin-top:34px}
+.stmt-sig div{flex:1}
+.stmt-sig .k{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:#555;font-weight:bold;margin-bottom:34px}
+.stmt-sig .l{border-top:1px solid #000;padding-top:4px;font-size:11px;font-weight:bold}
+.stmt-sig .r{font-size:9.5px;color:#444}
+.stmt-ft{margin-top:22px;padding-top:8px;border-top:1px solid #ccc;font-size:9px;color:#666;display:flex}
+.stmt-ft span:last-child{margin-left:auto;font-family:Consolas,monospace}`;
+
+function statementEmailHtml(){
+  return '<!doctype html><html><head><meta charset="utf-8">'+
+         '<meta name="viewport" content="width=device-width,initial-scale=1">'+
+         '<style>'+STMT_MAIL_CSS+'</style></head><body>'+
+         $('printRoot').innerHTML+'</body></html>';
+}
+
+$('sEmailBtn').onclick=async()=>{
+  const list=pickedRows();
+  if(!list.length){toast('Pick at least one document',true);return;}
+  if(!online()||!authed()){toast('Sign in to email a statement',true);return;}
+  if(queue.length){toast('Sync the '+queue.length+' pending change(s) first',true);return;}
+  const to=$('sEmail').value.trim();
+  if(!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(to)){
+    toast('Add a valid billing email first',true);$('sEmail').focus();return;
+  }
+  const client=$('sClient').value,no=$('sNo').value.trim();
+  const btn=$('sEmailBtn');
+  btn.disabled=true;btn.textContent='Sending…';
+  try{
+    renderStatement(list);
+    await fnPost('send-statement',{
+      to:to,
+      subject:'Statement of Account '+no+' — '+(cfg.company||'RSR Engineering Services'),
+      html:statementEmailHtml(),
+      statement_no:no
+    });
+    await setBillingEmail(client,to);
+    hide();
+    toast('Statement emailed to '+to);
+    setTimeout(()=>offerMarkBilled(list),300);
+  }catch(e){
+    toast(e.message||'Could not send the statement',true);
+  }finally{btn.disabled=false;btn.textContent='Email';}
 };
 
 function renderStatement(list){
@@ -1847,7 +2168,7 @@ function renderStatement(list){
     <table class="stmt-t">
       <thead><tr>
         <th style="width:104px">Code</th><th style="width:66px">Date</th><th>Vessel</th>
-        <th>Drawing</th><th style="width:34px" class="c">Qty</th>
+        <th>Item</th><th style="width:34px" class="c">Qty</th>
         <th style="width:74px" class="r">Rate</th><th style="width:86px" class="r">Amount</th>
       </tr></thead>
       <tbody>${list.map(r=>`<tr>
@@ -1861,7 +2182,7 @@ function renderStatement(list){
       </tr>`).join('')}</tbody>
     </table>
     <table class="stmt-tot" style="width:100%">
-      <tr><td class="lbl">Subtotal — ${list.length} drawing${list.length===1?'':'s'}</td><td class="amt">${money(sub)}</td></tr>
+      <tr><td class="lbl">Subtotal — ${list.length} item${list.length===1?'':'s'}</td><td class="amt">${money(sub)}</td></tr>
       ${vat?`<tr><td class="lbl">${adjLabel}</td><td class="amt">${money(adj)}</td></tr>`:''}
       <tr class="grand"><td class="lbl">Total amount due</td><td class="amt">${money(grand)}</td></tr>
     </table>
@@ -1879,7 +2200,7 @@ function renderStatement(list){
 // whatever is in the Storage bucket field rather than a hard-coded name.
 function sqlText(){
   const b=(($('cBucket')&&$('cBucket').value.trim())||cfg.bucket||'drawings').replace(/[^\w\-]/g,'');
-  return `-- RSR Drawing Billing — run once in Supabase SQL Editor
+  return `-- RSR Billing — run once in Supabase SQL Editor
 create table if not exists drawing_billing (
   id            uuid primary key default gen_random_uuid(),
   code          text unique not null,
@@ -1959,6 +2280,23 @@ create policy rsr_dwg_catalog_authed on drawing_catalog
   for all to authenticated using (true) with check (true);
 
 -- ---------------------------------------------------------------
+-- Where each client's statements are emailed. Filled in the first
+-- time you email that client, and editable on the statement sheet.
+-- ---------------------------------------------------------------
+create table if not exists clients (
+  id            uuid primary key default gen_random_uuid(),
+  name          text unique not null,
+  billing_email text,
+  created_at    timestamptz default now()
+);
+
+alter table clients enable row level security;
+
+drop policy if exists rsr_dwg_clients_authed on clients;
+create policy rsr_dwg_clients_authed on clients
+  for all to authenticated using (true) with check (true);
+
+-- ---------------------------------------------------------------
 -- Storage. This project is shared with other RSR apps, so every
 -- statement below touches only the ${b} bucket:
 --   * the bucket row is addressed by id, so other buckets keep
@@ -1969,9 +2307,20 @@ create policy rsr_dwg_catalog_authed on drawing_catalog
 --   * the policy names are app-prefixed so a re-run cannot clobber
 --     a policy belonging to another RSR app
 -- ---------------------------------------------------------------
+-- Private: objects are reachable only through a short-lived signed URL
+-- that the app requests with the signed-in user's token.
 insert into storage.buckets (id, name, public)
-values ('${b}','${b}',true)
-on conflict (id) do update set public = true;
+values ('${b}','${b}',false)
+on conflict (id) do update set public = false;
+
+-- Rows created while the bucket was public stored a full public URL.
+-- Reduce those to the bare object path; the app signs them on demand.
+update drawing_billing
+   set file_url = regexp_replace(
+         split_part(file_url, '?', 1),
+         '^.*/storage/v1/object/(?:public|sign)/[^/]+/', '')
+ where file_url is not null
+   and file_url like '%/storage/v1/object/%';
 
 drop policy if exists dwg_anon_rw             on storage.objects;
 drop policy if exists dwg_authed_rw           on storage.objects;
@@ -2046,18 +2395,79 @@ function download(name,text,type){
   const a=document.createElement('a');a.href=u;a.download=name;a.click();
   setTimeout(()=>URL.revokeObjectURL(u),1500);
 }
-$('cExport').onclick=()=>download('rsr-drawing-billing-'+today()+'.json',JSON.stringify(rows,null,2),'application/json');
+$('cExport').onclick=()=>download('rsr-billing-'+today()+'.json',JSON.stringify(rows,null,2),'application/json');
 $('cCsv').onclick=()=>{
   const head=['code','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','amount','status','billed_date','paid_date','invoice_no','remarks'];
   const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
   const csv=[head.join(',')].concat(rows.map(r=>head.map(h=>q(h==='amount'?amountOf(r):r[h])).join(','))).join('\n');
-  download('rsr-drawing-billing-'+today()+'.csv','\ufeff'+csv,'text/csv');
+  download('rsr-billing-'+today()+'.csv','\ufeff'+csv,'text/csv');
 };
 
+/* ================= tabs ================= */
+let tab='mon', makeType=DEF_TYPE;
+
+function setTab(t){
+  tab=t==='new'?'new':'mon';
+  const isNew=tab==='new';
+  $('viewMon').hidden=isNew;
+  $('viewNew').hidden=!isNew;
+  $('totals').hidden=isNew;          // the running totals belong to Monitoring
+  $('fabMon').hidden=isNew;
+  Array.prototype.forEach.call($('mainTabs').children,b=>{
+    const on=b.dataset.tab===tab;
+    b.classList.toggle('on',on);
+    b.setAttribute('aria-selected',on?'true':'false');
+  });
+  if(isNew)renderMake();
+}
+function setMakeType(t){
+  makeType=TAB_TYPES.indexOf(t)>-1?t:DEF_TYPE;
+  Array.prototype.forEach.call($('typeTabs').children,b=>{
+    const on=b.dataset.type===makeType;
+    b.classList.toggle('on',on);
+    b.setAttribute('aria-selected',on?'true':'false');
+  });
+  renderMake();
+}
+function renderMake(){
+  const b=builtIn(makeType)||BUILT_IN[1];
+  $('mkTitle').textContent=b.title;
+  $('mkSub').textContent=b.sub;
+  $('mkCode').textContent=nextCode(today(),makeType);
+  $('mkDrop').hidden=makeType!=='DW';   // PDF import is a drawing-only route
+  const n=catActive().filter(c=>typeOf(c)===makeType).length;
+  $('mkCatSub').textContent=n
+    ? 'Tick from your '+n+' standard '+(n===1?'item':'items')+' and bill them in one go.'
+    : 'Nothing in the catalog for this type yet — set it up in Settings.';
+  $('mkOneSub').textContent='One '+b.title.toLowerCase()+', filled in by hand.';
+
+  const mine=rows.filter(r=>typeOf(r)===makeType)
+    .sort((a,b2)=>String(b2.bill_date||'').localeCompare(String(a.bill_date||''))||
+                  String(b2.code||'').localeCompare(String(a.code||''))).slice(0,3);
+  $('mkRecent').innerHTML=mine.length
+    ? '<div class="rt">Recently added</div>'+mine.map(r=>`
+      <article class="row" data-s="${esc(r.status)}">
+        <div class="row-head">
+          <span class="code">${esc(r.code||'—')}</span>
+          <span class="badge ${esc(r.status)}">${esc(r.status)}</span>
+          <span class="row-amt">${money(amountOf(r))}</span>
+        </div>
+        <div class="row-title">${esc(r.drawing_title||'Untitled')}</div>
+        <div class="row-meta">${r.client?`<span>${esc(r.client)}</span>`:''}${r.vessel?`<span><b>${esc(r.vessel)}</b></span>`:''}</div>
+      </article>`).join('')
+    : '';
+}
+$('mainTabs').addEventListener('click',e=>{
+  const b=e.target.closest('[data-tab]');if(b)setTab(b.dataset.tab);
+});
+$('typeTabs').addEventListener('click',e=>{
+  const b=e.target.closest('[data-type]');if(b)setMakeType(b.dataset.type);
+});
+$('mkDrop').onclick=()=>$('fileIn').click();
+$('mkCat').onclick=()=>openCat(makeType);
+$('mkOne').onclick=()=>openEntry(null,makeType);
+
 /* ================= wiring ================= */
-$('btnNew').onclick=()=>openEntry(null);
-$('btnCat').onclick=openCat;
-$('btnImport').onclick=()=>openImport(false);
 $('btnStmt').onclick=openStmt;
 $('btnSettings').onclick=openCfg;
 $('btnSync').onclick=()=>pull();
@@ -2070,6 +2480,7 @@ $('chips').addEventListener('click',e=>{
   filters.status=b.dataset.status;render();
 });
 $('list').addEventListener('click',e=>{
+  const pd=e.target.closest('[data-pdf]');if(pd){openPdf(pd.dataset.pdf);return;}
   const ed=e.target.closest('[data-edit]');if(ed){openEntry(ed.dataset.edit);return;}
   const mk=e.target.closest('[data-mark]');if(mk){markStatus(mk.dataset.id,mk.dataset.mark);return;}
 });
@@ -2078,6 +2489,8 @@ window.addEventListener('online',()=>pull(true));
 /* ================= boot ================= */
 (async function boot(){
   $('brandSub').textContent=cfg.company||'RSR Engineering Services';
+  setMakeType(DEF_TYPE);
+  setTab('mon');
   render();
 
   // No project set: local-only device mode, no sign-in to enforce.
