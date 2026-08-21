@@ -593,21 +593,22 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     </button>
   </div>
   <div class="sheet-body">
-    <div class="amt-preview"><div><div class="lbl">Amount</div></div><div class="val" id="ePrev">₱0.00</div></div>
+    <div class="amt-preview" id="wPrev"><div><div class="lbl">Amount</div></div><div class="val" id="ePrev">₱0.00</div></div>
     <div class="f-row">
       <div class="f"><label for="eType">Document type</label><select id="eType"></select><div class="hint" id="eTypeHint" hidden>Set by the tab you opened this from.</div></div>
       <div class="f"><label for="eDate">Date</label><input id="eDate" type="date"></div>
     </div>
-    <div class="f"><label for="eCode">Billing code</label><input id="eCode" class="mono-in" autocomplete="off"></div>
+    <div class="f" id="wCode"><label for="eCode">Billing code</label><input id="eCode" class="mono-in" autocomplete="off"></div>
     <div class="f"><label for="eClient">Client</label><input id="eClient" list="dlClients" autocomplete="off" placeholder="e.g. Seaford Shipping Lines"><datalist id="dlClients"></datalist></div>
     <div class="f"><label for="eVessel">Vessel</label><input id="eVessel" list="dlVessels" autocomplete="off" placeholder="e.g. MV SF Voyager"><datalist id="dlVessels"></datalist></div>
-    <div class="f-row">
+    <div class="f-row" id="wRefQty">
       <div class="f" style="flex:1"><label for="eDwgNo" id="eRefLbl">Drawing no.</label><input id="eDwgNo" class="mono-in" autocomplete="off" placeholder="optional"></div>
       <div class="f" style="flex:0 0 96px"><label for="eQty">Qty</label><input id="eQty" type="number" inputmode="numeric" min="1" step="1" value="1"></div>
     </div>
-    <div class="f"><label for="eTitle">Title</label><input id="eTitle" autocomplete="off" placeholder="e.g. Shell Expansion Plan"></div>
-    <div class="f"><label for="eRate">Rate per item (₱)</label><input id="eRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
+    <div class="f" id="wTitle"><label for="eTitle">Title</label><input id="eTitle" autocomplete="off" placeholder="e.g. Shell Expansion Plan"></div>
+    <div class="f"><label for="eRate" id="eRateLbl">Rate per item (₱)</label><input id="eRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
 
+    <div id="wStatus">
     <div class="sect-t">Status</div>
     <div class="f-row">
       <div class="f" style="flex:1"><label for="eStatus">Stage</label>
@@ -620,6 +621,16 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     </div>
     <div class="f"><label for="eInv">Invoice / SI no.</label><input id="eInv" class="mono-in" autocomplete="off" placeholder="optional"></div>
     <div class="f"><label for="eRem">Remarks</label><textarea id="eRem" placeholder="optional"></textarea></div>
+    </div>
+
+    <div id="multiWrap" hidden>
+      <div class="sect-t" style="display:flex;align-items:center">Lines<span style="margin-left:auto;font-family:var(--mono);font-size:12px;letter-spacing:0;text-transform:none" id="mlTotal">₱0.00</span></div>
+      <div class="pick" id="mlList"></div>
+      <div style="display:flex;gap:8px;margin-top:9px">
+        <button class="act" id="mlAdd" type="button">Add line</button>
+        <label class="chk" style="margin:0;flex:1;padding:8px 10px;font-size:12.5px"><input type="checkbox" id="mlToCat"><span>Save these to the catalog<span class="s">Named lines become catalog items for next time.</span></span></label>
+      </div>
+    </div>
   </div>
   <div class="sheet-foot">
     <button class="btn-danger" id="eDelete" hidden>Delete</button>
@@ -1511,6 +1522,21 @@ function openEntry(id,forceType){
   $('eTypeHint').hidden=!locked;
   $('eRefLbl').textContent=refLabel(t);
   $('eCode').value=r?(r.code||''):nextCode($('eDate').value,t);
+
+  // Opened from a Create Billing tab: batch fields stay at the top and the
+  // per-item fields move into the line list. One filled line is the old
+  // single-record add.
+  multiMode=locked;
+  ['wPrev','wCode','wRefQty','wTitle','wStatus'].forEach(x=>{$(x).hidden=multiMode;});
+  $('multiWrap').hidden=!multiMode;
+  $('eRateLbl').textContent=multiMode?'Default rate per line (₱)':'Rate per item (₱)';
+  $('eSave').textContent='Save';
+  if(multiMode){
+    mlines=[mlBlank()];
+    $('mlToCat').checked=false;
+    $('eRate').value=cfg.rate||'';
+    renderML();
+  }
   $('eClient').value=r?(r.client||''):(filters.client||'');
   $('eVessel').value=r?(r.vessel||''):'';
   $('eDwgNo').value=r?(r.drawing_no||''):'';
@@ -1524,6 +1550,74 @@ function openEntry(id,forceType){
   $('eRem').value=r?(r.remarks||''):'';
   prev();show('sheetEntry');
 }
+/* ---- multi-line manual entry ---- */
+let multiMode=false, mlines=[];
+const mlBlank=()=>({title:'',ref:'',qty:1,rate:''});
+const mlRate=l=>(l.rate===''||l.rate==null)?(Number($('eRate').value)||0):(Number(l.rate)||0);
+const mlAmount=l=>(Math.max(1,parseInt(l.qty,10)||1))*mlRate(l);
+const mlFilled=()=>mlines.filter(l=>String(l.title||'').trim());
+
+function renderML(){
+  const ref=refLabel($('eType').value);
+  $('mlList').innerHTML=mlines.map((l,i)=>`
+    <div class="imp">
+      <div class="imp-h">
+        <span class="fn">Line ${i+1}</span>
+        <span class="amt">${money(mlAmount(l))}</span>
+        <button class="mini del" data-mlrm="${i}" title="Remove line" aria-label="Remove line"${mlines.length<2?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="imp-f">
+        <input data-mlf="title" data-mli="${i}" value="${esc(l.title||'')}" placeholder="Title (required)" autocomplete="off">
+        <div class="two">
+          <input data-mlf="ref" data-mli="${i}" value="${esc(l.ref||'')}" placeholder="${esc(ref)} (optional)" autocomplete="off">
+          <input data-mlf="qty" data-mli="${i}" value="${esc(l.qty)}" type="number" inputmode="numeric" min="1" step="1" placeholder="Qty">
+          <input data-mlf="rate" data-mli="${i}" value="${esc(l.rate)}" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Rate">
+        </div>
+      </div>
+    </div>`).join('');
+  const filled=mlFilled();
+  $('mlTotal').textContent=money(filled.reduce((s,l)=>s+mlAmount(l),0));
+  $('eSave').textContent=filled.length>1?('Add '+filled.length+' lines'):'Add';
+}
+$('mlList').addEventListener('input',e=>{
+  const t=e.target.closest('[data-mlf]');if(!t)return;
+  const l=mlines[+t.dataset.mli];if(!l)return;
+  l[t.dataset.mlf]=t.value;
+  // only the money-facing parts need a redraw, and redrawing on every
+  // keystroke would blow away the caret
+  const filled=mlFilled();
+  $('mlTotal').textContent=money(filled.reduce((s,x)=>s+mlAmount(x),0));
+  $('eSave').textContent=filled.length>1?('Add '+filled.length+' lines'):'Add';
+});
+$('mlList').addEventListener('change',()=>renderML());
+$('mlList').addEventListener('click',e=>{
+  const rm=e.target.closest('[data-mlrm]');if(!rm)return;
+  if(mlines.length<2)return;
+  mlines.splice(+rm.dataset.mlrm,1);renderML();
+});
+$('mlAdd').onclick=()=>{mlines.push(mlBlank());renderML();
+  const f=$('mlList').querySelector('[data-mlf="title"][data-mli="'+(mlines.length-1)+'"]');
+  if(f)f.focus();};
+$('eRate').addEventListener('input',()=>{if(multiMode)renderML();});
+
+// promote typed lines into the catalog so a repeated set only gets typed once
+async function promoteToCatalog(lines,type){
+  let added=0;
+  for(const l of lines){
+    const name=String(l.title||'').trim();
+    if(!name)continue;
+    const dupe=catalog.some(c=>String(c.name||'').trim().toLowerCase()===name.toLowerCase()
+                            &&typeOf(c)===type);
+    if(dupe)continue;
+    const max=catalog.reduce((m,c)=>Math.max(m,Number(c.sort_order)||0),-1);
+    await catSave({name:name,doc_type:type,drawing_no:String(l.ref||'').trim(),
+      default_rate:(l.rate===''||l.rate==null)?null:Number(l.rate)||0,
+      sort_order:max+1,active:true},true);
+    added++;
+  }
+  return added;
+}
+
 function prev(){$('ePrev').textContent=money((Number($('eQty').value)||0)*(Number($('eRate').value)||0));}
 $('eQty').oninput=prev;$('eRate').oninput=prev;
 const reCode=()=>{if(!editingId)$('eCode').value=nextCode($('eDate').value,$('eType').value);};
@@ -1531,6 +1625,36 @@ $('eDate').onchange=reCode;
 $('eType').onchange=()=>{$('eRefLbl').textContent=refLabel($('eType').value);reCode();};
 
 $('eSave').onclick=async()=>{
+  if(multiMode){
+    const client=$('eClient').value.trim();
+    if(!client){toast('Add a client first',true);$('eClient').focus();return;}
+    const lines=mlFilled();
+    if(!lines.length){toast('Give at least one line a title',true);return;}
+    const date=$('eDate').value||today();
+    const vessel=$('eVessel').value.trim();
+    const t=$('eType').value||DEF_TYPE;
+    const toCat=$('mlToCat').checked;
+    const built=[];
+    lines.forEach(l=>{
+      built.push({
+        code:nextCode(date,t,built),      // same sequencing as catalog and PDF import
+        doc_type:t,bill_date:date,client:client,vessel:vessel,
+        drawing_no:String(l.ref||'').trim(),
+        drawing_title:String(l.title).trim(),
+        qty:Math.max(1,parseInt(l.qty,10)||1),
+        rate:mlRate(l),
+        status:'DRAFT',billed_date:null,paid_date:null,invoice_no:'',remarks:'',
+        file_name:null,file_url:null,pages:null
+      });
+    });
+    hide();
+    await saveBatch(built);
+    let promoted=0;
+    if(toCat)promoted=await promoteToCatalog(lines,t);
+    toast(built.length+' draft'+(built.length===1?'':'s')+' added'+
+          (promoted?' — '+promoted+' saved to the catalog':''));
+    return;
+  }
   const title=$('eTitle').value.trim();
   if(!title){toast('Add a title first',true);$('eTitle').focus();return;}
   if(!$('eClient').value.trim()){toast('Add a client first',true);$('eClient').focus();return;}
