@@ -192,6 +192,15 @@ header.top{
 .row-meta b{font-weight:600;color:var(--ink2)}
 .row-meta .m{font-family:var(--mono);font-size:11.5px}
 
+.gtoggle{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.gtoggle:hover{background:var(--paper)}
+.gtoggle .ar{font-size:9px;color:var(--slate)}
+.glines{margin-top:9px;border-top:1px solid var(--line2);padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.gl{display:flex;gap:9px;align-items:baseline;font-size:12.5px}
+.gl .n{font-family:var(--mono);font-size:10.5px;color:var(--slate);flex:0 0 26px}
+.gl .t{min-width:0;flex:1;line-height:1.3}
+.gl .t .s{display:block;font-family:var(--mono);font-size:10.5px;color:var(--slate);margin-top:1px}
+.gl .a{margin-left:auto;font-family:var(--mono);font-size:12px;white-space:nowrap}
 .row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
 .act{
   padding:6px 11px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-weight:600;
@@ -643,9 +652,10 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div id="multiWrap" hidden>
       <div class="sect-t" style="display:flex;align-items:center">Lines<span style="margin-left:auto;font-family:var(--mono);font-size:12px;letter-spacing:0;text-transform:none" id="mlTotal">₱0.00</span></div>
       <div class="pick" id="mlList"></div>
+      <div class="note" id="mlLock" hidden style="margin-top:9px">Lines are locked once a billing is marked BILLED. Set the stage back to <b>Draft</b> above to change them.</div>
       <div style="display:flex;gap:8px;margin-top:9px">
         <button class="act" id="mlAdd" type="button">Add line</button>
-        <label class="chk" style="margin:0;flex:1;padding:8px 10px;font-size:12.5px"><input type="checkbox" id="mlToCat"><span>Save these to the catalog<span class="s">Named lines become catalog items for next time.</span></span></label>
+        <label class="chk" id="mlToCatWrap" style="margin:0;flex:1;padding:8px 10px;font-size:12.5px"><input type="checkbox" id="mlToCat"><span>Save these to the catalog<span class="s">Named lines become catalog items for next time.</span></span></label>
       </div>
     </div>
   </div>
@@ -1036,13 +1046,50 @@ const persist=()=>{
 let filters={q:'',status:'ALL',client:'',month:'',type:''};
 let editingId=null;
 
-const FIELDS=['code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
+const FIELDS=['group_id','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
 function payloadOf(r){
   const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});
   o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;o.doc_type=typeOf(r);
   return o;
 }
 const amountOf=r=>(Number(r.qty)||0)*(Number(r.rate)||0);
+
+/* ================= billing groups ================= */
+// A group is one billing: several lines sharing a tracking code. Group-level
+// fields are repeated on every line, so the existing row-based queue and sync
+// carry them unchanged; acting on a group just touches all of its lines.
+const GROUP_FIELDS=['code','doc_type','bill_date','client','vessel','status',
+                    'billed_date','paid_date','invoice_no','remarks'];
+const groupIdOf=r=>String((r&&r.group_id)||(r&&r.id)||'');
+// rows written before grouping become single-line groups keeping their code
+function migrateGroups(){
+  let n=0;
+  rows.forEach(r=>{if(!r.group_id){r.group_id=String(r.id);n++;}});
+  return n;
+}
+function groupOf(list){
+  const head=list[0]||{};
+  const g={id:groupIdOf(head),lines:list};
+  GROUP_FIELDS.forEach(k=>{g[k]=head[k];});
+  g.total=list.reduce((s,r)=>s+amountOf(r),0);
+  g.count=list.length;
+  g.pending=list.some(r=>String(r.id).startsWith('loc-'));
+  return g;
+}
+function groupsFrom(list){
+  const order=[],by=new Map();
+  list.forEach(r=>{
+    const k=groupIdOf(r);
+    if(!by.has(k)){by.set(k,[]);order.push(k);}
+    by.get(k).push(r);
+  });
+  return order.map(k=>groupOf(by.get(k)));
+}
+const allGroups=()=>groupsFrom(rows);
+const groupById=gid=>{
+  const mine=rows.filter(r=>groupIdOf(r)===String(gid));
+  return mine.length?groupOf(mine):null;
+};
 
 const CAT_FIELDS=['name','doc_type','drawing_no','default_rate','sort_order','active'];
 function catPayload(c){
@@ -1223,37 +1270,46 @@ function nextCode(dateStr,type,extra){
 /* ================= filtering ================= */
 function visible(){
   const q=filters.q.trim().toLowerCase();
-  return rows.filter(r=>{
-    if(filters.status!=='ALL'&&r.status!==filters.status)return false;
-    if(filters.type&&typeOf(r)!==filters.type)return false;
-    if(filters.client&&r.client!==filters.client)return false;
-    if(filters.month&&monthKey(r.bill_date)!==filters.month)return false;
+  return allGroups().filter(g=>{
+    if(filters.status!=='ALL'&&g.status!==filters.status)return false;
+    if(filters.type&&typeOf(g)!==filters.type)return false;
+    if(filters.client&&g.client!==filters.client)return false;
+    if(filters.month&&monthKey(g.bill_date)!==filters.month)return false;
     if(q){
-      const hay=[r.code,r.client,r.vessel,r.drawing_no,r.drawing_title,r.invoice_no,r.remarks].join(' ').toLowerCase();
+      const hay=[g.code,g.client,g.vessel,g.invoice_no,g.remarks]
+        .concat(g.lines.map(r=>r.drawing_title)).concat(g.lines.map(r=>r.drawing_no))
+        .join(' ').toLowerCase();
       if(hay.indexOf(q)<0)return false;
     }
     return true;
-  }).sort((a,b)=>String(b.bill_date||'').localeCompare(String(a.bill_date||''))||String(b.code||'').localeCompare(String(a.code||'')));
+  }).sort((a,b)=>String(b.bill_date||'').localeCompare(String(a.bill_date||''))||
+                 String(b.code||'').localeCompare(String(a.code||'')));
 }
 
 /* ================= render ================= */
+let expanded={};
 function render(){
   const vis=visible();
 
   // totals over current filter (status chip ignored so the three cells stay comparable)
-  const scope=rows.filter(r=>{
-    if(filters.type&&typeOf(r)!==filters.type)return false;
-    if(filters.client&&r.client!==filters.client)return false;
-    if(filters.month&&monthKey(r.bill_date)!==filters.month)return false;
-    const q=filters.q.trim().toLowerCase();
-    if(q){const hay=[r.code,r.client,r.vessel,r.drawing_no,r.drawing_title].join(' ').toLowerCase();if(hay.indexOf(q)<0)return false;}
+  const q=filters.q.trim().toLowerCase();
+  const scope=allGroups().filter(g=>{
+    if(filters.type&&typeOf(g)!==filters.type)return false;
+    if(filters.client&&g.client!==filters.client)return false;
+    if(filters.month&&monthKey(g.bill_date)!==filters.month)return false;
+    if(q){
+      const hay=[g.code,g.client,g.vessel].concat(g.lines.map(r=>r.drawing_title))
+        .join(' ').toLowerCase();
+      if(hay.indexOf(q)<0)return false;
+    }
     return true;
   });
   const agg={};STATUSES.forEach(s=>agg[s]={n:0,v:0});
-  scope.forEach(r=>{const s=agg[r.status]||agg.DRAFT;s.n++;s.v+=amountOf(r);});
-  $('tDraft').textContent=moneyShort(agg.DRAFT.v);$('cDraft').textContent=agg.DRAFT.n+' item'+(agg.DRAFT.n===1?'':'s');
-  $('tRecv').textContent=moneyShort(agg.BILLED.v);$('cRecv').textContent=agg.BILLED.n+' item'+(agg.BILLED.n===1?'':'s');
-  $('tPaid').textContent=moneyShort(agg.PAID.v);$('cPaid').textContent=agg.PAID.n+' item'+(agg.PAID.n===1?'':'s');
+  scope.forEach(g=>{const s=agg[g.status]||agg.DRAFT;s.n++;s.v+=g.total;});
+  const bill=n=>n+' billing'+(n===1?'':'s');
+  $('tDraft').textContent=moneyShort(agg.DRAFT.v);$('cDraft').textContent=bill(agg.DRAFT.n);
+  $('tRecv').textContent=moneyShort(agg.BILLED.v);$('cRecv').textContent=bill(agg.BILLED.n);
+  $('tPaid').textContent=moneyShort(agg.PAID.v);$('cPaid').textContent=bill(agg.PAID.n);
 
   // chips
   const counts={ALL:scope.length};STATUSES.forEach(s=>counts[s]=agg[s].n);
@@ -1276,35 +1332,43 @@ function render(){
   if(!vis.length){
     L.innerHTML=rows.length
       ? `<div class="empty"><h3>Nothing matches</h3><p>Try a different status, client or month.</p><button class="act" id="clearF">Clear filters</button></div>`
-      : `<div class="empty"><h3>Nothing billed yet</h3><p>Add your first item and the tracking code is generated for you.</p><button class="act" id="firstAdd">Add an item</button></div>`;
+      : `<div class="empty"><h3>Nothing billed yet</h3><p>Add your first billing and the tracking code is generated for you.</p><button class="act" id="firstAdd">Add a billing</button></div>`;
     const cf=$('clearF');if(cf)cf.onclick=()=>{filters={q:'',status:'ALL',client:'',month:'',type:''};$('q').value='';render();};
     const fa=$('firstAdd');if(fa)fa.onclick=()=>openEntry(null);
     return;
   }
-  L.innerHTML=vis.map(r=>{
-    const pend=String(r.id).startsWith('loc-');
+  L.innerHTML=vis.map(g=>{
+    const open=!!expanded[g.id];
     const meta=[];
-    if(r.vessel)meta.push(`<span><b>${esc(r.vessel)}</b></span>`);
-    if(r.drawing_no)meta.push(`<span class="m">${esc(r.drawing_no)}</span>`);
-    meta.push(`<span class="m">${fmtDate(r.bill_date)}</span>`);
-    if(Number(r.qty)>1)meta.push(`<span class="m">${r.qty} × ${money(r.rate)}</span>`);
-    if(r.invoice_no)meta.push(`<span class="m">SI ${esc(r.invoice_no)}</span>`);
-    // private bucket: the URL is signed at tap time, so this is a button
-    if(r.file_url)meta.push(`<button type="button" class="pdflink" data-pdf="${esc(r.id)}">PDF</button>`);
-    else if(r.file_name)meta.push(`<span class="m" title="${esc(r.file_name)}">PDF</span>`);
+    if(g.vessel)meta.push(`<span><b>${esc(g.vessel)}</b></span>`);
+    meta.push(`<span class="m">${fmtDate(g.bill_date)}</span>`);
+    if(g.invoice_no)meta.push(`<span class="m">SI ${esc(g.invoice_no)}</span>`);
     let acts='';
-    if(r.status==='DRAFT')acts=`<button class="act primary" data-mark="BILLED" data-id="${esc(r.id)}">Mark billed</button>`;
-    else if(r.status==='BILLED')acts=`<button class="act paid" data-mark="PAID" data-id="${esc(r.id)}">Mark paid</button><button class="act" data-mark="DRAFT" data-id="${esc(r.id)}">Unbill</button>`;
-    else acts=`<button class="act" data-mark="BILLED" data-id="${esc(r.id)}">Reopen</button>`;
-    return `<article class="row${pend?' pending':''}" data-s="${esc(r.status)}">
+    if(g.status==='DRAFT')acts=`<button class="act primary" data-mark="BILLED" data-gid="${esc(g.id)}">Mark billed</button>`;
+    else if(g.status==='BILLED')acts=`<button class="act paid" data-mark="PAID" data-gid="${esc(g.id)}">Mark paid</button><button class="act" data-mark="DRAFT" data-gid="${esc(g.id)}">Unbill</button>`;
+    else acts=`<button class="act" data-mark="BILLED" data-gid="${esc(g.id)}">Reopen</button>`;
+    const lines=g.lines.map((r,i)=>{
+      const bits=[];
+      if(r.drawing_no)bits.push(esc(r.drawing_no));
+      if(Number(r.qty)>1)bits.push(r.qty+' × '+money(r.rate));
+      if(r.file_url)bits.push(`<button type="button" class="pdflink" data-pdf="${esc(r.id)}">PDF</button>`);
+      else if(r.file_name)bits.push('PDF');
+      return `<div class="gl">
+        <span class="n">${i+1}.0</span>
+        <span class="t">${esc(r.drawing_title||'Untitled')}${bits.length?`<span class="s">${bits.join(' · ')}</span>`:''}</span>
+        <span class="a">${money(amountOf(r))}</span>
+      </div>`;
+    }).join('');
+    return `<article class="row${g.pending?' pending':''}" data-s="${esc(g.status)}">
       <div class="row-head">
-        <span class="code">${esc(r.code||'—')}</span>
-        <span class="badge ${esc(r.status)}">${esc(r.status)}</span>
-        <span class="row-amt">${money(amountOf(r))}</span>
+        <span class="code">${esc(g.code||'—')}</span>
+        <span class="badge ${esc(g.status)}">${esc(g.status)}</span>
+        <span class="row-amt">${money(g.total)}</span>
       </div>
-      <div class="row-title">${esc(r.drawing_title||'Untitled drawing')}</div>
-      <div class="row-meta">${meta.join('')}${r.client?`<span>${esc(r.client)}</span>`:''}</div>
-      <div class="row-acts">${acts}<button class="act ghost" data-edit="${esc(r.id)}">Edit</button></div>
+      <div class="row-title">${esc(g.client||'No client')}</div>
+      <div class="row-meta">${meta.join('')}<button type="button" class="gtoggle" data-exp="${esc(g.id)}">${g.count} item${g.count===1?'':'s'} <span class="ar">${open?'▴':'▾'}</span></button></div>
+      ${open?`<div class="glines">${lines}</div>`:''}
+      <div class="row-acts">${acts}<button class="act ghost" data-edit="${esc(g.id)}">Edit</button></div>
     </article>`;
   }).join('');
 }
@@ -1616,13 +1680,17 @@ async function deleteRow(id){
   persist();render();
   if(online()){await flushQueue();persist();setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');}
 }
-function markStatus(id,status){
-  const r=rows.find(x=>x.id===id);if(!r)return;
-  r.status=status;
-  if(status==='BILLED'&&!r.billed_date)r.billed_date=today();
-  if(status==='PAID'&&!r.paid_date)r.paid_date=today();
-  if(status==='DRAFT'){r.billed_date=null;r.paid_date=null;}
-  saveRow(r,false);
+// status belongs to the billing, so every line of the group moves together
+function markGroup(gid,status){
+  const mine=rows.filter(r=>groupIdOf(r)===String(gid));
+  if(!mine.length)return;
+  mine.forEach(r=>{
+    r.status=status;
+    if(status==='BILLED'&&!r.billed_date)r.billed_date=today();
+    if(status==='PAID'&&!r.paid_date)r.paid_date=today();
+    if(status==='DRAFT'){r.billed_date=null;r.paid_date=null;}
+    saveRow(r,false);
+  });
   toast(status==='PAID'?'Marked paid':status==='BILLED'?'Marked billed':'Moved back to draft');
 }
 
@@ -1698,50 +1766,61 @@ document.querySelectorAll('[data-close]').forEach(b=>b.onclick=hide);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')hide();});
 
 /* ---- entry ---- */
+// The sheet always edits one billing group. `id` is a group id when editing;
+// forceType comes from a Create Billing tab and pins the type for a new one.
 function openEntry(id,forceType){
-  editingId=id;
-  const r=id?rows.find(x=>x.id===id):null;
-  const t=r?typeOf(r):(forceType||DEF_TYPE);
+  const g=id?groupById(id):null;
+  editingId=g?g.id:null;
+  const t=g?typeOf(g):(forceType||DEF_TYPE);
   const b=builtIn(t);
-  $('entryEyebrow').textContent=r?'Record '+(r.code||''):'New '+(b?b.one:'record');
-  $('entryTitle').textContent=r?'Edit record':(b?b.title:'Details');
-  $('eDelete').hidden=!r;
-  $('eDate').value=r?String(r.bill_date||today()).slice(0,10):today();
-  $('eType').innerHTML=typeOptions(t);
-  // opened from a Create Billing tab, the type is what that tab is for
-  const locked=!r&&!!forceType;
-  $('eType').disabled=locked;
-  $('eTypeHint').hidden=!locked;
-  $('eRefLbl').textContent=refLabel(t);
-  $('eCode').value=r?(r.code||''):nextCode($('eDate').value,t);
+  const draft=!g||g.status==='DRAFT';
+  multiLocked=!!g&&!draft;
 
-  // Opened from a Create Billing tab: batch fields stay at the top and the
-  // per-item fields move into the line list. One filled line is the old
-  // single-record add.
-  multiMode=locked;
-  ['wPrev','wCode','wRefQty','wTitle','wStatus'].forEach(x=>{$(x).hidden=multiMode;});
-  $('multiWrap').hidden=!multiMode;
-  $('eRateLbl').textContent=multiMode?'Default rate per line (₱)':'Rate per item (₱)';
+  $('entryEyebrow').textContent=g?('Billing '+(g.code||'')):('New '+(b?b.one:'billing'));
+  $('entryTitle').textContent=g?'Edit billing':(b?b.title:'Details');
+  $('eDelete').hidden=!g;
+  $('eDate').value=g?String(g.bill_date||today()).slice(0,10):today();
+  $('eType').innerHTML=typeOptions(t);
+  // pinned by the tab for a new billing, and by its own code once it exists
+  const typeFixed=(!g&&!!forceType)||!!g;
+  $('eType').disabled=typeFixed;
+  $('eTypeHint').hidden=!typeFixed;
+  $('eTypeHint').textContent=g?'Fixed by the tracking code of this billing.'
+                              :'Set by the tab you opened this from.';
+  $('eRefLbl').textContent=refLabel(t);
+  $('eCode').value=g?(g.code||''):nextCode($('eDate').value,t);
+
+  // Group-level fields stay at the top; the lines live in the list below.
+  multiMode=true;
+  ['wPrev','wRefQty','wTitle'].forEach(x=>{$(x).hidden=true;});
+  $('wCode').hidden=false;
+  $('eCode').readOnly=!draft;
+  $('wStatus').hidden=!g;           // a new billing is always a draft
+  $('multiWrap').hidden=false;
+  $('eRateLbl').textContent='Default rate per line (₱)';
   $('eSave').textContent='Save';
-  if(multiMode){
-    mlines=[mlBlank()];
-    $('mlToCat').checked=false;
-    $('eRate').value=cfg.rate||'';
-    renderML();
-  }
-  $('eClient').value=r?(r.client||''):(filters.client||'');
-  $('eVessel').value=r?(r.vessel||''):'';
-  $('eDwgNo').value=r?(r.drawing_no||''):'';
-  $('eTitle').value=r?(r.drawing_title||''):'';
-  $('eQty').value=r?(r.qty||1):1;
-  $('eRate').value=r?(r.rate||0):(cfg.rate||'');
-  $('eStatus').value=r?(r.status||'DRAFT'):'DRAFT';
-  $('eBilled').value=r&&r.billed_date?String(r.billed_date).slice(0,10):'';
-  $('ePaid').value=r&&r.paid_date?String(r.paid_date).slice(0,10):'';
-  $('eInv').value=r?(r.invoice_no||''):'';
-  $('eRem').value=r?(r.remarks||''):'';
-  prev();show('sheetEntry');
+
+  mlines=g?g.lines.map(r=>({id:r.id,title:r.drawing_title||'',ref:r.drawing_no||'',
+                            qty:Number(r.qty)||1,
+                            rate:r.rate==null?'':String(r.rate)}))
+          :[mlBlank()];
+  $('mlToCat').checked=false;
+  $('eRate').value=g?'':(cfg.rate||'');
+  $('mlLock').hidden=draft;
+  $('mlAdd').disabled=!draft;
+  $('mlToCatWrap').hidden=!draft;
+
+  $('eClient').value=g?(g.client||''):(filters.client||'');
+  $('eVessel').value=g?(g.vessel||''):'';
+  $('eStatus').value=g?(g.status||'DRAFT'):'DRAFT';
+  $('eBilled').value=g&&g.billed_date?String(g.billed_date).slice(0,10):'';
+  $('ePaid').value=g&&g.paid_date?String(g.paid_date).slice(0,10):'';
+  $('eInv').value=g?(g.invoice_no||''):'';
+  $('eRem').value=g?(g.remarks||''):'';
+  renderML();
+  show('sheetEntry');
 }
+
 /* ================= typeahead combo ================= */
 // One implementation behind every suggest-as-you-type field. Items are
 // {label, sub, value}; matching is substring, case-insensitive.
@@ -1822,8 +1901,8 @@ async function rememberClient(name){
 }
 
 /* ---- multi-line manual entry ---- */
-let multiMode=false, mlines=[];
-const mlBlank=()=>({title:'',ref:'',qty:1,rate:''});
+let multiMode=false, multiLocked=false, mlines=[];
+const mlBlank=()=>({id:null,title:'',ref:'',qty:1,rate:''});
 const mlRate=l=>(l.rate===''||l.rate==null)?(Number($('eRate').value)||0):(Number(l.rate)||0);
 const mlAmount=l=>(Math.max(1,parseInt(l.qty,10)||1))*mlRate(l);
 const mlFilled=()=>mlines.filter(l=>String(l.title||'').trim());
@@ -1834,15 +1913,15 @@ function renderML(){
       <div class="imp-h">
         <span class="fn">Line ${i+1}</span>
         <span class="amt" data-amt="${i}">${money(mlAmount(l))}</span>
-        <button class="mini del" data-mlrm="${i}" title="Remove line" aria-label="Remove line"${mlines.length<2?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        <button class="mini del" data-mlrm="${i}" title="Remove line" aria-label="Remove line"${mlines.length<2||multiLocked?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <div class="imp-f">
         <div class="ml-row">
           <div class="cmb">
-            <input data-mlf="title" data-mli="${i}" value="${esc(l.title||'')}" placeholder="Title — type to search the catalog" autocomplete="off">
+            <input data-mlf="title" data-mli="${i}" value="${esc(l.title||'')}" placeholder="Title — type to search the catalog" autocomplete="off"${multiLocked?' disabled':''}>
             <div class="cmb-pop" data-pop="${i}" hidden></div>
           </div>
-          <input class="ml-rate" data-mlf="rate" data-mli="${i}" value="${esc(l.rate)}" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Rate">
+          <input class="ml-rate" data-mlf="rate" data-mli="${i}" value="${esc(l.rate)}" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Rate"${multiLocked?' disabled':''}>
         </div>
       </div>
     </div>`).join('');
@@ -1906,10 +1985,10 @@ $('mlList').addEventListener('click',e=>{
   const pick=e.target.closest('[data-cmbk]');
   if(pick){cmbTake(+pick.dataset.cmbk);return;}
   const rm=e.target.closest('[data-mlrm]');if(!rm)return;
-  if(mlines.length<2)return;
+  if(mlines.length<2||multiLocked)return;
   mlines.splice(+rm.dataset.mlrm,1);renderML();
 });
-$('mlAdd').onclick=()=>{mlines.push(mlBlank());renderML();
+$('mlAdd').onclick=()=>{if(multiLocked)return;mlines.push(mlBlank());renderML();
   const f=$('mlList').querySelector('[data-mlf="title"][data-mli="'+(mlines.length-1)+'"]');
   if(f)f.focus();};
 $('eRate').addEventListener('input',()=>{if(multiMode)renderML();});
@@ -1939,70 +2018,97 @@ $('eDate').onchange=reCode;
 $('eType').onchange=()=>{$('eRefLbl').textContent=refLabel($('eType').value);reCode();};
 
 $('eSave').onclick=async()=>{
-  if(multiMode){
-    const client=$('eClient').value.trim();
-    if(!client){toast('Add a client first',true);$('eClient').focus();return;}
-    const lines=mlFilled();
-    if(!lines.length){toast('Give at least one line a title',true);return;}
-    const date=$('eDate').value||today();
-    const vessel=$('eVessel').value.trim();
-    const t=$('eType').value||DEF_TYPE;
+  const client=$('eClient').value.trim();
+  if(!client){toast('Add a client first',true);$('eClient').focus();return;}
+  const lines=mlFilled();
+  if(!lines.length){toast('Give at least one line a title',true);return;}
+  const date=$('eDate').value||today();
+  const vessel=$('eVessel').value.trim();
+  const t=$('eType').value||DEF_TYPE;
+  const g=editingId?groupById(editingId):null;
+  const draft=!g||g.status==='DRAFT';
+
+  const meta={
+    doc_type:t,bill_date:date,client:client,vessel:vessel,
+    status:g?$('eStatus').value:'DRAFT',
+    billed_date:g?($('eBilled').value||null):null,
+    paid_date:g?($('ePaid').value||null):null,
+    invoice_no:g?$('eInv').value.trim():'',
+    remarks:g?$('eRem').value.trim():''
+  };
+  if(meta.status!=='DRAFT'&&!meta.billed_date)meta.billed_date=date;
+  if(meta.status==='PAID'&&!meta.paid_date)meta.paid_date=today();
+
+  if(!g){
+    // one tracking code for the whole billing, not one per line
+    const code=$('eCode').value.trim()||nextCode(date,t);
+    if(rows.some(r=>r.code===code)){toast('That code is already used',true);return;}
+    const gid=uid();
+    const built=lines.map(l=>Object.assign({
+      group_id:gid,code:code,
+      drawing_no:String(l.ref||'').trim(),
+      drawing_title:String(l.title).trim(),
+      qty:Math.max(1,parseInt(l.qty,10)||1),
+      rate:mlRate(l),
+      file_name:null,file_url:null,pages:null
+    },meta));
     const toCat=$('mlToCat').checked;
-    const built=[];
-    lines.forEach(l=>{
-      built.push({
-        code:nextCode(date,t,built),      // same sequencing as catalog and PDF import
-        doc_type:t,bill_date:date,client:client,vessel:vessel,
-        drawing_no:String(l.ref||'').trim(),
-        drawing_title:String(l.title).trim(),
-        qty:Math.max(1,parseInt(l.qty,10)||1),
-        rate:mlRate(l),
-        status:'DRAFT',billed_date:null,paid_date:null,invoice_no:'',remarks:'',
-        file_name:null,file_url:null,pages:null
-      });
-    });
     hide();
     await saveBatch(built);
     await rememberClient(client);
     let promoted=0;
     if(toCat)promoted=await promoteToCatalog(lines,t);
-    toast(built.length+' draft'+(built.length===1?'':'s')+' added'+
-          (promoted?' — '+promoted+' saved to the catalog':''));
+    toast('Billing '+code+' added'+(promoted?' — '+promoted+' saved to the catalog':''));
     return;
   }
-  const title=$('eTitle').value.trim();
-  if(!title){toast('Add a title first',true);$('eTitle').focus();return;}
-  if(!$('eClient').value.trim()){toast('Add a client first',true);$('eClient').focus();return;}
-  const base=editingId?Object.assign({},rows.find(r=>r.id===editingId)):{};
-  const row=Object.assign(base,{
-    doc_type:$('eType').value||DEF_TYPE,
-    code:$('eCode').value.trim()||nextCode($('eDate').value,$('eType').value),
-    bill_date:$('eDate').value||today(),
-    client:$('eClient').value.trim(),
-    vessel:$('eVessel').value.trim(),
-    drawing_no:$('eDwgNo').value.trim(),
-    drawing_title:title,
-    qty:Math.max(1,parseInt($('eQty').value,10)||1),
-    rate:Number($('eRate').value)||0,
-    status:$('eStatus').value,
-    billed_date:$('eBilled').value||null,
-    paid_date:$('ePaid').value||null,
-    invoice_no:$('eInv').value.trim(),
-    remarks:$('eRem').value.trim()
+
+  const code=draft?($('eCode').value.trim()||g.code):g.code;
+  if(code!==g.code&&rows.some(r=>r.code===code)){toast('That code is already used',true);return;}
+  const keep={};
+  const fresh=[];
+  lines.forEach(l=>{
+    if(l.id){
+      keep[l.id]=true;
+      const r=rows.find(x=>x.id===l.id);
+      if(!r)return;
+      if(draft){
+        r.drawing_no=String(l.ref||'').trim();
+        r.drawing_title=String(l.title).trim();
+        r.qty=Math.max(1,parseInt(l.qty,10)||1);
+        r.rate=mlRate(l);
+      }
+      Object.assign(r,meta,{code:code});
+      saveRow(r,false);
+    }else if(draft){
+      fresh.push(Object.assign({
+        group_id:g.id,code:code,
+        drawing_no:String(l.ref||'').trim(),
+        drawing_title:String(l.title).trim(),
+        qty:Math.max(1,parseInt(l.qty,10)||1),
+        rate:mlRate(l),
+        file_name:null,file_url:null,pages:null
+      },meta));
+    }
   });
-  if(row.status!=='DRAFT'&&!row.billed_date)row.billed_date=row.bill_date;
-  if(row.status==='PAID'&&!row.paid_date)row.paid_date=today();
-  const dup=rows.find(r=>r.code===row.code&&r.id!==editingId);
-  if(dup){toast('That code is already used',true);return;}
   hide();
-  await saveRow(row,!editingId);
-  await rememberClient(row.client);
-  toast(editingId?'Changes saved':'Added — '+row.code);
+  // lines only come and go while the billing is still a draft
+  if(draft){
+    const gone=g.lines.filter(r=>!keep[r.id]);
+    for(const r of gone)await deleteRow(r.id);
+    if(fresh.length)await saveBatch(fresh);
+  }
+  await rememberClient(client);
+  render();
+  toast('Changes saved');
 };
+
 $('eDelete').onclick=async()=>{
   if(!editingId)return;
-  if(!confirm('Delete this record permanently?'))return;
-  const id=editingId;hide();await deleteRow(id);toast('Record deleted');
+  const g=groupById(editingId);if(!g)return;
+  if(!confirm('Delete billing '+(g.code||'')+' and all '+g.count+' of its lines?'))return;
+  hide();
+  for(const r of g.lines)await deleteRow(r.id);
+  toast('Billing deleted');
 };
 
 /* ---- import from PDF ---- */
@@ -2283,15 +2389,18 @@ $('iCommit').onclick=async()=>{
   btn.disabled=true;
   const built=[];
   let upFail=0;
+  // every imported file is a line of one billing
+  const gcode=nextCode(date,docType);
+  const gid=uid();
   for(const f of picked){
-    const code=nextCode(date,docType,built);
+    const code=gcode;
     let url=null;
     if(doUp){
       btn.textContent='Uploading '+(built.length+1)+' of '+picked.length+'…';
       try{url=await uploadPdf(f.file,code);}catch(e){upFail++;}
     }
     built.push({
-      code:code,doc_type:docType,bill_date:date,client:client,
+      group_id:gid,code:code,doc_type:docType,bill_date:date,client:client,
       vessel:(f.vessel||batchVessel).trim(),
       drawing_no:(f.dwg||'').trim(),
       drawing_title:(f.title||'').trim()||f.name.replace(/\.pdf$/i,''),
@@ -2306,7 +2415,7 @@ $('iCommit').onclick=async()=>{
   await saveBatch(built);
   await rememberClient(client);
   resetImp();
-  toast(built.length+' draft'+(built.length===1?'':'s')+' added'+(upFail?' — '+upFail+' upload(s) failed':''));
+  toast('Billing '+gcode+' added — '+built.length+' item'+(built.length===1?'':'s')+(upFail?', '+upFail+' upload(s) failed':''));
 };
 
 /* ---- from catalog ---- */
@@ -2374,10 +2483,19 @@ $('kCommit').onclick=async()=>{
   const vessel=$('kVessel').value.trim();
   const batch=Number($('kRate').value)||0;
   const built=[];
+  // The pick becomes one billing, but a tracking code carries its type, so a
+  // pick spanning types becomes one billing per type rather than coercing them.
+  const heads={};
+  uniq(picked.map(typeOf)).forEach(t=>{
+    heads[t]={gid:uid(),code:nextCode(date,t,built)};
+    built.push({code:heads[t].code});      // so the next type sees it taken
+  });
+  built.length=0;
+  const codes=Object.keys(heads).map(t=>heads[t].code);
   picked.forEach(c=>{
+    const h=heads[typeOf(c)];
     built.push({
-      // each type keeps its own run, even inside one mixed batch
-      code:nextCode(date,typeOf(c),built),
+      group_id:h.gid,code:h.code,
       doc_type:typeOf(c),
       bill_date:date,client:client,vessel:vessel,
       drawing_no:(c.drawing_no||'').trim(),
@@ -2390,7 +2508,9 @@ $('kCommit').onclick=async()=>{
   hide();
   await saveBatch(built);
   await rememberClient(client);
-  toast(built.length+' draft'+(built.length===1?'':'s')+' added');
+  toast(codes.length===1
+    ? 'Billing '+codes[0]+' added — '+built.length+' item'+(built.length===1?'':'s')
+    : codes.length+' billings added — '+built.length+' items');
 };
 
 /* ---- client records (settings) ---- */
@@ -2649,30 +2769,29 @@ function openStmt(){
 }
 function stmtCandidates(){
   const c=$('sClient').value,f=$('sFrom').value,t=$('sTo').value,ty=$('sType').value;
-  return rows.filter(r=>r.client===c&&r.status!=='PAID'
-    &&(!ty||typeOf(r)===ty)
-    &&(!f||String(r.bill_date)>=f)&&(!t||String(r.bill_date)<=t))
+  return allGroups().filter(g=>g.client===c&&g.status!=='PAID'
+    &&(!ty||typeOf(g)===ty)
+    &&(!f||String(g.bill_date)>=f)&&(!t||String(g.bill_date)<=t))
     .sort((a,b)=>String(a.bill_date).localeCompare(String(b.bill_date))||String(a.code).localeCompare(String(b.code)));
 }
 function buildPick(){
   const list=stmtCandidates();
-  $('sPick').innerHTML=list.length?list.map(r=>`
+  $('sPick').innerHTML=list.length?list.map(g=>`
     <label class="pick-item">
-      <input type="checkbox" checked value="${esc(r.id)}">
+      <input type="checkbox" checked value="${esc(g.id)}">
       <span style="min-width:0">
-        <span class="t">${esc(r.drawing_title)}</span><br>
-        <span class="s">${esc(typeOf(r))} · ${esc(r.code)}${r.vessel?' · '+esc(r.vessel):''}</span>
+        <span class="t">${esc(g.code)}</span><br>
+        <span class="s">${esc(typeOf(g))} · ${g.count} item${g.count===1?'':'s'}${g.vessel?' · '+esc(g.vessel):''}</span>
       </span>
-      <span class="a">${money(amountOf(r))}</span>
+      <span class="a">${money(g.total)}</span>
     </label>`).join('')
     : `<div style="padding:18px;text-align:center;color:var(--slate);font-size:13px">No unpaid documents for this client in that range.</div>`;
   $('sPick').querySelectorAll('input').forEach(i=>i.onchange=pickTotal);
   pickTotal();
 }
 function pickedRows(){
-  const ids=Array.from($('sPick').querySelectorAll('input:checked')).map(i=>i.value);
-  return rows.filter(r=>ids.indexOf(String(r.id))>-1)
-    .sort((a,b)=>String(a.bill_date).localeCompare(String(b.bill_date))||String(a.code).localeCompare(String(b.code)));
+  const ids=Array.from($('sPick').querySelectorAll('input:checked')).map(i=>String(i.value));
+  return stmtCandidates().filter(g=>ids.indexOf(String(g.id))>-1);
 }
 // Which type's series this billing draws from: the filter if one is set,
 // otherwise the picked rows when they agree, otherwise the default.
@@ -2695,7 +2814,7 @@ function refreshBillNo(force){
   $('sNo').value=sNoAuto;
 }
 function pickTotal(){
-  $('sTotal').textContent=money(pickedRows().reduce((s,r)=>s+amountOf(r),0));
+  $('sTotal').textContent=money(pickedRows().reduce((s,g)=>s+g.total,0));
   refreshBillNo();
 }
 // Called at the moment a billing is actually issued. The number shown until
@@ -2734,8 +2853,10 @@ $('sAll').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked
 $('sNone').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=false);pickTotal();};
 
 function offerMarkBilled(list){
-  if(!confirm('Mark these '+list.length+' document(s) as BILLED?'))return;
-  list.forEach(r=>{r.status='BILLED';if(!r.billed_date)r.billed_date=today();saveRow(r,false);});
+  if(!confirm('Mark these '+list.length+' billing(s) as BILLED?'))return;
+  list.forEach(g=>{
+    g.lines.forEach(r=>{r.status='BILLED';if(!r.billed_date)r.billed_date=today();saveRow(r,false);});
+  });
   toast(list.length+' marked billed');
 }
 
@@ -2872,8 +2993,13 @@ function payBlock(){
     </div>`;
 }
 
-function renderStatement(list){
+function renderStatement(picked){
   const rec=clientRec($('sClient').value);
+  // accept a bare row as a group of one, so a caller holding a single line
+  // does not have to build the wrapper itself
+  const groups=(picked||[]).filter(Boolean).map(g=>g.lines?g:groupOf([g]));
+  const list=groups.reduce((a,g)=>a.concat(g.lines),[]);
+  const codes=uniq(groups.map(g=>g.code));
   const sub=list.reduce((s,r)=>s+amountOf(r),0);
   const vat=Number($('sVat').value)||0;
   const adj=sub*vat/100;
@@ -2904,6 +3030,7 @@ function renderStatement(list){
       ${rec&&rec.address?`<div class="ad">${esc(rec.address).replace(/\n/g,'<br>')}</div>`:''}
     </div>
     <div class="stmt-meta">
+      <div><div class="k">Tracking</div><div class="v mono">${esc(codes.join(', ')||'—')}</div></div>
       <div><div class="k">Period covered</div><div class="v mono">${fmtDate($('sFrom').value)} — ${fmtDate($('sTo').value)}</div></div>
       <div><div class="k">Terms</div><div class="v mono">${terms} days</div></div>
       <div><div class="k">Due on</div><div class="v mono">${fmtDate(due)}</div></div>
@@ -2916,8 +3043,8 @@ function renderStatement(list){
       </tr></thead>
       <tbody>${list.map((r,i)=>`<tr>
         <td class="c">${i+1}.0</td>
-        <td>${esc(r.drawing_title)}
-          <span class="sub">${[r.vessel,r.drawing_no,r.code].filter(Boolean).map(esc).join(' · ')}</span></td>
+        <td>${esc(r.drawing_title)}${[r.vessel,r.drawing_no].filter(Boolean).length
+            ?`<span class="sub">${[r.vessel,r.drawing_no].filter(Boolean).map(esc).join(' · ')}</span>`:''}</td>
         <td class="c">${esc(r.qty)}</td>
         <td class="r">${money(r.rate).replace('₱','')}</td>
         <td class="r">${money(amountOf(r)).replace('₱','')}</td>
@@ -2946,7 +3073,7 @@ function sqlText(){
   return `-- RSR Billing — run once in Supabase SQL Editor
 create table if not exists drawing_billing (
   id            uuid primary key default gen_random_uuid(),
-  code          text unique not null,
+  code          text not null,
   doc_type      text not null default 'DW',
   bill_date     date not null default current_date,
   client        text not null,
@@ -2977,10 +3104,18 @@ alter table drawing_billing add column if not exists pages     integer;
 alter table drawing_billing
   add column if not exists doc_type text not null default 'DW';
 
+-- Lines are grouped into one billing. Every line of a group carries the
+-- group's id and its shared tracking code, so the code is no longer unique
+-- per row. Existing rows become single-line groups keeping their own code.
+alter table drawing_billing add column if not exists group_id text;
+alter table drawing_billing drop constraint if exists drawing_billing_code_key;
+update drawing_billing set group_id = id::text where group_id is null;
+
 create index if not exists idx_db_client on drawing_billing(client);
 create index if not exists idx_db_status on drawing_billing(status);
 create index if not exists idx_db_date   on drawing_billing(bill_date desc);
 create index if not exists idx_db_type   on drawing_billing(doc_type);
+create index if not exists idx_db_group  on drawing_billing(group_id);
 
 alter table drawing_billing enable row level security;
 
@@ -3306,14 +3441,17 @@ $('chips').addEventListener('click',e=>{
 });
 $('list').addEventListener('click',e=>{
   const pd=e.target.closest('[data-pdf]');if(pd){openPdf(pd.dataset.pdf);return;}
+  const ex=e.target.closest('[data-exp]');
+  if(ex){expanded[ex.dataset.exp]=!expanded[ex.dataset.exp];render();return;}
   const ed=e.target.closest('[data-edit]');if(ed){openEntry(ed.dataset.edit);return;}
-  const mk=e.target.closest('[data-mark]');if(mk){markStatus(mk.dataset.id,mk.dataset.mark);return;}
+  const mk=e.target.closest('[data-mark]');if(mk){markGroup(mk.dataset.gid,mk.dataset.mark);return;}
 });
 window.addEventListener('online',()=>pull(true));
 
 /* ================= boot ================= */
 (async function boot(){
   $('brandSub').textContent=cfg.company||'RSR Engineering Services';
+  if(migrateGroups())persist();   // pre-group rows become single-line groups
   setMakeType(DEF_TYPE);
   setTab('mon');
   render();
