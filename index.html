@@ -405,6 +405,22 @@ header.top{
 .stmt-hd .rt .n{font-family:var(--mono);font-size:13px;font-weight:600;margin-top:3px}
 .stmt-hd .rt .d{font-family:var(--mono);font-size:10.5px;color:#444}
 
+.bill-to{border:1px solid #000;border-top:0;padding:8px 10px}
+.bill-to .k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:700}
+.bill-to .who{font-size:12px;font-weight:700;margin-top:3px}
+.bill-to .co{font-size:12px;font-weight:600}
+.bill-to .ad{font-size:10.5px;color:#333;margin-top:1px;line-height:1.4}
+
+/* payment details, printed after the total */
+.pay{margin-top:14px;border:1px solid #000;padding:9px 11px}
+.pay .k{font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:700}
+.pay .to{font-size:11px;margin-top:5px}
+table.pay-t{width:100%;border-collapse:collapse;margin-top:6px;font-size:10.5px}
+table.pay-t td{padding:3px 8px 3px 0;vertical-align:top}
+table.pay-t .bk{font-weight:700;white-space:nowrap;width:34%}
+table.pay-t .ac{font-family:var(--mono);white-space:nowrap;text-align:right}
+.pay .ds{font-size:10px;color:#333;margin-top:7px;line-height:1.45}
+
 /* title-block style meta strip */
 .stmt-meta{display:flex;border:1px solid #000;border-top:0;margin-top:0}
 .stmt-meta div{flex:1;padding:7px 10px;border-right:1px solid #000}
@@ -422,6 +438,7 @@ table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
 table.stmt-t .r{text-align:right;font-family:var(--mono);white-space:nowrap}
 table.stmt-t .c{text-align:center;font-family:var(--mono)}
 table.stmt-t .cd{font-family:var(--mono);font-size:9.5px;white-space:nowrap}
+table.stmt-t .sub{display:block;font-family:var(--mono);font-size:9px;color:#555;margin-top:2px}
 table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-tot{margin-top:0;border-top:2px solid var(--ink)}
 .stmt-tot tr td{padding:6px 8px;font-size:11px;border:0}
@@ -698,7 +715,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 <!-- Statement sheet -->
 <div class="sheet" id="sheetStmt" role="dialog" aria-modal="true" aria-labelledby="stmtTitle">
   <div class="sheet-head">
-    <div><div class="eyebrow">Build document</div><h2 id="stmtTitle">Billing statement</h2></div>
+    <div><div class="eyebrow">Build document</div><h2 id="stmtTitle">Billing</h2></div>
     <button class="icon-btn" style="margin-left:auto;color:var(--slate);border-color:var(--line)" data-close aria-label="Close">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
     </button>
@@ -710,7 +727,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <div class="f"><label for="sTo">To</label><input id="sTo" type="date"></div>
     </div>
     <div class="f-row">
-      <div class="f" style="flex:1.3"><label for="sNo">Statement no.</label><input id="sNo" class="mono-in"></div>
+      <div class="f" style="flex:1.3"><label for="sNo">Billing no.</label><input id="sNo" class="mono-in"></div>
       <div class="f"><label for="sTerms">Terms (days)</label><input id="sTerms" type="number" inputmode="numeric" min="0" step="1" value="30"></div>
     </div>
     <div class="f"><label for="sVat">Add-on</label>
@@ -771,6 +788,21 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="sect-t">Billing defaults</div>
     <div class="f"><label for="cRate">Standard rate per item (₱)</label><input id="cRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
     <div class="f"><label for="cPrefix">Code root</label><input id="cPrefix" class="mono-in"><div class="hint">Codes come out as <span id="codeSample" style="font-family:var(--mono)"></span> — root, document type, month — and each type restarts at 001 every month.</div></div>
+
+    <div class="sect-t" style="display:flex;align-items:center">Client records<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCliCount"></span></div>
+    <div class="hint" style="margin:-4px 0 9px">Printed under <b>Bill To</b> on every billing. Contact person and address are optional.</div>
+    <div class="pick" id="cCliList"></div>
+    <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cCliAdd" type="button">Add client</button></div>
+
+    <div class="sect-t">Billing document</div>
+    <div class="f"><label for="cBillPrefix">Billing no. prefix</label><input id="cBillPrefix" class="mono-in" placeholder="BILLDWG"><div class="hint">Numbers come out as <span style="font-family:var(--mono)" id="billSample"></span> and run in one series per calendar year. Each billing number stays editable before you issue it.</div></div>
+
+    <div class="sect-t">Payment details</div>
+    <div class="hint" style="margin:-4px 0 9px">Printed after the total on every billing.</div>
+    <div class="f"><label for="cPayee">Please issue payment to</label><input id="cPayee" placeholder="Payee name as it appears on the account"></div>
+    <div class="pick" id="cBankList"></div>
+    <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cBankAdd" type="button">Add bank account</button></div>
+    <div class="f" style="margin-top:13px"><label for="cRemit">Email deposit slips to</label><input id="cRemit" type="email" inputmode="email" autocomplete="off" spellcheck="false" placeholder="billing@yourdomain.com"><div class="hint">Printed as the deposit-slip instruction line.</div></div>
 
     <div class="sect-t">Company details on statements</div>
     <div class="f"><label for="cCo">Company name</label><input id="cCo"></div>
@@ -837,7 +869,11 @@ const DEFAULT_CFG={
   company:'RSR ENGINEERING SERVICES',
   address:'Carmen & Mandaue Yard Facilities, Cebu, Philippines',
   contact:'',
-  signer:'',role:'Naval Architect & Marine Engineer'
+  signer:'',role:'Naval Architect & Marine Engineer',
+  // billing document
+  billPrefix:'BILLDWG',billYear:'',billSeq:0,
+  payee:'',remitEmail:'',
+  banks:[]
 };
 let cfg=Object.assign({},DEFAULT_CFG);
 try{Object.assign(cfg,JSON.parse(localStorage.getItem(LS_CFG)||'{}'));}catch(e){}
@@ -882,6 +918,28 @@ cfg.types.sort((a,b)=>{
 
 const saveCfg=()=>localStorage.setItem(LS_CFG,JSON.stringify(cfg));
 const online=()=>!!(cfg.url&&cfg.key);
+
+if(!Array.isArray(cfg.banks))cfg.banks=[];
+while(cfg.banks.length<2)cfg.banks.push({bank:'',name:'',acct:''});
+
+/* ---- billing number: BILLDWG-26-003, one run per calendar year ---- */
+const yy2=()=>String(new Date().getFullYear()).slice(2);
+function nextBillNo(){
+  const y=yy2();
+  const n=(String(cfg.billYear)===y?Number(cfg.billSeq)||0:0)+1;
+  return (cfg.billPrefix||'BILLDWG')+'-'+y+'-'+String(n).padStart(3,'0');
+}
+// only called once a billing is actually issued, so an abandoned draft
+// does not burn a number
+function commitBillNo(no){
+  const y=yy2();
+  const m=String(no||'').match(/(\d+)\s*$/);
+  if(!m)return;
+  const n=parseInt(m[1],10);
+  if(!n)return;
+  if(String(cfg.billYear)!==y){cfg.billYear=y;cfg.billSeq=0;}
+  if(n>(Number(cfg.billSeq)||0)){cfg.billSeq=n;saveCfg();}
+}
 
 const typeList=()=>cfg.types.filter(t=>t&&t.code);
 const typeOf=r=>String((r&&r.doc_type)||DEF_TYPE).toUpperCase();
@@ -1273,30 +1331,57 @@ async function catReorder(list){
 }
 const syncBadge=()=>setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
 
-/* ---- per-client billing email ---- */
+/* ---- client records: who to bill, and where ---- */
+const CLI_FIELDS=['name','contact_person','address','billing_email'];
+function cliPayload(c){
+  const o={};CLI_FIELDS.forEach(k=>{o[k]=c[k]===''?null:c[k];});
+  o.name=String(c.name||'').trim();
+  return o;
+}
 const clientRec=name=>clients.find(c=>String(c.name||'')===String(name||''));
 const billingEmail=name=>{const c=clientRec(name);return c?(c.billing_email||''):'';};
-async function setBillingEmail(name,email){
-  name=String(name||'').trim();
-  if(!name)return;
-  let c=clientRec(name);
-  if(c){
-    if(String(c.billing_email||'')===String(email||''))return;
-    c.billing_email=email;
-    if(String(c.id).startsWith('loc-')){
-      const j=queue.find(q=>q.op==='insert'&&q.localId===c.id);
-      if(j)j.data={name:c.name,billing_email:email};
-    }else{
-      queue=queue.filter(q=>!(q.op==='update'&&q.id===c.id));
-      queue.push({op:'update',store:'clients',table:CLI_TABLE,id:c.id,data:{name:name,billing_email:email}});
-    }
+const cliSorted=()=>clients.slice().sort((a,b)=>
+  String(a.name||'').localeCompare(String(b.name||'')));
+
+async function cliSave(item,isNew){
+  if(isNew){
+    item.id=uid();
+    clients.push(item);
+    queue.push({op:'insert',store:'clients',table:CLI_TABLE,localId:item.id,data:cliPayload(item)});
   }else{
-    c={id:uid(),name:name,billing_email:email};
-    clients.push(c);
-    queue.push({op:'insert',store:'clients',table:CLI_TABLE,localId:c.id,data:{name:name,billing_email:email}});
+    const i=clients.findIndex(c=>c.id===item.id);if(i>-1)clients[i]=item;
+    if(String(item.id).startsWith('loc-')){
+      const j=queue.find(q=>q.op==='insert'&&q.localId===item.id);
+      if(j)j.data=cliPayload(item);
+      else queue.push({op:'insert',store:'clients',table:CLI_TABLE,localId:item.id,data:cliPayload(item)});
+    }else{
+      queue=queue.filter(q=>!(q.op==='update'&&q.id===item.id));
+      queue.push({op:'update',store:'clients',table:CLI_TABLE,id:item.id,data:cliPayload(item)});
+    }
   }
   persist();
   if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+  else setSync('off','Local');
+}
+async function cliDelete(id){
+  clients=clients.filter(c=>c.id!==id);
+  if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
+  else{queue=queue.filter(q=>q.id!==id);queue.push({op:'delete',store:'clients',table:CLI_TABLE,id:id});}
+  persist();
+  if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+}
+// used by the email flow, which only knows the address
+async function setBillingEmail(name,email){
+  name=String(name||'').trim();
+  if(!name)return;
+  const c=clientRec(name);
+  if(c){
+    if(String(c.billing_email||'')===String(email||''))return;
+    c.billing_email=email;
+    await cliSave(c,false);
+  }else{
+    await cliSave({name:name,contact_person:'',address:'',billing_email:email},true);
+  }
 }
 
 /* ---- edge functions ---- */
@@ -1866,6 +1951,79 @@ $('kCommit').onclick=async()=>{
   toast(built.length+' draft'+(built.length===1?'':'s')+' added');
 };
 
+/* ---- client records (settings) ---- */
+function renderCliMgr(){
+  const list=cliSorted();
+  $('cCliCount').textContent=list.length?(list.length+' client'+(list.length===1?'':'s')):'';
+  $('cCliList').innerHTML=list.length?list.map(c=>`
+    <div class="imp">
+      <div class="imp-h">
+        <span class="fn">${esc(c.name||'Unnamed')}</span>
+        <button class="mini del" data-clrm="${esc(c.id)}" title="Remove" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="imp-f">
+        <input data-clf="name" data-cli="${esc(c.id)}" value="${esc(c.name||'')}" placeholder="Company name" autocomplete="off">
+        <input data-clf="contact_person" data-cli="${esc(c.id)}" value="${esc(c.contact_person||'')}" placeholder="Contact person (optional)" autocomplete="off">
+        <input data-clf="address" data-cli="${esc(c.id)}" value="${esc(c.address||'')}" placeholder="Address (optional)" autocomplete="off">
+        <input data-clf="billing_email" data-cli="${esc(c.id)}" value="${esc(c.billing_email||'')}" placeholder="Billing email" type="email" autocomplete="off" spellcheck="false">
+      </div>
+    </div>`).join('')
+    : `<div style="padding:16px;text-align:center;color:var(--slate);font-size:13px">No clients yet — one is added automatically the first time you email a billing.</div>`;
+}
+$('cCliList').addEventListener('input',e=>{
+  const t=e.target.closest('[data-clf]');if(!t)return;
+  const c=clients.find(x=>x.id===t.dataset.cli);if(!c)return;
+  c[t.dataset.clf]=t.value;
+});
+$('cCliList').addEventListener('change',async e=>{
+  const t=e.target.closest('[data-clf]');if(!t)return;
+  const c=clients.find(x=>x.id===t.dataset.cli);if(!c)return;
+  if(!String(c.name||'').trim()){toast('Give the client a name',true);return;}
+  await cliSave(c,false);renderCliMgr();
+});
+$('cCliList').addEventListener('click',async e=>{
+  const rm=e.target.closest('[data-clrm]');if(!rm)return;
+  const c=clients.find(x=>x.id===rm.dataset.clrm);if(!c)return;
+  if(!confirm('Remove "'+(c.name||'this client')+'"? Billing records already saved are not affected.'))return;
+  await cliDelete(c.id);renderCliMgr();
+});
+$('cCliAdd').onclick=async()=>{
+  const item={name:'New client',contact_person:'',address:'',billing_email:''};
+  await cliSave(item,true);
+  renderCliMgr();
+  const f=$('cCliList').querySelector('[data-clf="name"][data-cli="'+item.id+'"]');
+  if(f){f.focus();f.select();}
+};
+
+/* ---- payment details (settings) ---- */
+function renderBanks(){
+  $('cBankList').innerHTML=cfg.banks.map((b,i)=>`
+    <div class="imp">
+      <div class="imp-h">
+        <span class="fn">Account ${i+1}</span>
+        <button class="mini del" data-bkrm="${i}" title="Remove" aria-label="Remove"${cfg.banks.length<2?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="imp-f">
+        <input data-bkf="bank" data-bki="${i}" value="${esc(b.bank||'')}" placeholder="Bank" autocomplete="off">
+        <input data-bkf="name" data-bki="${i}" value="${esc(b.name||'')}" placeholder="Account name" autocomplete="off">
+        <input data-bkf="acct" data-bki="${i}" value="${esc(b.acct||'')}" placeholder="Account no." class="mono-in" autocomplete="off">
+      </div>
+    </div>`).join('');
+}
+$('cBankList').addEventListener('input',e=>{
+  const t=e.target.closest('[data-bkf]');if(!t)return;
+  const b=cfg.banks[+t.dataset.bki];if(!b)return;
+  b[t.dataset.bkf]=t.value;
+});
+$('cBankList').addEventListener('change',()=>{saveCfg();});
+$('cBankList').addEventListener('click',e=>{
+  const rm=e.target.closest('[data-bkrm]');if(!rm)return;
+  if(cfg.banks.length<2)return;   // the format expects at least two
+  cfg.banks.splice(+rm.dataset.bkrm,1);
+  saveCfg();renderBanks();
+});
+$('cBankAdd').onclick=()=>{cfg.banks.push({bank:'',name:'',acct:''});saveCfg();renderBanks();};
+
 /* ---- manage document types (settings) ---- */
 const typeInUse=code=>rows.some(r=>typeOf(r)===code)||catalog.some(c=>typeOf(c)===code);
 function renderTypes(){
@@ -2028,8 +2186,7 @@ function openStmt(){
   const d=new Date();
   $('sFrom').value=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);
   $('sTo').value=today();
-  const mm=String(d.getMonth()+1).padStart(2,'0')+d.getFullYear();
-  $('sNo').value='RSR-SOA-'+mm+'-001';
+  $('sNo').value=nextBillNo();
   $('sType').innerHTML=typeOptions(filters.type,'All types');
   $('sEmail').value=billingEmail($('sClient').value);
   buildPick();show('sheetStmt');
@@ -2078,6 +2235,7 @@ $('sPrint').onclick=()=>{
   const list=pickedRows();
   if(!list.length){toast('Pick at least one document',true);return;}
   renderStatement(list);
+  commitBillNo($('sNo').value);
   hide();
   setTimeout(()=>{
     window.print();
@@ -2100,6 +2258,20 @@ body{margin:0;padding:18px;background:#fff;color:#000;font-family:Arial,Helvetic
 .stmt-hd .rt .t{font-size:11px;letter-spacing:.18em;text-transform:uppercase;font-weight:bold}
 .stmt-hd .rt .n{font-family:Consolas,monospace;font-size:13px;font-weight:bold;margin-top:3px}
 .stmt-hd .rt .d{font-family:Consolas,monospace;font-size:10.5px;color:#444}
+.bill-to{border:1px solid #000;border-top:0;padding:8px 10px}
+.bill-to .k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:bold}
+.bill-to .who{font-size:12px;font-weight:bold;margin-top:3px}
+.bill-to .co{font-size:12px;font-weight:bold}
+.bill-to .ad{font-size:10.5px;color:#333;margin-top:1px;line-height:1.4}
+.pay{margin-top:14px;border:1px solid #000;padding:9px 11px}
+.pay .k{font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:bold}
+.pay .to{font-size:11px;margin-top:5px}
+table.pay-t{width:100%;border-collapse:collapse;margin-top:6px;font-size:10.5px}
+table.pay-t td{padding:3px 8px 3px 0;vertical-align:top}
+table.pay-t .bk{font-weight:bold;white-space:nowrap;width:34%}
+table.pay-t .ac{font-family:Consolas,monospace;white-space:nowrap;text-align:right}
+.pay .ds{font-size:10px;color:#333;margin-top:7px;line-height:1.45}
+table.stmt-t .sub{display:block;font-family:Consolas,monospace;font-size:9px;color:#555;margin-top:2px}
 .stmt-meta{display:flex;border:1px solid #000;border-top:0}
 .stmt-meta div{flex:1;padding:7px 10px;border-right:1px solid #000}
 .stmt-meta div:last-child{border-right:0}
@@ -2160,19 +2332,38 @@ $('sEmailBtn').onclick=async()=>{
     await fnPost('send-statement',{
       to:to,
       client:client,
-      subject:'Statement of Account '+no+' — '+(cfg.company||'RSR Engineering Services'),
+      subject:'Billing '+no+' — '+(cfg.company||'RSR Engineering Services'),
       html:statementEmailHtml(),
       statement_no:no
     });
+    commitBillNo(no);
     hide();
-    toast('Statement emailed to '+to);
+    toast('Billing emailed to '+to);
     setTimeout(()=>offerMarkBilled(list),300);
   }catch(e){
     toast(e.message||'Could not send the statement',true);
   }finally{btn.disabled=false;btn.textContent='Email';}
 };
 
+// Payment block, printed after the total on every billing.
+function payBlock(){
+  const banks=(cfg.banks||[]).filter(b=>b&&(b.bank||b.name||b.acct));
+  if(!cfg.payee&&!banks.length&&!cfg.remitEmail)return '';
+  return `
+    <div class="pay">
+      <div class="k">Payment details</div>
+      ${cfg.payee?`<div class="to">Please issue payment to <b>${esc(cfg.payee)}</b></div>`:''}
+      ${banks.length?`<table class="pay-t"><tbody>${banks.map(b=>`<tr>
+        <td class="bk">${esc(b.bank||'')}</td>
+        <td>${esc(b.name||'')}</td>
+        <td class="ac">${esc(b.acct||'')}</td>
+      </tr>`).join('')}</tbody></table>`:''}
+      ${cfg.remitEmail?`<div class="ds">Kindly email a copy of the deposit slip to <b>${esc(cfg.remitEmail)}</b> for confirmation of payment.</div>`:''}
+    </div>`;
+}
+
 function renderStatement(list){
+  const rec=clientRec($('sClient').value);
   const sub=list.reduce((s,r)=>s+amountOf(r),0);
   const vat=Number($('sVat').value)||0;
   const adj=sub*vat/100;
@@ -2191,28 +2382,32 @@ function renderStatement(list){
         <p>${esc(cfg.address||'').replace(/\n/g,'<br>')}${cfg.contact?'<br>'+esc(cfg.contact):''}</p>
       </div>
       <div class="rt">
-        <div class="t">Statement of Account</div>
+        <div class="t">Billing</div>
         <div class="n">${esc($('sNo').value)}</div>
         <div class="d">${fmtDate(today())}</div>
       </div>
     </div>
+    <div class="bill-to">
+      <div class="k">Bill to</div>
+      ${rec&&rec.contact_person?`<div class="who">${esc(rec.contact_person)}</div>`:''}
+      <div class="co">${esc(client)}</div>
+      ${rec&&rec.address?`<div class="ad">${esc(rec.address).replace(/\n/g,'<br>')}</div>`:''}
+    </div>
     <div class="stmt-meta">
-      <div><div class="k">Billed to</div><div class="v">${esc(client)}</div></div>
       <div><div class="k">Period covered</div><div class="v mono">${fmtDate($('sFrom').value)} — ${fmtDate($('sTo').value)}</div></div>
       <div><div class="k">Terms</div><div class="v mono">${terms} days</div></div>
       <div><div class="k">Due on</div><div class="v mono">${fmtDate(due)}</div></div>
     </div>
     <table class="stmt-t">
       <thead><tr>
-        <th style="width:104px">Code</th><th style="width:66px">Date</th><th>Vessel</th>
-        <th>Item</th><th style="width:34px" class="c">Qty</th>
+        <th style="width:34px" class="c">No.</th>
+        <th>Description</th><th style="width:34px" class="c">Qty</th>
         <th style="width:74px" class="r">Rate</th><th style="width:86px" class="r">Amount</th>
       </tr></thead>
-      <tbody>${list.map(r=>`<tr>
-        <td class="cd">${esc(r.code)}</td>
-        <td class="cd">${fmtDate(r.bill_date)}</td>
-        <td>${esc(r.vessel||'—')}</td>
-        <td>${esc(r.drawing_title)}${r.drawing_no?`<br><span style="font-family:var(--mono);font-size:9px;color:#555">${esc(r.drawing_no)}</span>`:''}</td>
+      <tbody>${list.map((r,i)=>`<tr>
+        <td class="c">${i+1}.0</td>
+        <td>${esc(r.drawing_title)}
+          <span class="sub">${[r.vessel,r.drawing_no,r.code].filter(Boolean).map(esc).join(' · ')}</span></td>
         <td class="c">${esc(r.qty)}</td>
         <td class="r">${money(r.rate).replace('₱','')}</td>
         <td class="r">${money(amountOf(r)).replace('₱','')}</td>
@@ -2224,6 +2419,7 @@ function renderStatement(list){
       <tr class="grand"><td class="lbl">Total amount due</td><td class="amt">${money(grand)}</td></tr>
     </table>
     <div class="words"><b>Amount in words</b><br>${esc(pesoWords(grand))}</div>
+    ${payBlock()}
     <div class="stmt-sig">
       <div><div class="k">Prepared by</div><div class="l">${esc(cfg.signer||'')}</div><div class="r">${esc(cfg.role||'')}</div></div>
       <div><div class="k">Received / conforme</div><div class="l">&nbsp;</div><div class="r">${esc(client)} — signature over printed name / date</div></div>
@@ -2321,11 +2517,17 @@ create policy rsr_dwg_catalog_authed on drawing_catalog
 -- time you email that client, and editable on the statement sheet.
 -- ---------------------------------------------------------------
 create table if not exists clients (
-  id            uuid primary key default gen_random_uuid(),
-  name          text unique not null,
-  billing_email text,
-  created_at    timestamptz default now()
+  id             uuid primary key default gen_random_uuid(),
+  name           text unique not null,
+  contact_person text,
+  address        text,
+  billing_email  text,
+  created_at     timestamptz default now()
 );
+
+-- printed under Bill To on the billing document
+alter table clients add column if not exists contact_person text;
+alter table clients add column if not exists address        text;
 
 alter table clients enable row level security;
 
@@ -2405,8 +2607,11 @@ function openCfg(){
   $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Records are local to this device.');
   $('cSignOut').hidden=!who;
   $('cSignIn').hidden=who||!cfg.url;
-  renderTypes();renderCatMgr();
-  sample();show('sheetCfg');
+  $('cBillPrefix').value=cfg.billPrefix||'BILLDWG';
+  $('cPayee').value=cfg.payee||'';
+  $('cRemit').value=cfg.remitEmail||'';
+  renderTypes();renderCatMgr();renderCliMgr();renderBanks();
+  sample();billSample();show('sheetCfg');
 }
 function sample(){
   const d=new Date(),mm=String(d.getMonth()+1).padStart(2,'0')+d.getFullYear();
@@ -2414,6 +2619,11 @@ function sample(){
   $('codeSample').textContent=($('cPrefix').value||'RSR')+'-'+(t?t.code:DEF_TYPE)+'-'+mm+'-001';
 }
 $('cPrefix').oninput=()=>{sample();typeSample();};
+function billSample(){
+  const y=yy2(),n=(String(cfg.billYear)===y?Number(cfg.billSeq)||0:0)+1;
+  $('billSample').textContent=($('cBillPrefix').value||'BILLDWG')+'-'+y+'-'+String(n).padStart(3,'0');
+}
+$('cBillPrefix').oninput=billSample;
 $('cSql').onclick=()=>{
   const w=$('sqlWrap');w.hidden=!w.hidden;
   // regenerate so a bucket name typed but not yet saved is reflected
@@ -2439,6 +2649,9 @@ $('cSave').onclick=async()=>{
   cfg.bucket=$('cBucket').value.trim().replace(/[^\w\-]/g,'');
   cfg.rate=Number($('cRate').value)||0;
   cfg.root=$('cPrefix').value.trim().replace(/-+$/,'')||'RSR';
+  cfg.billPrefix=$('cBillPrefix').value.trim().replace(/-+$/,'')||'BILLDWG';
+  cfg.payee=$('cPayee').value.trim();
+  cfg.remitEmail=$('cRemit').value.trim();
   // drop any type rows left blank in the editor
   cfg.types=typeList();
   if(!cfg.types.length)cfg.types=[{code:DEF_TYPE,label:'Drawing'}];
