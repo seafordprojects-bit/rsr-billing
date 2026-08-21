@@ -103,6 +103,13 @@ Needs two browsers signed into the same project.
       print again — the same number is reused.
 - [ ] **Settings → counter reset.** With a billing already numbered, try setting
       the counter below it. The confirm names the clashing number. Read it.
+- [ ] **Billing no. field.** Not yet issued: it reads `auto — will issue as
+      BILLDWG-26-00N` and follows the Settings counter. Type over it: the value
+      sticks and stops following. Clear it: back to auto. After printing it
+      shows the stored number and reprints reuse it.
+- [ ] **Reset to auto** appears only on a draft. It warns, names the number, and
+      says the number stays consumed. Afterwards the next print claims the
+      *following* number, not the released one.
 
 ## 6. Offline
 

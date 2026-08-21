@@ -281,6 +281,9 @@ header.top{
 }
 .f .hint{font-size:11.5px;color:var(--slate);margin-top:5px}
 .f-row{display:flex;gap:10px}
+.f-inline{display:flex;gap:6px;align-items:stretch}
+.f-inline input{flex:1;min-width:0}
+.f-inline .act{flex:0 0 auto;white-space:nowrap}
 .f-row .f{flex:1;min-width:0}
 .mono-in{font-family:var(--mono) !important;letter-spacing:.04em}
 .amt-preview{
@@ -801,10 +804,15 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <div class="f"><label for="sFrom">From</label><input id="sFrom" type="date"></div>
       <div class="f"><label for="sTo">To</label><input id="sTo" type="date"></div>
     </div>
-    <div class="f-row">
-      <div class="f" style="flex:1.3"><label for="sNo">Billing no.</label><input id="sNo" class="mono-in"><div class="hint" id="sNoHint" hidden></div></div>
-      <div class="f"><label for="sTerms">Terms (days)</label><input id="sTerms" type="number" inputmode="numeric" min="0" step="1" value="30"></div>
+    <div class="f">
+      <label for="sNo">Billing no.</label>
+      <div class="f-inline">
+        <input id="sNo" class="mono-in">
+        <button class="act" id="sNoReset" type="button" hidden title="Release this number and go back to the automatic one">Reset to auto</button>
+      </div>
+      <div class="hint" id="sNoHint" hidden></div>
     </div>
+    <div class="f"><label for="sTerms">Terms (days)</label><input id="sTerms" type="number" inputmode="numeric" min="0" step="1" value="30"></div>
     <div class="f"><label for="sVat">Add-on</label>
       <select id="sVat"><option value="0">None</option><option value="12">Plus 12% VAT</option><option value="-2">Less 2% withholding tax</option></select>
     </div>
@@ -2993,7 +3001,7 @@ function openStmt(){
   const d=new Date();
   $('sFrom').value=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);
   $('sTo').value=today();
-  sNoAuto='';
+  sNoAuto='';sNoMode='auto';
   $('sType').innerHTML=typeOptions(filters.type,'All types');
   $('sEmail').value=billingEmail($('sClient').value);
   buildPick();refreshBillNo(true);show('sheetStmt');
@@ -3036,28 +3044,68 @@ function billTypeFor(){
   }
   return DEF_TYPE;
 }
-let sNoAuto='';
-// Once a billing has been issued it keeps its number; the field then shows
-// what is stored rather than a fresh preview.
+// The field is in one of three states, tracked explicitly rather than guessed
+// from the text: auto (a live preview of the counter), manual (typed by hand
+// and left alone), or issued (a number already stored on the billing).
+let sNoAuto='', sNoMode='auto';
 function refreshBillNo(force){
   const groups=pickedRows();
   const have=uniq(groups.map(g=>g.bill_no).filter(Boolean));
-  const cur=$('sNo').value.trim();
+  const hint=$('sNoHint');
+  hint.hidden=false;
+
   if(have.length){
-    const val=have.join(', ');
-    if(force||!cur||cur===sNoAuto){$('sNo').value=val;sNoAuto=val;}
-    $('sNoHint').textContent=groups.length===1&&groups[0].status==='DRAFT'
-      ? 'Already issued. Editable while this billing is a draft.'
-      : 'Already issued — reused on every print.';
-    $('sNoHint').hidden=false;
+    sNoMode='issued';
+    sNoAuto=have.join(', ');
+    $('sNo').value=sNoAuto;
+    const draft=groups.length===1&&groups[0].status==='DRAFT';
+    hint.textContent=draft
+      ? 'issued as '+sNoAuto+' — reused on every print. Edit it, or reset to auto.'
+      : 'issued as '+sNoAuto+' — reused on every print.';
+    $('sNoReset').hidden=!draft;
     return;
   }
-  if(!force&&cur&&cur!==sNoAuto)return;
+  if(sNoMode==='manual'&&!force){
+    hint.textContent='typed by hand — kept as is, and claimed on the next print';
+    $('sNoReset').hidden=false;
+    return;
+  }
+  // auto: track the counter, so changing it in Settings shows here
+  sNoMode='auto';
   sNoAuto=nextBillNo(billTypeFor());
   $('sNo').value=sNoAuto;
-  $('sNoHint').textContent='Claimed when you print or email.';
-  $('sNoHint').hidden=false;
+  hint.textContent='auto — will issue as '+sNoAuto;
+  $('sNoReset').hidden=true;
 }
+// typing switches the field to manual; clearing it hands back to auto
+$('sNo').addEventListener('input',()=>{
+  if(!$('sNo').value.trim()){sNoMode='auto';refreshBillNo(true);return;}
+  sNoMode='manual';
+  $('sNoHint').textContent='typed by hand — kept as is, and claimed on the next print';
+  $('sNoHint').hidden=false;
+  $('sNoReset').hidden=false;
+});
+// Releasing a number does not give it back: the counter has already moved on.
+$('sNoReset').onclick=async()=>{
+  const groups=pickedRows();
+  const issued=uniq(groups.map(g=>g.bill_no).filter(Boolean));
+  if(issued.length){
+    const t=typeOf(groups[0]||{});
+    const br='\n\n';
+    if(!confirm('Release '+issued.join(', ')+' from this billing?'+br+
+      'The next Print or Email will claim a fresh number. '+issued.join(', ')+
+      ' stays used up unless you also lower the '+t+' counter in Settings.'))return;
+    for(const g of groups){
+      if(!g.bill_no)continue;
+      for(const r of g.lines){r.bill_no=null;saveRow(r,false);}
+      g.bill_no=null;
+    }
+    render();
+  }
+  sNoMode='auto';
+  refreshBillNo(true);
+  toast('Back to auto — '+$('sNo').value+' on the next print');
+};
 // write the number onto every line of the group
 async function setGroupBillNo(g,no){
   for(const r of g.lines){r.bill_no=no;saveRow(r,false);}
@@ -3079,10 +3127,10 @@ async function issueBillNos(){
   const single=groups.length===1?groups[0]:null;
 
   // one draft billing with a hand-typed number: honour it, stored or not
-  if(single&&single.status==='DRAFT'&&typed&&typed!==single.bill_no){
+  if(single&&single.status==='DRAFT'&&sNoMode==='manual'&&typed){
     await raiseBillNo(typeOf(single),typed);
     await setGroupBillNo(single,typed);
-    $('sNo').value=typed;sNoAuto=typed;
+    $('sNo').value=typed;sNoAuto=typed;sNoMode='issued';
     return typed;
   }
   for(const g of groups){
@@ -3090,8 +3138,16 @@ async function issueBillNos(){
     const t=typeOf(g);
     let no;
     if(online()&&authed()){
-      const n=await claimBillNo(t);
-      no=billPrefixOf(t)+'-'+yy2()+'-'+String(n).padStart(3,'0');
+      try{
+        const n=await claimBillNo(t);
+        no=billPrefixOf(t)+'-'+yy2()+'-'+String(n).padStart(3,'0');
+      }catch(e){
+        // an expired session has to surface, but a project that is merely
+        // unreachable must not strand the print with no number at all
+        if(/session expired/i.test(e.message||''))throw e;
+        no=nextBillNo(t);commitBillNo(no,t);
+        toast('Could not reach the server — '+no+' is provisional, check it once synced',true);
+      }
     }else{
       no=nextBillNo(t);commitBillNo(no,t);
       toast('Offline — '+no+' is provisional, check it once synced',true);
@@ -3100,7 +3156,7 @@ async function issueBillNos(){
   }
   const all=uniq(groups.map(g=>g.bill_no).filter(Boolean));
   const val=all.join(', ');
-  $('sNo').value=val;sNoAuto=val;
+  $('sNo').value=val;sNoAuto=val;sNoMode='issued';
   return val;
 }
 
