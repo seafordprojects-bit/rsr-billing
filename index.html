@@ -28,6 +28,9 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
+/* the UA rule for [hidden] is display:none, which any author display rule
+   outranks — .drop, .chk and .imp-status all set one, so hidden was inert */
+[hidden]{display:none !important}
 body{
   font-family:var(--sans);
   background:var(--paper);
@@ -113,6 +116,7 @@ header.top{
 .mk .tx b{display:block;font-size:14.5px;font-weight:700}
 .mk .tx i{display:block;font-style:normal;font-size:12px;color:var(--slate);margin-top:2px;line-height:1.35}
 .mk .ch{margin-left:auto;color:var(--slate);font-size:19px;line-height:1}
+.mk-paths{display:flex;flex-direction:column;gap:10px}
 .mk-recent{margin-top:4px;display:flex;flex-direction:column;gap:9px}
 .mk-recent .rt{
   font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--slate);
@@ -281,8 +285,13 @@ header.top{
 /* ---------- desktop ---------- */
 @media(min-width:760px){
   .seg{max-width:340px;margin-left:16px}
-  .seg.sub{max-width:460px;margin:0}
-  .make{padding:18px 20px 0;max-width:560px}
+  /* Create Billing gets the same content width as the list and the totals
+     row above it, rather than sitting in a narrow left column */
+  .seg.sub{max-width:none;margin:0}
+  .make{padding:18px 20px 0}
+  .mk-paths{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+  .mk{height:100%}
+  .mk-recent{margin-top:10px}
   .totals{grid-template-columns:repeat(3,1fr)}
   .tcell{padding:16px 20px}
   .tcell .val{font-size:22px}
@@ -515,6 +524,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
         <div class="s">or tap to choose files — one PDF, one billing line</div>
       </button>
 
+      <div class="mk-paths">
       <button class="mk" id="mkCat" type="button">
         <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg></span>
         <span class="tx"><b>From catalog</b><i id="mkCatSub">Tick your standard items and bill them in one go.</i></span>
@@ -526,6 +536,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
         <span class="tx"><b>Add manually</b><i id="mkOneSub">One record, filled in by hand.</i></span>
         <span class="ch">›</span>
       </button>
+      </div>
 
       <div class="mk-recent" id="mkRecent"></div>
     </div>
@@ -823,13 +834,18 @@ const DEF_TYPE='DW';
 // The three types the Create Billing tabs are built around. Extra types can
 // still be added in Settings; they show up in the filters and on records,
 // they just do not get a tab of their own.
+// `one` and `many` are the mid-sentence forms. They are spelled out rather
+// than derived with toLowerCase() so the UTG acronym keeps its capitals.
 const BUILT_IN=[
   {code:'UT',label:'UTG Report',            ref:'Report no.',      tab:'UTG',
-   title:'UTG report',            sub:'Everything added here is billed as a UTG report.'},
+   title:'UTG report',            one:'UTG report',            many:'UTG reports',
+   sub:'Everything added here is billed as a UTG report.'},
   {code:'DW',label:'Drawing',               ref:'Drawing no.',     tab:'Drawing',
-   title:'Drawing',               sub:'Everything added here is billed as a drawing.'},
+   title:'Drawing',               one:'drawing',               many:'drawings',
+   sub:'Everything added here is billed as a drawing.'},
   {code:'DC',label:'Drydocking Certificate',ref:'Certificate no.', tab:'Drydocking Cert',
-   title:'Drydocking certificate',sub:'Everything added here is billed as a drydocking certificate.'}
+   title:'Drydocking certificate',one:'drydocking certificate', many:'drydocking certificates',
+   sub:'Everything added here is billed as a drydocking certificate.'}
 ];
 const TAB_TYPES=BUILT_IN.map(t=>t.code);
 const builtIn=c=>BUILT_IN.find(t=>t.code===String(c||'').toUpperCase());
@@ -1386,7 +1402,7 @@ function openEntry(id,forceType){
   const r=id?rows.find(x=>x.id===id):null;
   const t=r?typeOf(r):(forceType||DEF_TYPE);
   const b=builtIn(t);
-  $('entryEyebrow').textContent=r?'Record '+(r.code||''):'New '+(b?b.title.toLowerCase():'record');
+  $('entryEyebrow').textContent=r?'Record '+(r.code||''):'New '+(b?b.one:'record');
   $('entryTitle').textContent=r?'Edit record':(b?b.title:'Details');
   $('eDelete').hidden=!r;
   $('eDate').value=r?String(r.bill_date||today()).slice(0,10):today();
@@ -1771,7 +1787,7 @@ function openCat(forceType){
   $('catEmpty').hidden=items.length>0;
   $('catForm').hidden=items.length===0;
   $('catEmptyMsg').textContent=b
-    ? 'Nothing in the catalog for '+b.title.toLowerCase()+'s yet. Add the ones you bill over and over, then pick them here.'
+    ? 'Nothing in the catalog for '+b.many+' yet. Add the ones you bill over and over, then pick them here.'
     : 'Add the items you bill over and over, then pick them here.';
   if(!$('kDate').value)$('kDate').value=today();
   if(!$('kRate').value)$('kRate').value=cfg.rate||'';
@@ -2119,14 +2135,22 @@ $('sEmailBtn').onclick=async()=>{
   const btn=$('sEmailBtn');
   btn.disabled=true;btn.textContent='Sending…';
   try{
+    // Saved first, and confirmed to have reached the server: the function
+    // checks the recipient against this client's row, so on a first send
+    // there has to be something there to check against.
+    await setBillingEmail(client,to);
+    if(queue.length){
+      toast('Could not save the billing email — try again once synced',true);
+      return;
+    }
     renderStatement(list);
     await fnPost('send-statement',{
       to:to,
+      client:client,
       subject:'Statement of Account '+no+' — '+(cfg.company||'RSR Engineering Services'),
       html:statementEmailHtml(),
       statement_no:no
     });
-    await setBillingEmail(client,to);
     hide();
     toast('Statement emailed to '+to);
     setTimeout(()=>offerMarkBilled(list),300);
@@ -2297,6 +2321,28 @@ create policy rsr_dwg_clients_authed on clients
   for all to authenticated using (true) with check (true);
 
 -- ---------------------------------------------------------------
+-- Who may email statements. The send-statement function sends from
+-- your verified domain, so being signed in is not enough on its own
+-- — the caller's address has to be listed here.
+--
+-- RLS is on with no policy, so ordinary sessions cannot read or
+-- change this table at all; only the function, using the service
+-- role key, can see it. Add yourself from the SQL editor:
+--
+--   insert into billing_senders (email) values ('you@example.com')
+--   on conflict (email) do nothing;
+--
+-- Until at least one address is listed, emailing is refused.
+-- ---------------------------------------------------------------
+create table if not exists billing_senders (
+  email      text primary key,
+  note       text,
+  created_at timestamptz default now()
+);
+
+alter table billing_senders enable row level security;
+
+-- ---------------------------------------------------------------
 -- Storage. This project is shared with other RSR apps, so every
 -- statement below touches only the ${b} bucket:
 --   * the bucket row is addressed by id, so other buckets keep
@@ -2439,7 +2485,7 @@ function renderMake(){
   $('mkCatSub').textContent=n
     ? 'Tick from your '+n+' standard '+(n===1?'item':'items')+' and bill them in one go.'
     : 'Nothing in the catalog for this type yet — set it up in Settings.';
-  $('mkOneSub').textContent='One '+b.title.toLowerCase()+', filled in by hand.';
+  $('mkOneSub').textContent='One '+b.one+', filled in by hand.';
 
   const mine=rows.filter(r=>typeOf(r)===makeType)
     .sort((a,b2)=>String(b2.bill_date||'').localeCompare(String(a.bill_date||''))||
