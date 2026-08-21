@@ -491,12 +491,22 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-ft span:last-child{margin-left:auto;font-family:var(--mono)}
 
 @media print{
-  @page{size:A4;margin:16mm}
-  html,body{background:#fff;margin:0;padding:0;width:100%}
+  /* One margin on all four sides, so the block of content sits centred in the
+     printable area instead of drifting to the top left. */
+  @page{size:A4 portrait;margin:15mm}
+  html,body{
+    background:#fff;margin:0;padding:0;
+    width:auto;min-width:0;max-width:none;height:auto;
+    font-size:12px
+  }
   #app,.fab-bar,.scrim,.sheet,.toast,#dropOverlay,#gate{display:none !important}
-  #printRoot{display:block !important}
-  /* the sheet already reserves the margin, so the document fills the width */
-  .stmt{width:100%;max-width:none;margin:0;padding:0}
+  #printRoot{display:block !important;width:auto;margin:0;padding:0}
+  /* @page reserves the margin, so the document takes the full printable width */
+  .stmt{width:auto;max-width:none;margin:0;padding:0;box-sizing:border-box}
+  .stmt *{box-sizing:border-box}
+  /* keep the dark table header and the red mark instead of letting the
+     browser drop the backgrounds */
+  html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   table.stmt-t{width:100%;table-layout:fixed}
   /* only the description may break mid-word — letting the narrow numeric
      columns wrap turns "1.0" into "1." with a stray "0" beneath */
@@ -1074,12 +1084,13 @@ const persist=()=>{
 let filters={q:'',status:'ALL',client:'',month:'',type:''};
 let editingId=null;
 
-const FIELDS=['group_id','bill_no','rev_of','rev_no','billable','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
+const FIELDS=['group_id','line_no','bill_no','rev_of','rev_no','billable','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
 function payloadOf(r){
   const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});
   o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;o.doc_type=typeOf(r);
   o.billable=r.billable!==false;
   o.rev_no=r.rev_no==null?null:(Number(r.rev_no)||null);
+  o.line_no=r.line_no==null?null:(Number(r.line_no)||0);
   return o;
 }
 const noCharge=r=>!!r&&r.billable===false;
@@ -1116,7 +1127,11 @@ function migrateGroups(){
   rows.forEach(r=>{if(!r.group_id){r.group_id=String(r.id);n++;}});
   return n;
 }
-function groupOf(list){
+function groupOf(raw){
+  // a sync returns rows in whatever order the query gave, so entry order is
+  // restored from line_no; rows predating it keep their relative order
+  const list=raw.slice().sort((a,b)=>
+    (a.line_no==null?1e9:Number(a.line_no))-(b.line_no==null?1e9:Number(b.line_no)));
   const head=list[0]||{};
   const g={id:groupIdOf(head),lines:list};
   GROUP_FIELDS.forEach(k=>{g[k]=head[k];});
@@ -1458,9 +1473,10 @@ async function saveRow(row,isNew){
 async function saveBatch(list){
   list.forEach(row=>{
     row.id=uid();
-    rows.unshift(row);
     queue.push({op:'insert',localId:row.id,data:payloadOf(row)});
   });
+  // unshifted one at a time this would reverse the batch
+  rows.unshift.apply(rows,list);
   persist();render();
   if(online()){
     try{await flushQueue();persist();render();}catch(e){}
@@ -2141,8 +2157,8 @@ $('eSave').onclick=async()=>{
     const code=$('eCode').value.trim()||nextCode(date,t);
     if(rows.some(r=>r.code===code)){toast('That code is already used',true);return;}
     const gid=uid();
-    const built=lines.map(l=>Object.assign({
-      group_id:gid,code:code,
+    const built=lines.map((l,ix)=>Object.assign({
+      group_id:gid,code:code,line_no:ix,
       drawing_no:String(l.ref||'').trim(),
       drawing_title:String(l.title).trim(),
       qty:Math.max(1,parseInt(l.qty,10)||1),
@@ -2164,7 +2180,7 @@ $('eSave').onclick=async()=>{
   if(code!==g.code&&rows.some(r=>r.code===code)){toast('That code is already used',true);return;}
   const keep={};
   const fresh=[];
-  lines.forEach(l=>{
+  lines.forEach((l,ix)=>{
     if(l.id){
       keep[l.id]=true;
       const r=rows.find(x=>x.id===l.id);
@@ -2176,12 +2192,13 @@ $('eSave').onclick=async()=>{
         r.rate=mlRate(l);
         r.billable=l.billable!==false;
         r.rev_of=l.rev_of||null;r.rev_no=l.rev_no||null;
+        r.line_no=ix;
       }
       Object.assign(r,meta,{code:code});
       saveRow(r,false);
     }else if(draft){
       fresh.push(Object.assign({
-        group_id:g.id,code:code,
+        group_id:g.id,code:code,line_no:ix,
         drawing_no:String(l.ref||'').trim(),
         drawing_title:String(l.title).trim(),
         qty:Math.max(1,parseInt(l.qty,10)||1),
@@ -2501,7 +2518,7 @@ $('iCommit').onclick=async()=>{
       try{url=await uploadPdf(f.file,code);}catch(e){upFail++;}
     }
     built.push({
-      group_id:gid,code:code,doc_type:docType,bill_date:date,client:client,
+      group_id:gid,code:code,line_no:built.length,doc_type:docType,bill_date:date,client:client,
       vessel:(f.vessel||batchVessel).trim(),
       drawing_no:(f.dwg||'').trim(),
       drawing_title:(f.title||'').trim()||f.name.replace(/\.pdf$/i,''),
@@ -2593,10 +2610,12 @@ $('kCommit').onclick=async()=>{
   });
   built.length=0;
   const codes=Object.keys(heads).map(t=>heads[t].code);
+  const seq={};
   picked.forEach(c=>{
     const h=heads[typeOf(c)];
+    const t=typeOf(c);seq[t]=(seq[t]==null?-1:seq[t])+1;
     built.push({
-      group_id:h.gid,code:h.code,
+      group_id:h.gid,code:h.code,line_no:seq[t],
       doc_type:typeOf(c),
       bill_date:date,client:client,vessel:vessel,
       drawing_no:(c.drawing_no||'').trim(),
@@ -3232,9 +3251,9 @@ function renderStatement(picked,opts){
     </div>
     <table class="stmt-t">
       <thead><tr>
-        <th style="width:42px" class="c">No.</th>
-        <th>Description</th><th style="width:34px" class="c">Qty</th>
-        <th style="width:74px" class="r">Rate</th><th style="width:86px" class="r">Amount</th>
+        <th style="width:7%" class="c">No.</th>
+        <th style="width:53%">Description</th><th style="width:7%" class="c">Qty</th>
+        <th style="width:16%" class="r">Rate</th><th style="width:17%" class="r">Amount</th>
       </tr></thead>
       <tbody>${list.map((r,i)=>`<tr>
         <td class="c">${i+1}.0</td>
@@ -3311,6 +3330,8 @@ alter table drawing_billing add column if not exists bill_no text;
 alter table drawing_billing add column if not exists rev_of   text;
 alter table drawing_billing add column if not exists rev_no   integer;
 alter table drawing_billing add column if not exists billable boolean not null default true;
+-- position of a line within its billing, so entry order survives a sync
+alter table drawing_billing add column if not exists line_no integer;
 alter table drawing_billing drop constraint if exists drawing_billing_code_key;
 update drawing_billing set group_id = id::text where group_id is null;
 
