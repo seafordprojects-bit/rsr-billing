@@ -79,12 +79,15 @@ header.top{
 /* ---------- segmented controls ---------- */
 .seg{
   display:flex;gap:4px;padding:4px;margin:0 16px 12px;border-radius:11px;
-  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12)
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
+  touch-action:manipulation
 }
 .seg button{
-  flex:1;min-width:0;padding:9px 8px;border-radius:8px;font-size:13px;font-weight:600;
+  flex:1;min-width:0;min-height:44px;padding:9px 8px;border-radius:8px;
+  font-size:13px;font-weight:600;
   color:rgba(255,255,255,.62);letter-spacing:.01em;white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis;transition:background .15s,color .15s
+  overflow:hidden;text-overflow:ellipsis;touch-action:manipulation
+  /* no transition: the selected pill must land on the same frame as the tap */
 }
 .seg button.on{background:var(--rsr);color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.18)}
 .seg button:not(.on):hover{color:#fff;background:rgba(255,255,255,.07)}
@@ -92,7 +95,7 @@ header.top{
 .seg.sub{
   margin:0;background:var(--card);border:1px solid var(--line);width:100%
 }
-.seg.sub button{color:var(--slate);font-size:12.5px;padding:9px 6px}
+.seg.sub button{color:var(--slate);font-size:12.5px;padding:9px 6px;min-height:44px}
 .seg.sub button.on{background:var(--ink);color:#fff}
 .seg.sub button:not(.on):hover{color:var(--ink);background:var(--paper)}
 
@@ -2503,11 +2506,29 @@ function renderMake(){
       </article>`).join('')
     : '';
 }
+// A segmented control has a 4px track padding and 4px between buttons. A tap
+// landing there has e.target === the track, so closest() finds nothing and the
+// press is silently dropped — which reads as the control ignoring you. Resolve
+// those to whichever button the tap was actually nearest.
+function segPick(box,e,attr){
+  const hit=e.target.closest&&e.target.closest('['+attr+']');
+  if(hit)return hit;
+  const x=e.clientX;
+  const btns=box.querySelectorAll('['+attr+']');
+  if(typeof x!=='number'||!btns.length)return null;
+  let best=null,near=Infinity;
+  Array.prototype.forEach.call(btns,el=>{
+    const r=el.getBoundingClientRect();
+    const d=x<r.left?r.left-x:x>r.right?x-r.right:0;
+    if(d<near){near=d;best=el;}
+  });
+  return best;
+}
 $('mainTabs').addEventListener('click',e=>{
-  const b=e.target.closest('[data-tab]');if(b)setTab(b.dataset.tab);
+  const b=segPick($('mainTabs'),e,'data-tab');if(b)setTab(b.dataset.tab);
 });
 $('typeTabs').addEventListener('click',e=>{
-  const b=e.target.closest('[data-type]');if(b)setMakeType(b.dataset.type);
+  const b=segPick($('typeTabs'),e,'data-type');if(b)setMakeType(b.dataset.type);
 });
 $('mkDrop').onclick=()=>$('fileIn').click();
 $('mkCat').onclick=()=>openCat(makeType);
