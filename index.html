@@ -2633,11 +2633,34 @@ $('kCommit').onclick=async()=>{
     : codes.length+' billings added — '+built.length+' items');
 };
 
+/* ---- repainting an editor without losing the caret ---- */
+// Setting innerHTML throws away every node in the panel, including whichever
+// field is being typed into. Without this the caret lands somewhere else and
+// the next keystrokes go into the wrong input.
+function repaint(box,html,keys){
+  const a=document.activeElement;
+  let keep=null;
+  if(a&&a.dataset&&box.contains&&box.contains(a)){
+    const k=keys.find(x=>a.dataset[x.f]!==undefined&&a.dataset[x.i]!==undefined);
+    if(k){
+      let pos=null;
+      try{pos=a.selectionStart;}catch(e){}      // number inputs refuse this
+      keep={f:k.f,i:k.i,fv:a.dataset[k.f],iv:a.dataset[k.i],pos:pos};
+    }
+  }
+  box.innerHTML=html;
+  if(!keep)return;
+  const back=box.querySelector('[data-'+keep.f+'="'+keep.fv+'"][data-'+keep.i+'="'+keep.iv+'"]');
+  if(!back)return;
+  try{back.focus();}catch(e){}
+  if(keep.pos!=null){try{back.setSelectionRange(keep.pos,keep.pos);}catch(e){}}
+}
+
 /* ---- client records (settings) ---- */
 function renderCliMgr(){
   const list=cliSorted();
   $('cCliCount').textContent=list.length?(list.length+' client'+(list.length===1?'':'s')):'';
-  $('cCliList').innerHTML=list.length?list.map(c=>`
+  repaint($('cCliList'),list.length?list.map(c=>`
     <div class="imp">
       <div class="imp-h">
         <span class="fn">${esc(c.name||'Unnamed')}</span>
@@ -2650,7 +2673,8 @@ function renderCliMgr(){
         <input data-clf="billing_email" data-cli="${esc(c.id)}" value="${esc(c.billing_email||'')}" placeholder="Billing email" type="email" autocomplete="off" spellcheck="false">
       </div>
     </div>`).join('')
-    : `<div style="padding:16px;text-align:center;color:var(--slate);font-size:13px">No clients yet — one is added automatically the first time you email a billing.</div>`;
+    : `<div style="padding:16px;text-align:center;color:var(--slate);font-size:13px">No clients yet — one is added automatically the first time you email a billing.</div>`,
+    [{f:'clf',i:'cli'}]);
 }
 $('cCliList').addEventListener('input',e=>{
   const t=e.target.closest('[data-clf]');if(!t)return;
@@ -2679,7 +2703,7 @@ $('cCliAdd').onclick=async()=>{
 
 /* ---- payment details (settings) ---- */
 function renderBanks(){
-  $('cBankList').innerHTML=cfg.banks.map((b,i)=>`
+  repaint($('cBankList'),cfg.banks.map((b,i)=>`
     <div class="imp">
       <div class="imp-h">
         <span class="fn">Account ${i+1}</span>
@@ -2690,7 +2714,7 @@ function renderBanks(){
         <input data-bkf="name" data-bki="${i}" value="${esc(b.name||'')}" placeholder="Account name" autocomplete="off">
         <input data-bkf="acct" data-bki="${i}" value="${esc(b.acct||'')}" placeholder="Account no." class="mono-in" autocomplete="off">
       </div>
-    </div>`).join('');
+    </div>`).join(''),[{f:'bkf',i:'bki'}]);
 }
 $('cBankList').addEventListener('input',e=>{
   const t=e.target.closest('[data-bkf]');if(!t)return;
@@ -2712,7 +2736,7 @@ function renderTypes(){
   seqDraft={};
   // the editor works on the raw list so a half-typed new row stays visible
   const list=cfg.types;
-  $('cTypeList').innerHTML=list.map((t,i)=>`
+  repaint($('cTypeList'),list.map((t,i)=>`
     <div class="imp">
       <div class="imp-h">
         <input class="mono-in" data-tf="code" data-ti="${i}" value="${esc(t.code)}"
@@ -2734,7 +2758,7 @@ function renderTypes(){
         </div>
         <div class="hint" style="margin:0">Next: <span style="font-family:var(--mono)">${esc(billSampleFor(t))}</span></div>
       </div>
-    </div>`).join('');
+    </div>`).join(''),[{f:'tf',i:'ti'}]);
   typeSample();
 }
 // next number this type would issue, for the Settings preview
@@ -2827,7 +2851,7 @@ function renderCatMgr(){
   const list=catSorted();
   const live=list.filter(c=>c.active!==false).length;
   $('cCatCount').textContent=list.length?(live+' active of '+list.length):'';
-  $('cCatList').innerHTML=list.length?list.map((c,i)=>`
+  repaint($('cCatList'),list.length?list.map((c,i)=>`
     <div class="imp${c.active===false?' off':''}">
       <div class="imp-h">
         <input type="checkbox" data-ca="${esc(c.id)}"${c.active!==false?' checked':''} aria-label="Show in picker">
@@ -2845,7 +2869,8 @@ function renderCatMgr(){
         </div>
       </div>
     </div>`).join('')
-    : `<div style="padding:16px;text-align:center;color:var(--slate);font-size:13px">Nothing here yet — add the drawings you bill repeatedly.</div>`;
+    : `<div style="padding:16px;text-align:center;color:var(--slate);font-size:13px">Nothing here yet — add the drawings you bill repeatedly.</div>`,
+    [{f:'cf',i:'ci'}]);
 }
 // typing updates the item; the write is queued on blur so we do not
 // push a job per keystroke
