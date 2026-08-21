@@ -2709,6 +2709,7 @@ $('cBankAdd').onclick=()=>{cfg.banks.push({bank:'',name:'',acct:''});saveCfg();r
 /* ---- manage document types (settings) ---- */
 const typeInUse=code=>rows.some(r=>typeOf(r)===code)||catalog.some(c=>typeOf(c)===code);
 function renderTypes(){
+  seqDraft={};
   // the editor works on the raw list so a half-typed new row stays visible
   const list=cfg.types;
   $('cTypeList').innerHTML=list.map((t,i)=>`
@@ -2747,16 +2748,21 @@ function typeSample(){
   const t=typeList()[0];
   $('typeSample').textContent=codePrefix(today(),t?t.code:DEF_TYPE)+'001';
 }
+// the counter is not part of the type record; it is held until Set counter
+// is pressed, so blurring the field cannot rewrite the label or the series
+let seqDraft={};
 $('cTypeList').addEventListener('input',e=>{
   const t=e.target.closest('[data-tf]');if(!t)return;
+  if(t.dataset.tf==='seq'){seqDraft[t.dataset.ti]=t.value;return;}
   const item=cfg.types[+t.dataset.ti];if(!item)return;
   if(t.dataset.tf==='code')item.code=t.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,3);
   else if(t.dataset.tf==='bill')item.bill=t.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);
-  else item.label=t.value;
+  else if(t.dataset.tf==='label')item.label=t.value;
   typeSample();
 });
 $('cTypeList').addEventListener('change',e=>{
   const t=e.target.closest('[data-tf]');if(!t)return;
+  if(t.dataset.tf==='seq')return;      // only Set counter commits it
   const item=cfg.types[+t.dataset.ti];if(!item)return;
   const c=String(item.code||'').toUpperCase();
   if(t.dataset.tf==='code'){
@@ -2795,12 +2801,17 @@ $('cTypeList').addEventListener('click',async e=>{
   const rs=e.target.closest('[data-treset]');if(!rs)return;
   const item=cfg.types[+rs.dataset.treset];if(!item||!item.code)return;
   const inp=$('cTypeList').querySelector('[data-tf="seq"][data-ti="'+rs.dataset.treset+'"]');
-  const want=inp?inp.value:'';
+  const want=seqDraft[rs.dataset.treset]!==undefined?seqDraft[rs.dataset.treset]
+                                                    :(inp?inp.value:'');
+  if(String(want).trim()===''){toast('Enter a number for the counter',true);return;}
+  const n0=parseInt(want,10);
+  if(!(n0>=0)){toast('The counter has to be 0 or more',true);return;}
   const cur=billSeqOf(item.code);
-  if(!confirm('Set the '+item.code+' counter to '+(parseInt(want,10)||0)+
-              '? The next billing becomes '+((parseInt(want,10)||0)+1)+
+  if(!confirm('Set the '+item.code+' counter to '+n0+
+              '? The next billing becomes '+(n0+1)+
               '. It is currently at '+cur+'.'))return;
-  const n=await setBillSeq(item.code,want);
+  const n=await setBillSeq(item.code,n0);
+  delete seqDraft[rs.dataset.treset];
   renderTypes();
   toast(item.code+' counter set to '+n);
 });
