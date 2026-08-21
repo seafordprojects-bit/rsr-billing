@@ -787,7 +787,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. The SQL below creates this bucket <b>private</b> — attachments open through a link that is signed for one hour when you tap them, so the files are never public.</div></div>
 
     <div class="sect-t">Document types</div>
-    <div class="hint" style="margin:-4px 0 9px">The code goes into every billing number — <span style="font-family:var(--mono)" id="typeSample"></span> — and each type counts on its own each month. Changing a code here does not touch records already saved.</div>
+    <div class="hint" style="margin:-4px 0 9px">The code goes into every tracking number — <span style="font-family:var(--mono)" id="typeSample"></span> — and each type counts on its own each month, with its own billing-number series each year. Changing a code here does not touch records already saved.</div>
     <div class="pick" id="cTypeList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cTypeAdd" type="button">Add type</button></div>
 
@@ -804,9 +804,6 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="hint" style="margin:-4px 0 9px">Printed under <b>Bill To</b> on every billing. Contact person and address are optional.</div>
     <div class="pick" id="cCliList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cCliAdd" type="button">Add client</button></div>
-
-    <div class="sect-t">Billing document</div>
-    <div class="f"><label for="cBillPrefix">Billing no. prefix</label><input id="cBillPrefix" class="mono-in" placeholder="BILLDWG"><div class="hint">Numbers come out as <span style="font-family:var(--mono)" id="billSample"></span> and run in one series per calendar year. Each billing number stays editable before you issue it.</div></div>
 
     <div class="sect-t">Payment details</div>
     <div class="hint" style="margin:-4px 0 9px">Printed after the total on every billing.</div>
@@ -898,12 +895,15 @@ const DEF_TYPE='DW';
 // than derived with toLowerCase() so the UTG acronym keeps its capitals.
 const BUILT_IN=[
   {code:'UT',label:'UTG Report',            ref:'Report no.',      tab:'UTG',
+   bill:'BILLUTG',
    title:'UTG report',            one:'UTG report',            many:'UTG reports',
    sub:'Everything added here is billed as a UTG report.'},
   {code:'DW',label:'Drawing',               ref:'Drawing no.',     tab:'Drawing',
+   bill:'BILLDWG',
    title:'Drawing',               one:'drawing',               many:'drawings',
    sub:'Everything added here is billed as a drawing.'},
   {code:'DC',label:'Drydocking Certificate',ref:'Certificate no.', tab:'Drydocking Cert',
+   bill:'BILLDC',
    title:'Drydocking certificate',one:'drydocking certificate', many:'drydocking certificates',
    sub:'Everything added here is billed as a drydocking certificate.'}
 ];
@@ -914,12 +914,15 @@ const builtIn=c=>BUILT_IN.find(t=>t.code===String(c||'').toUpperCase());
 // now {root}-{type}-MMYYYY-###, so the old prefix is split into a root once.
 if(!cfg.root)cfg.root=String(cfg.prefix||'RSR-DWG').replace(/-DWG$/i,'')||'RSR';
 if(!Array.isArray(cfg.types)||!cfg.types.length)
-  cfg.types=BUILT_IN.map(t=>({code:t.code,label:t.label,ref:t.ref}));
-// an older install has DW and DC but no UT, and no ref labels
+  cfg.types=BUILT_IN.map(t=>({code:t.code,label:t.label,ref:t.ref,bill:t.bill}));
+// an older install has DW and DC but no UT, and no ref/billing prefixes
 BUILT_IN.forEach(b=>{
   const t=cfg.types.find(x=>String(x.code||'').toUpperCase()===b.code);
-  if(!t)cfg.types.push({code:b.code,label:b.label,ref:b.ref});
-  else if(!t.ref)t.ref=b.ref;
+  if(!t)cfg.types.push({code:b.code,label:b.label,ref:b.ref,bill:b.bill});
+  else{if(!t.ref)t.ref=b.ref;if(!t.bill)t.bill=b.bill;}
+});
+cfg.types.forEach(t=>{
+  if(!t.bill&&t.code)t.bill='BILL'+String(t.code).toUpperCase();
 });
 cfg.types.sort((a,b)=>{
   const ia=TAB_TYPES.indexOf(String(a.code||'').toUpperCase());
@@ -933,23 +936,37 @@ const online=()=>!!(cfg.url&&cfg.key);
 if(!Array.isArray(cfg.banks))cfg.banks=[];
 while(cfg.banks.length<2)cfg.banks.push({bank:'',name:'',acct:''});
 
-/* ---- billing number: BILLDWG-26-003, one run per calendar year ---- */
+/* ---- billing numbers: BILLDWG-26-003, one run per type per year ---- */
 const yy2=()=>String(new Date().getFullYear()).slice(2);
-function nextBillNo(){
-  const y=yy2();
-  const n=(String(cfg.billYear)===y?Number(cfg.billSeq)||0:0)+1;
-  return (cfg.billPrefix||'BILLDWG')+'-'+y+'-'+String(n).padStart(3,'0');
+if(!cfg.billSeries||typeof cfg.billSeries!=='object')cfg.billSeries={};
+// a single shared series predates per-type numbering; it belonged to drawings
+if(cfg.billYear&&Number(cfg.billSeq)&&!cfg.billSeries[DEF_TYPE]){
+  cfg.billSeries[DEF_TYPE]={y:String(cfg.billYear),n:Number(cfg.billSeq)||0};
+}
+function billPrefixOf(c){
+  const code=String(c||DEF_TYPE).toUpperCase();
+  const t=typeList().find(x=>String(x.code||'').toUpperCase()===code);
+  if(t&&t.bill)return t.bill;
+  const b=builtIn(code);
+  return (b&&b.bill)||('BILL'+code);
+}
+function nextBillNo(type){
+  const t=String(type||DEF_TYPE).toUpperCase(),y=yy2();
+  const s=cfg.billSeries[t];
+  const n=(s&&String(s.y)===y?Number(s.n)||0:0)+1;
+  return billPrefixOf(t)+'-'+y+'-'+String(n).padStart(3,'0');
 }
 // only called once a billing is actually issued, so an abandoned draft
 // does not burn a number
-function commitBillNo(no){
-  const y=yy2();
+function commitBillNo(no,type){
+  const t=String(type||DEF_TYPE).toUpperCase(),y=yy2();
   const m=String(no||'').match(/(\d+)\s*$/);
   if(!m)return;
   const n=parseInt(m[1],10);
   if(!n)return;
-  if(String(cfg.billYear)!==y){cfg.billYear=y;cfg.billSeq=0;}
-  if(n>(Number(cfg.billSeq)||0)){cfg.billSeq=n;saveCfg();}
+  const s=cfg.billSeries[t];
+  if(!s||String(s.y)!==y)cfg.billSeries[t]={y:y,n:0};
+  if(n>(Number(cfg.billSeries[t].n)||0)){cfg.billSeries[t].n=n;saveCfg();}
 }
 
 const typeList=()=>cfg.types.filter(t=>t&&t.code);
@@ -2164,8 +2181,21 @@ function renderTypes(){
                style="flex:1;min-width:0;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-size:13px">
         <button class="mini del" data-trm="${i}" title="Remove" aria-label="Remove"${list.length<2?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
+      <div class="imp-f">
+        <input class="mono-in" data-tf="bill" data-ti="${i}" value="${esc(t.bill||'')}"
+               placeholder="Billing no. prefix" autocomplete="off"
+               style="text-transform:uppercase">
+        <div class="hint" style="margin:0">Billing numbers: <span style="font-family:var(--mono)">${esc(billSampleFor(t))}</span></div>
+      </div>
     </div>`).join('');
   typeSample();
+}
+// next number this type would issue, for the Settings preview
+function billSampleFor(t){
+  const code=String(t.code||'').toUpperCase();
+  const y=yy2(),s=cfg.billSeries[code];
+  const n=(s&&String(s.y)===y?Number(s.n)||0:0)+1;
+  return (t.bill||('BILL'+(code||'?')))+'-'+y+'-'+String(n).padStart(3,'0');
 }
 function typeSample(){
   const t=typeList()[0];
@@ -2175,6 +2205,7 @@ $('cTypeList').addEventListener('input',e=>{
   const t=e.target.closest('[data-tf]');if(!t)return;
   const item=cfg.types[+t.dataset.ti];if(!item)return;
   if(t.dataset.tf==='code')item.code=t.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,3);
+  else if(t.dataset.tf==='bill')item.bill=t.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);
   else item.label=t.value;
   typeSample();
 });
@@ -2310,10 +2341,10 @@ function openStmt(){
   const d=new Date();
   $('sFrom').value=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);
   $('sTo').value=today();
-  $('sNo').value=nextBillNo();
+  sNoAuto='';
   $('sType').innerHTML=typeOptions(filters.type,'All types');
   $('sEmail').value=billingEmail($('sClient').value);
-  buildPick();show('sheetStmt');
+  buildPick();refreshBillNo(true);show('sheetStmt');
 }
 function stmtCandidates(){
   const c=$('sClient').value,f=$('sFrom').value,t=$('sTo').value,ty=$('sType').value;
@@ -2342,7 +2373,30 @@ function pickedRows(){
   return rows.filter(r=>ids.indexOf(String(r.id))>-1)
     .sort((a,b)=>String(a.bill_date).localeCompare(String(b.bill_date))||String(a.code).localeCompare(String(b.code)));
 }
-function pickTotal(){$('sTotal').textContent=money(pickedRows().reduce((s,r)=>s+amountOf(r),0));}
+// Which type's series this billing draws from: the filter if one is set,
+// otherwise the picked rows when they agree, otherwise the default.
+function billTypeFor(){
+  const f=$('sType').value;
+  if(f)return String(f).toUpperCase();
+  const list=pickedRows();
+  if(list.length){
+    const t0=typeOf(list[0]);
+    if(list.every(r=>typeOf(r)===t0))return t0;
+  }
+  return DEF_TYPE;
+}
+let sNoAuto='';
+function refreshBillNo(force){
+  const cur=$('sNo').value.trim();
+  // a number typed by hand is left alone
+  if(!force&&cur&&cur!==sNoAuto)return;
+  sNoAuto=nextBillNo(billTypeFor());
+  $('sNo').value=sNoAuto;
+}
+function pickTotal(){
+  $('sTotal').textContent=money(pickedRows().reduce((s,r)=>s+amountOf(r),0));
+  refreshBillNo();
+}
 $('sClient').onchange=()=>{$('sEmail').value=billingEmail($('sClient').value);buildPick();};
 $('sFrom').onchange=buildPick;$('sTo').onchange=buildPick;
 $('sType').onchange=buildPick;
@@ -2359,7 +2413,7 @@ $('sPrint').onclick=()=>{
   const list=pickedRows();
   if(!list.length){toast('Pick at least one document',true);return;}
   renderStatement(list);
-  commitBillNo($('sNo').value);
+  commitBillNo($('sNo').value,billTypeFor());
   hide();
   setTimeout(()=>{
     window.print();
@@ -2460,7 +2514,7 @@ $('sEmailBtn').onclick=async()=>{
       html:statementEmailHtml(),
       statement_no:no
     });
-    commitBillNo(no);
+    commitBillNo(no,billTypeFor());
     hide();
     toast('Billing emailed to '+to);
     setTimeout(()=>offerMarkBilled(list),300);
@@ -2731,11 +2785,10 @@ function openCfg(){
   $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Records are local to this device.');
   $('cSignOut').hidden=!who;
   $('cSignIn').hidden=who||!cfg.url;
-  $('cBillPrefix').value=cfg.billPrefix||'BILLDWG';
   $('cPayee').value=cfg.payee||'';
   $('cRemit').value=cfg.remitEmail||'';
   renderTypes();renderCatMgr();renderCliMgr();renderBanks();
-  sample();billSample();show('sheetCfg');
+  sample();show('sheetCfg');
 }
 function sample(){
   const d=new Date(),mm=String(d.getMonth()+1).padStart(2,'0')+d.getFullYear();
@@ -2743,11 +2796,6 @@ function sample(){
   $('codeSample').textContent=($('cPrefix').value||'RSR')+'-'+(t?t.code:DEF_TYPE)+'-'+mm+'-001';
 }
 $('cPrefix').oninput=()=>{sample();typeSample();};
-function billSample(){
-  const y=yy2(),n=(String(cfg.billYear)===y?Number(cfg.billSeq)||0:0)+1;
-  $('billSample').textContent=($('cBillPrefix').value||'BILLDWG')+'-'+y+'-'+String(n).padStart(3,'0');
-}
-$('cBillPrefix').oninput=billSample;
 $('cSql').onclick=()=>{
   const w=$('sqlWrap');w.hidden=!w.hidden;
   // regenerate so a bucket name typed but not yet saved is reflected
@@ -2773,7 +2821,6 @@ $('cSave').onclick=async()=>{
   cfg.bucket=$('cBucket').value.trim().replace(/[^\w\-]/g,'');
   cfg.rate=Number($('cRate').value)||0;
   cfg.root=$('cPrefix').value.trim().replace(/-+$/,'')||'RSR';
-  cfg.billPrefix=$('cBillPrefix').value.trim().replace(/-+$/,'')||'BILLDWG';
   cfg.payee=$('cPayee').value.trim();
   cfg.remitEmail=$('cRemit').value.trim();
   // drop any type rows left blank in the editor
