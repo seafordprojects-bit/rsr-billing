@@ -857,7 +857,8 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 /* ================= constants & helpers ================= */
 const LS_CFG='rsr_dwg_cfg_v1', LS_ROWS='rsr_dwg_rows_v1', LS_Q='rsr_dwg_queue_v1';
 const LS_CAT='rsr_dwg_catalog_v1', LS_CLI='rsr_dwg_clients_v1';
-const CAT_TABLE='drawing_catalog', CLI_TABLE='clients';
+const LS_SET='rsr_dwg_shared_v1';
+const CAT_TABLE='drawing_catalog', CLI_TABLE='clients', SET_TABLE='app_settings';
 const STATUSES=['DRAFT','BILLED','PAID'];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -930,22 +931,25 @@ const builtIn=c=>BUILT_IN.find(t=>t.code===String(c||'').toUpperCase());
 // Codes used to be {prefix}-MMYYYY-### with one prefix for everything. They are
 // now {root}-{type}-MMYYYY-###, so the old prefix is split into a root once.
 if(!cfg.root)cfg.root=String(cfg.prefix||'RSR-DWG').replace(/-DWG$/i,'')||'RSR';
-if(!Array.isArray(cfg.types)||!cfg.types.length)
-  cfg.types=BUILT_IN.map(t=>({code:t.code,label:t.label,ref:t.ref,bill:t.bill}));
-// an older install has DW and DC but no UT, and no ref/billing prefixes
-BUILT_IN.forEach(b=>{
-  const t=cfg.types.find(x=>String(x.code||'').toUpperCase()===b.code);
-  if(!t)cfg.types.push({code:b.code,label:b.label,ref:b.ref,bill:b.bill});
-  else{if(!t.ref)t.ref=b.ref;if(!t.bill)t.bill=b.bill;}
-});
-cfg.types.forEach(t=>{
-  if(!t.bill&&t.code)t.bill='BILL'+String(t.code).toUpperCase();
-});
-cfg.types.sort((a,b)=>{
-  const ia=TAB_TYPES.indexOf(String(a.code||'').toUpperCase());
-  const ib=TAB_TYPES.indexOf(String(b.code||'').toUpperCase());
-  return (ia<0?99:ia)-(ib<0?99:ib);
-});
+// Runs on the local list at boot and again on whatever the settings table
+// hands back, so a list from another device is filled in the same way.
+function normaliseTypes(){
+  if(!Array.isArray(cfg.types)||!cfg.types.length)
+    cfg.types=BUILT_IN.map(t=>({code:t.code,label:t.label,ref:t.ref,bill:t.bill}));
+  // an older install has DW and DC but no UT, and no ref/billing prefixes
+  BUILT_IN.forEach(b=>{
+    const t=cfg.types.find(x=>String(x.code||'').toUpperCase()===b.code);
+    if(!t)cfg.types.push({code:b.code,label:b.label,ref:b.ref,bill:b.bill});
+    else{if(!t.ref)t.ref=b.ref;if(!t.bill)t.bill=b.bill;}
+  });
+  cfg.types.forEach(t=>{if(!t.bill&&t.code)t.bill='BILL'+String(t.code).toUpperCase();});
+  cfg.types.sort((a,b)=>{
+    const ia=TAB_TYPES.indexOf(String(a.code||'').toUpperCase());
+    const ib=TAB_TYPES.indexOf(String(b.code||'').toUpperCase());
+    return (ia<0?99:ia)-(ib<0?99:ib);
+  });
+}
+normaliseTypes();
 
 const saveCfg=()=>localStorage.setItem(LS_CFG,JSON.stringify(cfg));
 const online=()=>!!(cfg.url&&cfg.key);
@@ -1015,15 +1019,18 @@ let rows=[];
 let queue=[];
 let catalog=[];
 let clients=[];
+let settings={};      // shared settings, keyed by app_settings.key
 try{rows=JSON.parse(localStorage.getItem(LS_ROWS)||'[]');}catch(e){rows=[];}
 try{queue=JSON.parse(localStorage.getItem(LS_Q)||'[]');}catch(e){queue=[];}
 try{catalog=JSON.parse(localStorage.getItem(LS_CAT)||'[]');}catch(e){catalog=[];}
 try{clients=JSON.parse(localStorage.getItem(LS_CLI)||'[]');}catch(e){clients=[];}
+try{settings=JSON.parse(localStorage.getItem(LS_SET)||'{}');}catch(e){settings={};}
 const persist=()=>{
   localStorage.setItem(LS_ROWS,JSON.stringify(rows));
   localStorage.setItem(LS_Q,JSON.stringify(queue));
   localStorage.setItem(LS_CAT,JSON.stringify(catalog));
   localStorage.setItem(LS_CLI,JSON.stringify(clients));
+  localStorage.setItem(LS_SET,JSON.stringify(settings));
 };
 
 let filters={q:'',status:'ALL',client:'',month:'',type:''};
@@ -1140,6 +1147,10 @@ async function flushQueue(){
         if(srv){const i=store.findIndex(r=>r.id===job.localId);if(i>-1)store[i]=srv;}
       }else if(job.op==='update'){
         await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'PATCH',body:JSON.stringify(job.data)});
+      }else if(job.op==='upsert'){
+        await sb(tbl,{method:'POST',
+          headers:{'Prefer':'resolution=merge-duplicates,return=representation'},
+          body:JSON.stringify(job.data)});
       }else if(job.op==='delete'){
         await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'DELETE'});
       }
@@ -1168,6 +1179,11 @@ async function pull(quiet){
       const cliPending=clients.filter(c=>String(c.id).startsWith('loc-'));
       clients=(cl||[]).concat(cliPending);
     }catch(e){/* clients table not created yet */}
+    try{
+      const st=await sb(SET_TABLE+'?select=*');
+      settings={};(st||[]).forEach(r=>{settings[r.key]=r;});
+      applySettings();
+    }catch(e){/* settings table not created yet — the cached copy still works */}
     persist();render();
     setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
     return true;
@@ -1377,6 +1393,112 @@ async function catReorder(list){
   if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
 }
 const syncBadge=()=>setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
+
+/* ================= shared settings ================= */
+// Everything here has to agree across devices. The project URL, key and
+// session deliberately stay local and never reach the table.
+function applySettings(){
+  const t=settings['types'];
+  if(t&&t.value&&Array.isArray(t.value.list)&&t.value.list.length){
+    cfg.types=t.value.list.map(x=>Object.assign({},x));
+    normaliseTypes();
+  }
+  const p=settings['payment'];
+  if(p&&p.value){
+    if(typeof p.value.payee==='string')cfg.payee=p.value.payee;
+    if(typeof p.value.remitEmail==='string')cfg.remitEmail=p.value.remitEmail;
+    if(Array.isArray(p.value.banks))cfg.banks=p.value.banks.map(b=>Object.assign({},b));
+    while(cfg.banks.length<2)cfg.banks.push({bank:'',name:'',acct:''});
+  }
+  Object.keys(settings).forEach(k=>{
+    if(k.indexOf('billseq:')!==0)return;
+    const r=settings[k];
+    cfg.billSeries[k.slice(8)]={y:String(r.seq_year||''),n:Number(r.seq_n)||0};
+  });
+  saveCfg();
+}
+function queueSetting(key,row){
+  settings[key]=Object.assign({key:key},settings[key],row);
+  // one pending write per key is enough; the latest wins
+  queue=queue.filter(q=>!(q.op==='upsert'&&q.key===key));
+  queue.push({op:'upsert',store:'settings',table:SET_TABLE,key:key,
+              data:Object.assign({key:key},row)});
+  persist();
+}
+async function pushSharedSettings(){
+  queueSetting('types',{value:{list:cfg.types}});
+  queueSetting('payment',{value:{payee:cfg.payee||'',remitEmail:cfg.remitEmail||'',
+                                 banks:cfg.banks||[]}});
+  if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+}
+// First sync on a device that already had settings locally: push whatever the
+// table does not have yet, so nothing has to be re-entered.
+async function migrateSettings(){
+  if(cfg.settingsMigrated)return 0;
+  let pushed=0;
+  if(!settings['types']){queueSetting('types',{value:{list:cfg.types}});pushed++;}
+  if(!settings['payment']){
+    queueSetting('payment',{value:{payee:cfg.payee||'',remitEmail:cfg.remitEmail||'',
+                                   banks:cfg.banks||[]}});
+    pushed++;
+  }
+  Object.keys(cfg.billSeries||{}).forEach(code=>{
+    const k='billseq:'+code,s=cfg.billSeries[code];
+    if(settings[k])return;
+    queueSetting(k,{seq_year:String(s.y||''),seq_n:Number(s.n)||0});
+    pushed++;
+  });
+  if(pushed&&online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
+  cfg.settingsMigrated=true;saveCfg();
+  return pushed;
+}
+
+/* ---- claiming a billing number without two devices colliding ---- */
+async function claimBillNo(type){
+  const t=String(type||DEF_TYPE).toUpperCase(),y=yy2(),key='billseq:'+t;
+  for(let tries=0;tries<6;tries++){
+    const found=await sb(SET_TABLE+'?key=eq.'+encodeURIComponent(key)+'&select=*');
+    const cur=found&&found[0];
+    if(!cur){
+      try{
+        const out=await sb(SET_TABLE,{method:'POST',
+          headers:{'Prefer':'return=representation'},
+          body:JSON.stringify({key:key,seq_year:y,seq_n:1})});
+        if(out&&out.length){settings[key]={key:key,seq_year:y,seq_n:1};persist();return 1;}
+      }catch(e){/* another device created it first — read again */}
+      continue;
+    }
+    const curY=String(cur.seq_year||''),curN=Number(cur.seq_n)||0;
+    const next=curY===y?curN+1:1;
+    // compare-and-swap: updates nothing if someone else moved the counter
+    const q=SET_TABLE+'?key=eq.'+encodeURIComponent(key)
+      +'&seq_year=eq.'+encodeURIComponent(curY)+'&seq_n=eq.'+curN;
+    const out=await sb(q,{method:'PATCH',body:JSON.stringify({seq_year:y,seq_n:next})});
+    if(out&&out.length){
+      settings[key]={key:key,seq_year:y,seq_n:next};
+      cfg.billSeries[t]={y:y,n:next};saveCfg();persist();
+      return next;
+    }
+  }
+  throw new Error('Could not reserve a billing number — try again');
+}
+// a hand-typed number still has to raise the shared counter
+async function raiseBillNo(type,no){
+  const t=String(type||DEF_TYPE).toUpperCase();
+  const m=String(no||'').match(/(\d+)\s*$/);
+  if(!m)return;
+  const n=parseInt(m[1],10);if(!n)return;
+  commitBillNo(no,t);
+  if(!online()||!authed())return;
+  const key='billseq:'+t,y=yy2();
+  try{
+    const found=await sb(SET_TABLE+'?key=eq.'+encodeURIComponent(key)+'&select=*');
+    const cur=found&&found[0];
+    if(cur&&String(cur.seq_year)===y&&(Number(cur.seq_n)||0)>=n)return;
+    queueSetting(key,{seq_year:y,seq_n:n});
+    await flushQueue();persist();syncBadge();
+  }catch(e){/* stays queued */}
+}
 
 /* ---- MARINA plans required for ships above 50 GT ---- */
 const MARINA_DW=[
@@ -2335,12 +2457,12 @@ $('cBankList').addEventListener('input',e=>{
   const b=cfg.banks[+t.dataset.bki];if(!b)return;
   b[t.dataset.bkf]=t.value;
 });
-$('cBankList').addEventListener('change',()=>{saveCfg();});
+$('cBankList').addEventListener('change',()=>{saveCfg();pushSharedSettings();});
 $('cBankList').addEventListener('click',e=>{
   const rm=e.target.closest('[data-bkrm]');if(!rm)return;
   if(cfg.banks.length<2)return;   // the format expects at least two
   cfg.banks.splice(+rm.dataset.bkrm,1);
-  saveCfg();renderBanks();
+  saveCfg();pushSharedSettings();renderBanks();
 });
 $('cBankAdd').onclick=()=>{cfg.banks.push({bank:'',name:'',acct:''});saveCfg();renderBanks();};
 
@@ -2398,7 +2520,7 @@ $('cTypeList').addEventListener('change',e=>{
       toast('That code is already used',true);
     }
   }
-  saveCfg();renderTypes();renderCatMgr();render();
+  saveCfg();pushSharedSettings();renderTypes();renderCatMgr();render();
 });
 $('cTypeList').addEventListener('click',e=>{
   const rm=e.target.closest('[data-trm]');if(!rm)return;
@@ -2408,7 +2530,7 @@ $('cTypeList').addEventListener('click',e=>{
   if(item.code&&typeInUse(String(item.code).toUpperCase())&&
      !confirm('"'+item.code+'" is used by existing records. Removing it here leaves those records alone — the code just stops being offered. Remove it?'))return;
   cfg.types.splice(i,1);
-  saveCfg();renderTypes();renderCatMgr();render();
+  saveCfg();pushSharedSettings();renderTypes();renderCatMgr();render();
 });
 $('cTypeAdd').onclick=()=>{
   cfg.types.push({code:'',label:''});
@@ -2576,6 +2698,35 @@ function pickTotal(){
   $('sTotal').textContent=money(pickedRows().reduce((s,r)=>s+amountOf(r),0));
   refreshBillNo();
 }
+// Called at the moment a billing is actually issued. The number shown until
+// now was only a preview from the local cache; the real one is taken from the
+// shared counter so two devices cannot mint the same one.
+async function issueBillNo(){
+  const t=billTypeFor();
+  const typed=$('sNo').value.trim();
+  if(typed&&typed!==sNoAuto){        // hand-typed: keep it, raise the counter
+    await raiseBillNo(t,typed);
+    return typed;
+  }
+  if(online()&&authed()){
+    try{
+      const n=await claimBillNo(t);
+      const no=billPrefixOf(t)+'-'+yy2()+'-'+String(n).padStart(3,'0');
+      $('sNo').value=no;sNoAuto=no;
+      return no;
+    }catch(e){
+      toast(e.message||'Could not reserve a billing number',true);
+      throw e;
+    }
+  }
+  // Offline: fall back to the device's own counter and say so, because
+  // another device could be issuing the same number right now.
+  const no=nextBillNo(t);
+  commitBillNo(no,t);
+  $('sNo').value=no;sNoAuto=no;
+  toast('Offline — '+no+' is provisional, check it once synced',true);
+  return no;
+}
 $('sClient').onchange=()=>{$('sEmail').value=billingEmail($('sClient').value);buildPick();};
 $('sFrom').onchange=buildPick;$('sTo').onchange=buildPick;
 $('sType').onchange=buildPick;
@@ -2588,11 +2739,13 @@ function offerMarkBilled(list){
   toast(list.length+' marked billed');
 }
 
-$('sPrint').onclick=()=>{
+$('sPrint').onclick=async()=>{
   const list=pickedRows();
   if(!list.length){toast('Pick at least one document',true);return;}
+  const btn=$('sPrint');btn.disabled=true;
+  try{ await issueBillNo(); }
+  finally{ btn.disabled=false; }
   renderStatement(list);
-  commitBillNo($('sNo').value,billTypeFor());
   hide();
   setTimeout(()=>{
     window.print();
@@ -2685,15 +2838,15 @@ $('sEmailBtn').onclick=async()=>{
       toast('Could not save the billing email — try again once synced',true);
       return;
     }
+    const issued=await issueBillNo();
     renderStatement(list);
     await fnPost('send-statement',{
       to:to,
       client:client,
-      subject:'Billing '+no+' — '+(cfg.company||'RSR Engineering Services'),
+      subject:'Billing '+issued+' — '+(cfg.company||'RSR Engineering Services'),
       html:statementEmailHtml(),
-      statement_no:no
+      statement_no:issued
     });
-    commitBillNo(no,billTypeFor());
     hide();
     toast('Billing emailed to '+to);
     setTimeout(()=>offerMarkBilled(list),300);
@@ -2893,6 +3046,35 @@ create policy rsr_dwg_clients_authed on clients
   for all to authenticated using (true) with check (true);
 
 -- ---------------------------------------------------------------
+-- Settings that must agree across devices: the document type list
+-- (with its billing prefixes), the payment details, and the yearly
+-- billing counters. The Supabase URL, key and session stay on the
+-- device and are never stored here.
+--
+-- Two shapes share the table. Ordinary settings live in value;
+-- counter rows use seq_year/seq_n as plain columns so a billing
+-- number can be claimed with a compare-and-swap:
+--
+--   patch app_settings?key=eq.billseq:DW&seq_year=eq.26&seq_n=eq.3
+--
+-- which updates nothing if another device already took 4. That is
+-- what stops two devices minting the same number.
+-- ---------------------------------------------------------------
+create table if not exists app_settings (
+  key        text primary key,
+  value      jsonb   not null default '{}'::jsonb,
+  seq_year   text    not null default '',
+  seq_n      integer not null default 0,
+  updated_at timestamptz default now()
+);
+
+alter table app_settings enable row level security;
+
+drop policy if exists rsr_dwg_settings_authed on app_settings;
+create policy rsr_dwg_settings_authed on app_settings
+  for all to authenticated using (true) with check (true);
+
+-- ---------------------------------------------------------------
 -- Who may email statements. The send-statement function sends from
 -- your verified domain, so being signed in is not enough on its own
 -- — the caller's address has to be listed here.
@@ -3007,7 +3189,7 @@ $('cSave').onclick=async()=>{
   if(!cfg.types.length)cfg.types=[{code:DEF_TYPE,label:'Drawing'}];
   cfg.company=$('cCo').value.trim();cfg.address=$('cAddr').value.trim();cfg.contact=$('cContact').value.trim();
   cfg.signer=$('cSigner').value.trim();cfg.role=$('cRole').value.trim();
-  saveCfg();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
+  saveCfg();pushSharedSettings();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
   hide();toast('Settings saved');
   if(online()&&!authed()){showGate();return;}
   await pull();
@@ -3154,7 +3336,10 @@ window.addEventListener('online',()=>pull(true));
 
   // seed only once we have actually seen the server's catalog, so a stale
   // empty cache cannot duplicate an existing one
-  if(await pull(true))await maybeSeedCatalog();
+  if(await pull(true)){
+    await migrateSettings();
+    await maybeSeedCatalog();
+  }
 })();
 })();
 </script>
