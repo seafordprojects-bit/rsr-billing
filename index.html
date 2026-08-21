@@ -201,6 +201,10 @@ header.top{
 .gl .t{min-width:0;flex:1;line-height:1.3}
 .gl .t .s{display:block;font-family:var(--mono);font-size:10.5px;color:var(--slate);margin-top:1px}
 .gl .a{margin-left:auto;font-family:var(--mono);font-size:12px;white-space:nowrap}
+.gl.free .a{color:var(--slate);font-style:italic}
+.gl .t .revchip{margin-left:6px;vertical-align:1px}
+.revlink{font-family:var(--mono);font-size:10.5px;color:var(--rsr);border-bottom:1px solid currentColor;font-weight:600}
+.badge.free{color:var(--slate)}
 .row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
 .act{
   padding:6px 11px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-weight:600;
@@ -352,6 +356,10 @@ header.top{
 .warn{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--weld);border:1px solid currentColor;border-radius:4px;padding:1px 5px;white-space:nowrap}
 /* ---------- multi-line entry rows ---------- */
 .ml-row{display:flex;gap:6px}
+.imp-h .nc{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--slate);font-weight:600;white-space:nowrap;cursor:pointer}
+.imp-h .nc input{width:15px;height:15px;flex:0 0 auto;accent-color:var(--slate);margin:0}
+.revchip{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--weld);border:1px solid currentColor;border-radius:4px;padding:1px 5px;white-space:nowrap}
+
 .ml-row .cmb{flex:1;min-width:0;position:relative}
 .ml-row .cmb input{width:100%;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-size:13px}
 .ml-row .ml-rate{flex:0 0 108px;min-width:0;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-family:var(--mono);font-size:12px}
@@ -365,6 +373,7 @@ header.top{
   font-size:13px;font-weight:600;line-height:1.3;color:var(--ink)
 }
 .cmb-pop button .s{display:block;font-size:11px;color:var(--slate);font-weight:400;font-family:var(--mono);margin-top:1px}
+.cmb-pop button .s.hist{font-size:10.5px;color:var(--ink2);padding-left:9px;border-left:2px solid var(--line);margin-top:2px}
 .cmb-pop button.act,.cmb-pop button:hover{background:var(--paper)}
 
 /* compact row controls for the catalog manager */
@@ -465,6 +474,7 @@ table.stmt-t .r{text-align:right;font-family:var(--mono);white-space:nowrap}
 table.stmt-t .c{text-align:center;font-family:var(--mono)}
 table.stmt-t .cd{font-family:var(--mono);font-size:9.5px;white-space:nowrap}
 table.stmt-t .sub{display:block;font-family:var(--mono);font-size:9px;color:#555;margin-top:2px}
+table.stmt-t .nc{font-family:var(--sans);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#555;font-style:italic}
 table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-tot{margin-top:0;border-top:2px solid var(--ink)}
 .stmt-tot tr td{padding:6px 8px;font-size:11px;border:0}
@@ -861,6 +871,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <div class="f"><label for="cRole">Position</label><input id="cRole"></div>
     </div>
     <label class="chk"><input type="checkbox" id="cPrepared"><span>Print "Prepared by" on the billing<span class="s">A plain text line under the closing note. Billings carry no signature block.</span></span></label>
+    <label class="chk"><input type="checkbox" id="cHideFree"><span>Leave no-charge lines off the billing<span class="s">Off by default, so the client sees revisions were delivered without being charged.</span></span></label>
 
     <div class="sect-t">Backup</div>
     <div style="display:flex;gap:8px"><button class="act" id="cExport">Export JSON</button><button class="act" id="cCsv">Export CSV</button></div>
@@ -922,7 +933,7 @@ const DEFAULT_CFG={
   signer:'',role:'Naval Architect & Marine Engineer',
   // billing document
   billPrefix:'BILLDWG',billYear:'',billSeq:0,
-  payee:'',remitEmail:'',showPrepared:false,
+  payee:'',remitEmail:'',showPrepared:false,hideNoCharge:false,
   banks:[]
 };
 let cfg=Object.assign({},DEFAULT_CFG);
@@ -1060,13 +1071,34 @@ const persist=()=>{
 let filters={q:'',status:'ALL',client:'',month:'',type:''};
 let editingId=null;
 
-const FIELDS=['group_id','bill_no','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
+const FIELDS=['group_id','bill_no','rev_of','rev_no','billable','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
 function payloadOf(r){
   const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});
   o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;o.doc_type=typeOf(r);
+  o.billable=r.billable!==false;
+  o.rev_no=r.rev_no==null?null:(Number(r.rev_no)||null);
   return o;
 }
-const amountOf=r=>(Number(r.qty)||0)*(Number(r.rate)||0);
+const noCharge=r=>!!r&&r.billable===false;
+const amountOf=r=>noCharge(r)?0:(Number(r.qty)||0)*(Number(r.rate)||0);
+
+/* ---- revisions ---- */
+const REV_RE=/\s*—\s*Rev\s*(\d+)\s*$/i;
+const baseTitle=t=>String(t||'').replace(REV_RE,'').trim();
+const revNoOf=t=>{const m=String(t||'').match(REV_RE);return m?parseInt(m[1],10)||0:0;};
+const revLabel=n=>' — Rev '+n;
+// Earlier billings of the same drawing for this client and vessel. Vessel is
+// only required to match when both sides name one.
+function priorBillings(title,client,vessel){
+  const base=baseTitle(title).toLowerCase();
+  if(!base)return [];
+  return rows.filter(r=>
+      baseTitle(r.drawing_title).toLowerCase()===base &&
+      String(r.client||'')===String(client||'') &&
+      (!vessel||!r.vessel||String(r.vessel)===String(vessel)))
+    .sort((a,b)=>String(b.bill_date||'').localeCompare(String(a.bill_date||'')));
+}
+const nextRevNo=list=>list.reduce((m,r)=>Math.max(m,Number(r.rev_no)||revNoOf(r.drawing_title)),0)+1;
 
 /* ================= billing groups ================= */
 // A group is one billing: several lines sharing a tracking code. Group-level
@@ -1087,6 +1119,7 @@ function groupOf(list){
   GROUP_FIELDS.forEach(k=>{g[k]=head[k];});
   g.total=list.reduce((s,r)=>s+amountOf(r),0);
   g.count=list.length;
+  g.allFree=list.length>0&&list.every(noCharge);
   g.pending=list.some(r=>String(r.id).startsWith('loc-'));
   return g;
 }
@@ -1319,14 +1352,16 @@ function render(){
     return true;
   });
   const agg={};STATUSES.forEach(s=>agg[s]={n:0,v:0});
-  scope.forEach(g=>{const s=agg[g.status]||agg.DRAFT;s.n++;s.v+=g.total;});
+  // a wholly no-charge billing is delivered work, not money owed
+  scope.filter(g=>!g.allFree).forEach(g=>{const s=agg[g.status]||agg.DRAFT;s.n++;s.v+=g.total;});
   const bill=n=>n+' billing'+(n===1?'':'s');
   $('tDraft').textContent=moneyShort(agg.DRAFT.v);$('cDraft').textContent=bill(agg.DRAFT.n);
   $('tRecv').textContent=moneyShort(agg.BILLED.v);$('cRecv').textContent=bill(agg.BILLED.n);
   $('tPaid').textContent=moneyShort(agg.PAID.v);$('cPaid').textContent=bill(agg.PAID.n);
 
   // chips
-  const counts={ALL:scope.length};STATUSES.forEach(s=>counts[s]=agg[s].n);
+  const counts={ALL:scope.length};
+  STATUSES.forEach(s=>{counts[s]=scope.filter(g=>g.status===s).length;});
   const labels={ALL:'All',DRAFT:'Draft',BILLED:'Billed',PAID:'Paid'};
   $('chips').innerHTML=['ALL'].concat(STATUSES).map(s=>
     `<button class="chip${filters.status===s?' on':''}" data-status="${s}">${labels[s]}<span class="n">${counts[s]||0}</span></button>`).join('');
@@ -1367,16 +1402,19 @@ function render(){
       if(Number(r.qty)>1)bits.push(r.qty+' × '+money(r.rate));
       if(r.file_url)bits.push(`<button type="button" class="pdflink" data-pdf="${esc(r.id)}">PDF</button>`);
       else if(r.file_name)bits.push('PDF');
-      return `<div class="gl">
+      const src=r.rev_of?rows.find(x=>String(x.id)===String(r.rev_of)):null;
+      if(src)bits.push(`<button type="button" class="revlink" data-revsrc="${esc(src.id)}">revision of ${esc(src.code||'—')}</button>`);
+      return `<div class="gl${noCharge(r)?' free':''}">
         <span class="n">${i+1}.0</span>
-        <span class="t">${esc(r.drawing_title||'Untitled')}${bits.length?`<span class="s">${bits.join(' · ')}</span>`:''}</span>
-        <span class="a">${money(amountOf(r))}</span>
+        <span class="t">${esc(r.drawing_title||'Untitled')}${r.rev_no?`<span class="revchip">Rev ${esc(r.rev_no)}</span>`:''}${bits.length?`<span class="s">${bits.join(' · ')}</span>`:''}</span>
+        <span class="a">${noCharge(r)?'No charge':money(amountOf(r))}</span>
       </div>`;
     }).join('');
     return `<article class="row${g.pending?' pending':''}" data-s="${esc(g.status)}">
       <div class="row-head">
         <span class="code">${esc(g.code||'—')}</span>
         <span class="badge ${esc(g.status)}">${esc(g.status)}</span>
+        ${g.allFree?`<span class="badge free">No charge</span>`:''}
         <span class="row-amt">${money(g.total)}</span>
       </div>
       <div class="row-title">${esc(g.client||'No client')}</div>
@@ -1816,7 +1854,9 @@ function openEntry(id,forceType){
 
   mlines=g?g.lines.map(r=>({id:r.id,title:r.drawing_title||'',ref:r.drawing_no||'',
                             qty:Number(r.qty)||1,
-                            rate:r.rate==null?'':String(r.rate)}))
+                            rate:r.rate==null?'':String(r.rate),
+                            billable:r.billable!==false,
+                            rev_of:r.rev_of||null,rev_no:r.rev_no||null}))
           :[mlBlank()];
   $('mlToCat').checked=false;
   $('eRate').value=g?'':(cfg.rate||'');
@@ -1850,7 +1890,8 @@ function cmbPaint(){
   if(!items.length){pop.hidden=true;return;}
   pop.innerHTML=items.map((it,k)=>
     `<button type="button" data-cmbk="${k}"${k===sel?' class="act"':''}>${esc(it.label)}${
-      it.sub?`<span class="s">${esc(it.sub)}</span>`:''}</button>`).join('');
+      it.sub?`<span class="s">${esc(it.sub)}</span>`:''}${
+      (it.subLines||[]).map(x=>`<span class="s hist">${esc(x)}</span>`).join('')}</button>`).join('');
   pop.hidden=false;
 }
 function cmbShow(input,pop,items,onPick){
@@ -1916,9 +1957,10 @@ async function rememberClient(name){
 
 /* ---- multi-line manual entry ---- */
 let multiMode=false, multiLocked=false, mlines=[];
-const mlBlank=()=>({id:null,title:'',ref:'',qty:1,rate:''});
+const mlBlank=()=>({id:null,title:'',ref:'',qty:1,rate:'',billable:true,rev_of:null,rev_no:null});
 const mlRate=l=>(l.rate===''||l.rate==null)?(Number($('eRate').value)||0):(Number(l.rate)||0);
-const mlAmount=l=>(Math.max(1,parseInt(l.qty,10)||1))*mlRate(l);
+const mlNoCharge=l=>l&&l.billable===false;
+const mlAmount=l=>mlNoCharge(l)?0:(Math.max(1,parseInt(l.qty,10)||1))*mlRate(l);
 const mlFilled=()=>mlines.filter(l=>String(l.title||'').trim());
 
 function renderML(){
@@ -1926,7 +1968,9 @@ function renderML(){
     <div class="imp">
       <div class="imp-h">
         <span class="fn">Line ${i+1}</span>
-        <span class="amt" data-amt="${i}">${money(mlAmount(l))}</span>
+        ${l.rev_of?`<span class="revchip" title="Revision of ${esc((rows.find(r=>String(r.id)===String(l.rev_of))||{}).code||'')}">Rev ${esc(l.rev_no||'')}</span>`:''}
+        <label class="nc"><input type="checkbox" data-mlnc="${i}"${mlNoCharge(l)?' checked':''}${multiLocked?' disabled':''}><span>No charge</span></label>
+        <span class="amt" data-amt="${i}">${mlNoCharge(l)?'No charge':money(mlAmount(l))}</span>
         <button class="mini del" data-mlrm="${i}" title="Remove line" aria-label="Remove line"${mlines.length<2||multiLocked?' disabled':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <div class="imp-f">
@@ -1946,7 +1990,7 @@ function renderML(){
 function mlTotals(){
   mlines.forEach((l,i)=>{
     const cell=$('mlList').querySelector('[data-amt="'+i+'"]');
-    if(cell)cell.textContent=money(mlAmount(l));
+    if(cell)cell.textContent=mlNoCharge(l)?'No charge':money(mlAmount(l));
   });
   const filled=mlFilled();
   $('mlTotal').textContent=money(filled.reduce((s,l)=>s+mlAmount(l),0));
@@ -1957,20 +2001,48 @@ function titleSuggest(q){
   const t=$('eType').value||DEF_TYPE;
   const pool=catActive().filter(c=>typeOf(c)===t);
   const names=cmbFilter(pool.map(c=>c.name||''),q);
-  return names.map(n=>{
+  const out=names.map(n=>{
     const c=pool.find(x=>String(x.name||'')===n);
     return {label:n,
             sub:(hasRate(c)?money(Number(c.default_rate)):'batch rate')+
                 (c&&c.drawing_no?' · '+c.drawing_no:''),
             value:c};
   });
+  // already billed to this client and vessel? offer it as a revision
+  const prior=priorBillings(q,$('eClient').value.trim(),$('eVessel').value.trim());
+  if(prior.length){
+    const src=prior[0],n=nextRevNo(prior);
+    const SHOW=6;
+    const hist=prior.slice(0,SHOW).map(r=>{
+      const rv=Number(r.rev_no)||revNoOf(r.drawing_title);
+      return (r.code||'—')+' · '+fmtDate(r.bill_date)+
+             (rv?' · Rev '+rv:' · original')+
+             (noCharge(r)?' · no charge':'');
+    });
+    if(prior.length>SHOW)hist.push('+'+(prior.length-SHOW)+' earlier');
+    out.unshift({
+      label:baseTitle(src.drawing_title)+revLabel(n),
+      sub:'Bill as revision — billed '+prior.length+' time'+(prior.length===1?'':'s')+' before',
+      subLines:hist,
+      value:{rev:true,src:src,revNo:n}
+    });
+  }
+  return out;
 }
 // picking a catalog item takes its rate, and its ref travels with it even
 // though the row no longer shows a ref field
 function mlApply(i,c){
   const l=mlines[i];if(!l||!c)return;
+  if(c.rev){
+    l.title=baseTitle(c.src.drawing_title)+revLabel(c.revNo);
+    l.ref=String(c.src.drawing_no||'');
+    l.rev_of=String(c.src.id);
+    l.rev_no=c.revNo;
+    renderML();return;
+  }
   l.title=String(c.name||'');
   l.ref=String(c.drawing_no||'');
+  l.rev_of=null;l.rev_no=null;
   if(hasRate(c))l.rate=String(c.default_rate);
   renderML();
 }
@@ -1979,11 +2051,19 @@ $('mlList').addEventListener('input',e=>{
   const i=+t.dataset.mli,l=mlines[i];if(!l)return;
   l[t.dataset.mlf]=t.value;
   if(t.dataset.mlf==='title'){
-    l.ref='';                       // typed over a picked item, so drop its ref
+    l.ref='';l.rev_of=null;l.rev_no=null;   // typed over a pick, so drop its links
     const pop=$('mlList').querySelector('[data-pop="'+i+'"]');
     if(pop)cmbShow(t,pop,titleSuggest(t.value),it=>mlApply(i,it.value));
   }
   mlTotals();
+});
+$('mlList').addEventListener('change',e=>{
+  const nc=e.target.closest('[data-mlnc]');
+  if(!nc)return;
+  if(multiLocked)return;
+  const l=mlines[+nc.dataset.mlnc];
+  if(l)l.billable=!nc.checked;
+  renderML();
 });
 $('mlList').addEventListener('keydown',e=>{
   const t=e.target.closest('[data-mlf="title"]');if(!t)return;
@@ -2063,7 +2143,8 @@ $('eSave').onclick=async()=>{
       drawing_no:String(l.ref||'').trim(),
       drawing_title:String(l.title).trim(),
       qty:Math.max(1,parseInt(l.qty,10)||1),
-      rate:mlRate(l),
+      rate:mlRate(l),billable:l.billable!==false,
+      rev_of:l.rev_of||null,rev_no:l.rev_no||null,
       file_name:null,file_url:null,pages:null
     },meta));
     const toCat=$('mlToCat').checked;
@@ -2090,6 +2171,8 @@ $('eSave').onclick=async()=>{
         r.drawing_title=String(l.title).trim();
         r.qty=Math.max(1,parseInt(l.qty,10)||1);
         r.rate=mlRate(l);
+        r.billable=l.billable!==false;
+        r.rev_of=l.rev_of||null;r.rev_no=l.rev_no||null;
       }
       Object.assign(r,meta,{code:code});
       saveRow(r,false);
@@ -2099,7 +2182,8 @@ $('eSave').onclick=async()=>{
         drawing_no:String(l.ref||'').trim(),
         drawing_title:String(l.title).trim(),
         qty:Math.max(1,parseInt(l.qty,10)||1),
-        rate:mlRate(l),
+        rate:mlRate(l),billable:l.billable!==false,
+        rev_of:l.rev_of||null,rev_no:l.rev_no||null,
         file_name:null,file_url:null,pages:null
       },meta));
     }
@@ -2984,6 +3068,7 @@ table.pay-t .bk{font-weight:bold;white-space:nowrap;width:34%}
 table.pay-t .ac{font-family:Consolas,monospace;white-space:nowrap;text-align:right}
 .pay .ds{font-size:10px;color:#333;margin-top:7px;line-height:1.45}
 table.stmt-t .sub{display:block;font-family:Consolas,monospace;font-size:9px;color:#555;margin-top:2px}
+table.stmt-t .nc{font-family:Arial,Helvetica,sans-serif;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#555;font-style:italic}
 .stmt-meta{display:flex;border:1px solid #000;border-top:0}
 .stmt-meta div{flex:1;padding:7px 10px;border-right:1px solid #000}
 .stmt-meta div:last-child{border-right:0}
@@ -3084,7 +3169,10 @@ function renderStatement(picked,opts){
   // does not have to build the wrapper itself
   const o=opts||{};
   const groups=(picked||[]).filter(Boolean).map(g=>g.lines?g:groupOf([g]));
-  const list=groups.reduce((a,g)=>a.concat(g.lines),[]);
+  // no-charge lines still show, keeping their place in the numbering, unless
+  // Settings says to leave them off the document entirely
+  const all=groups.reduce((a,g)=>a.concat(g.lines),[]);
+  const list=cfg.hideNoCharge?all.filter(r=>!noCharge(r)):all;
   const codes=uniq(groups.map(g=>g.code));
   const sub=list.reduce((s,r)=>s+amountOf(r),0);
   const vat=Number($('sVat').value)||0;
@@ -3133,12 +3221,13 @@ function renderStatement(picked,opts){
         <td>${esc(r.drawing_title)}${[r.vessel,r.drawing_no].filter(Boolean).length
             ?`<span class="sub">${[r.vessel,r.drawing_no].filter(Boolean).map(esc).join(' · ')}</span>`:''}</td>
         <td class="c">${esc(r.qty)}</td>
-        <td class="r">${money(r.rate).replace('₱','')}</td>
-        <td class="r">${money(amountOf(r)).replace('₱','')}</td>
+        <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(r.rate).replace('₱','')}</td>
+        <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(amountOf(r)).replace('₱','')}</td>
       </tr>`).join('')}</tbody>
     </table>
     <table class="stmt-tot" style="width:100%">
-      <tr><td class="lbl">Subtotal — ${list.length} item${list.length===1?'':'s'}</td><td class="amt">${money(sub)}</td></tr>
+      <tr><td class="lbl">Subtotal — ${list.length} item${list.length===1?'':'s'}${
+        list.some(noCharge)?', '+list.filter(noCharge).length+' at no charge':''}</td><td class="amt">${money(sub)}</td></tr>
       ${vat?`<tr><td class="lbl">${adjLabel}</td><td class="amt">${money(adj)}</td></tr>`:''}
       <tr class="grand"><td class="lbl">Total amount due</td><td class="amt">${money(grand)}</td></tr>
     </table>
@@ -3197,6 +3286,11 @@ alter table drawing_billing
 alter table drawing_billing add column if not exists group_id text;
 -- the billing number, claimed once for a group and reused by later prints
 alter table drawing_billing add column if not exists bill_no text;
+-- a revision points back at the record it supersedes, and a line can be
+-- delivered without charge while still appearing on the billing
+alter table drawing_billing add column if not exists rev_of   text;
+alter table drawing_billing add column if not exists rev_no   integer;
+alter table drawing_billing add column if not exists billable boolean not null default true;
 alter table drawing_billing drop constraint if exists drawing_billing_code_key;
 update drawing_billing set group_id = id::text where group_id is null;
 
@@ -3365,6 +3459,7 @@ function openCfg(){
   $('cCo').value=cfg.company;$('cAddr').value=cfg.address;$('cContact').value=cfg.contact;
   $('cSigner').value=cfg.signer;$('cRole').value=cfg.role;
   $('cPrepared').checked=!!cfg.showPrepared;
+  $('cHideFree').checked=!!cfg.hideNoCharge;
   $('cSqlBox').value=sqlText();
   const who=authed();
   $('cWho').textContent=who?(session.email||'Signed in'):'Not signed in';
@@ -3415,6 +3510,7 @@ $('cSave').onclick=async()=>{
   cfg.company=$('cCo').value.trim();cfg.address=$('cAddr').value.trim();cfg.contact=$('cContact').value.trim();
   cfg.signer=$('cSigner').value.trim();cfg.role=$('cRole').value.trim();
   cfg.showPrepared=$('cPrepared').checked;
+  cfg.hideNoCharge=$('cHideFree').checked;
   saveCfg();pushSharedSettings();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
   hide();toast('Settings saved');
   if(online()&&!authed()){showGate();return;}
@@ -3532,6 +3628,18 @@ $('chips').addEventListener('click',e=>{
 });
 $('list').addEventListener('click',e=>{
   const pd=e.target.closest('[data-pdf]');if(pd){openPdf(pd.dataset.pdf);return;}
+  const rv=e.target.closest('[data-revsrc]');
+  if(rv){
+    const src=rows.find(x=>String(x.id)===String(rv.dataset.revsrc));
+    if(src){
+      filters={q:src.code||'',status:'ALL',client:'',month:'',type:''};
+      $('q').value=filters.q;
+      expanded[groupIdOf(src)]=true;
+      render();
+      toast('Showing '+(src.code||'the original billing'));
+    }
+    return;
+  }
   const ex=e.target.closest('[data-exp]');
   if(ex){expanded[ex.dataset.exp]=!expanded[ex.dataset.exp];render();return;}
   const ed=e.target.closest('[data-edit]');if(ed){openEntry(ed.dataset.edit);return;}
