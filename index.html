@@ -471,7 +471,7 @@ table.stmt-t th{
 }
 table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
 table.stmt-t .r{text-align:right;font-family:var(--mono);white-space:nowrap}
-table.stmt-t .c{text-align:center;font-family:var(--mono)}
+table.stmt-t .c{text-align:center;font-family:var(--mono);white-space:nowrap}
 table.stmt-t .cd{font-family:var(--mono);font-size:9.5px;white-space:nowrap}
 table.stmt-t .sub{display:block;font-family:var(--mono);font-size:9px;color:#555;margin-top:2px}
 table.stmt-t .nc{font-family:var(--sans);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#555;font-style:italic}
@@ -498,7 +498,10 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   /* the sheet already reserves the margin, so the document fills the width */
   .stmt{width:100%;max-width:none;margin:0;padding:0}
   table.stmt-t{width:100%;table-layout:fixed}
-  table.stmt-t td{word-wrap:break-word;overflow-wrap:break-word}
+  /* only the description may break mid-word — letting the narrow numeric
+     columns wrap turns "1.0" into "1." with a stray "0" beneath */
+  table.stmt-t td.d{word-wrap:break-word;overflow-wrap:break-word}
+  table.stmt-t .c,table.stmt-t .r,table.stmt-t .cd{white-space:nowrap;word-break:keep-all}
   /* a long line list repeats its header on each page and never splits a row */
   table.stmt-t thead{display:table-header-group}
   table.stmt-t tfoot{display:table-footer-group}
@@ -3009,6 +3012,20 @@ $('sType').onchange=buildPick;
 $('sAll').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=true);pickTotal();};
 $('sNone').onclick=()=>{$('sPick').querySelectorAll('input').forEach(i=>i.checked=false);pickTotal();};
 
+// One billing document is normally one billing. Selecting several is allowed
+// — a statement of account legitimately spans them — but it is worth a check,
+// because each group carries its own tracking code and its own number.
+function confirmMultiGroup(groups){
+  if(groups.length<2)return true;
+  const br='\n\n';
+  return confirm(
+    'You have picked '+groups.length+' separate billings ('+
+    groups.map(g=>g.code||'—').join(', ')+').'+br+
+    'One billing document is normally one billing. This will put all '+
+    groups.reduce((n,g)=>n+g.count,0)+' lines on a single document and issue '+
+    'a number for each billing that does not have one.'+br+
+    'Continue anyway?');
+}
 function offerMarkBilled(list){
   if(!confirm('Mark these '+list.length+' billing(s) as BILLED?'))return;
   list.forEach(g=>{
@@ -3021,6 +3038,7 @@ function offerMarkBilled(list){
 $('sPreview').onclick=()=>{
   const list=pickedRows();
   if(!list.length){toast('Pick at least one billing',true);return;}
+  if(list.length>1)toast(list.length+' billings on one document — check this is what you want',true);
   renderStatement(list,{preview:!list.every(g=>g.bill_no)});
   hide();
   setTimeout(()=>window.print(),220);
@@ -3028,6 +3046,7 @@ $('sPreview').onclick=()=>{
 $('sPrint').onclick=async()=>{
   const list=pickedRows();
   if(!list.length){toast('Pick at least one document',true);return;}
+  if(!confirmMultiGroup(list))return;
   const btn=$('sPrint');btn.disabled=true;
   try{ await issueBillNos(); }
   finally{ btn.disabled=false; }
@@ -3079,7 +3098,7 @@ table.stmt-t{width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5p
 table.stmt-t th{background:#101F2E;color:#fff;text-align:left;padding:7px 8px;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase}
 table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
 table.stmt-t .r{text-align:right;font-family:Consolas,monospace;white-space:nowrap}
-table.stmt-t .c{text-align:center;font-family:Consolas,monospace}
+table.stmt-t .c{text-align:center;font-family:Consolas,monospace;white-space:nowrap}
 table.stmt-t .cd{font-family:Consolas,monospace;font-size:9.5px;white-space:nowrap}
 table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-tot{width:100%;border-top:2px solid #101F2E;border-collapse:collapse}
@@ -3107,6 +3126,7 @@ $('sEmailBtn').onclick=async()=>{
   const list=pickedRows();
   if(!list.length){toast('Pick at least one document',true);return;}
   if(!online()||!authed()){toast('Sign in to email a statement',true);return;}
+  if(!confirmMultiGroup(list))return;
   if(queue.length){toast('Sync the '+queue.length+' pending change(s) first',true);return;}
   let to=$('sEmail').value.trim();
   if(!to){
@@ -3173,7 +3193,8 @@ function renderStatement(picked,opts){
   // Settings says to leave them off the document entirely
   const all=groups.reduce((a,g)=>a.concat(g.lines),[]);
   const list=cfg.hideNoCharge?all.filter(r=>!noCharge(r)):all;
-  const codes=uniq(groups.map(g=>g.code));
+  // tracking codes stay in Monitoring; the client's copy carries only the
+  // billing number
   const sub=list.reduce((s,r)=>s+amountOf(r),0);
   const vat=Number($('sVat').value)||0;
   const adj=sub*vat/100;
@@ -3205,20 +3226,19 @@ function renderStatement(picked,opts){
       ${rec&&rec.address?`<div class="ad">${esc(rec.address).replace(/\n/g,'<br>')}</div>`:''}
     </div>
     <div class="stmt-meta">
-      <div><div class="k">Tracking</div><div class="v mono">${esc(codes.join(', ')||'—')}</div></div>
       <div><div class="k">Period covered</div><div class="v mono">${fmtDate($('sFrom').value)} — ${fmtDate($('sTo').value)}</div></div>
       <div><div class="k">Terms</div><div class="v mono">${terms} days</div></div>
       <div><div class="k">Due on</div><div class="v mono">${fmtDate(due)}</div></div>
     </div>
     <table class="stmt-t">
       <thead><tr>
-        <th style="width:34px" class="c">No.</th>
+        <th style="width:42px" class="c">No.</th>
         <th>Description</th><th style="width:34px" class="c">Qty</th>
         <th style="width:74px" class="r">Rate</th><th style="width:86px" class="r">Amount</th>
       </tr></thead>
       <tbody>${list.map((r,i)=>`<tr>
         <td class="c">${i+1}.0</td>
-        <td>${esc(r.drawing_title)}${[r.vessel,r.drawing_no].filter(Boolean).length
+        <td class="d">${esc(r.drawing_title)}${[r.vessel,r.drawing_no].filter(Boolean).length
             ?`<span class="sub">${[r.vessel,r.drawing_no].filter(Boolean).map(esc).join(' · ')}</span>`:''}</td>
         <td class="c">${esc(r.qty)}</td>
         <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(r.rate).replace('₱','')}</td>
@@ -3237,7 +3257,7 @@ function renderStatement(picked,opts){
       <div class="ty">Thank you for your business.</div>
       ${cfg.showPrepared&&cfg.signer?`<div class="pb">Prepared by: ${esc(cfg.signer)}${cfg.role?', '+esc(cfg.role):''}</div>`:''}
     </div>
-    <div class="stmt-ft"><span>Please reference the billing code on payment advice.</span><span>${esc($('sNo').value)}</span></div>
+    <div class="stmt-ft"><span>Please reference billing no. ${esc($('sNo').value)} on payment advice.</span><span>${fmtDate(today())}</span></div>
   </div>`;
 }
 
