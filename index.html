@@ -3484,12 +3484,18 @@ $('sPreview').onclick=()=>{
   setTimeout(()=>window.print(),220);
 };
 $('sPdf').onclick=async()=>{
+  const picked=pickedRows();
+  if(!picked.length){toast('Nothing is selected to bill',true);return;}
+  // Print asks this before claiming anything, for the same reason: several
+  // billings on one document means a number issued for each of them.
+  if(!confirmMultiGroup(picked))return;
   const btn=$('sPdf');
   btn.disabled=true;btn.textContent='Building…';
   try{
-    const picked=pickedRows();
-    if(!picked.length)throw new Error('Nothing is selected to bill');
     const facts=stmtFacts(picked);
+    // load before claiming. A CDN that will not answer is the likeliest
+    // failure here, and a number spent on a PDF that never built is gone.
+    await loadJsPdf();
     const issued=await issueBillNos();
     const plan=pdfPlan(facts,issued);
     const doc=await pdfDoc(plan);
@@ -3872,6 +3878,37 @@ function renderStatement(picked,opts){
 // view — the same rule stmtFacts exists to enforce.
 const PDF_W=595.28, PDF_H=841.89;   // A4 in points
 const PDF_M=42;                     // margin
+// The last y a content row may occupy. Only the page footer goes below it.
+const PDF_BOT=PDF_H-PDF_M-18;
+
+// jsPDF's standard fonts are cp1252. A single code point above U+00FF makes
+// jsPDF re-encode the whole string as UTF-16 with no embedded font to read it
+// back, and the result is a stray byte with a NUL before every character --
+// which is exactly how the peso sign corrupted every amount here. Nothing on
+// this document needs a character that high, so the few the printed copy uses
+// are downgraded, and anything else is made visible rather than dropped.
+const PDF_SUB={'\u2014':'-','\u2013':'-','\u2018':"'",'\u2019':"'",
+               '\u201C':'"','\u201D':'"','\u2022':'-','\u20B1':''};
+const pdfText=s=>String(s==null?'':s)
+  .replace(/[\u0100-\uFFFF]/g,c=>PDF_SUB[c]!==undefined?PDF_SUB[c]:'?');
+// Amounts are drawn bare. The "Amount (PHP)" column head and the note above
+// the amount in words carry the currency instead of a sign that cannot print.
+const pdfMoney=n=>money(n).replace('₱','');
+
+// jsPDF can measure text, but pdfPlan must stay clear of it, so the wrap uses
+// Helvetica's average advance -- about half the point size. It is deliberately
+// conservative: a line breaks early rather than running into the next column.
+function pdfWrap(s,maxW,size){
+  const parts=String(s==null?'':s).split(/\s+/).filter(Boolean),out=[];
+  const cw=size*0.5;
+  let cur='';
+  parts.forEach(x=>{
+    const join=cur?cur+' '+x:x;
+    if(!cur||join.length*cw<=maxW)cur=join;else{out.push(cur);cur=x;}
+  });
+  if(cur)out.push(cur);
+  return out;
+}
 
 function pdfFilename(issuedNo){
   const n=String(issuedNo||'').trim();
@@ -3880,80 +3917,167 @@ function pdfFilename(issuedNo){
 
 function pdfPlan(facts,issuedNo){
   const ops=[];
-  const t=(s,x,y,o)=>ops.push(Object.assign({t:'text',s:String(s==null?'':s),x:x,y:y},o||{}));
-  const line=(x1,y1,x2,y2)=>ops.push({t:'line',x1:x1,y1:y1,x2:x2,y2:y2});
-  const right=PDF_W-PDF_M;
-  let y=PDF_M;
+  let out=ops;                 // repointed while the tail is measured
+  let page=0,y=PDF_M;
+  const t=(s,x,yy,o)=>out.push(Object.assign({t:'text',p:page,s:pdfText(s),x:x,y:yy},o||{}));
+  const line=(x1,y1,x2,y2)=>out.push({t:'line',p:page,x1:x1,y1:y1,x2:x2,y2:y2});
+  const right=PDF_W-PDF_M, colW=right-PDF_M;
+  // the print stylesheet's column widths: 7 / 53 / 7 / 16 / 17 per cent
+  const cNo=PDF_M, cDesc=PDF_M+0.07*colW;
+  const cQty=PDF_M+0.67*colW, cRate=PDF_M+0.83*colW, cAmt=right;
+  const descW=cQty-8-cDesc;
+  const brk=()=>{page++;y=PDF_M;};
 
-  ops.push({t:'image',d:MARK_INK,x:PDF_M,y:y,w:50,h:36});
-  t(cfg.company||'RSR Engineering Services',PDF_M+62,y+14,{size:13,bold:true});
-  t('Naval Architecture · UTG · Drydocking',PDF_M+62,y+28,{size:8});
-  t('BILLING',right,y+14,{size:16,bold:true,align:'right'});
-  t(issuedNo||'',right,y+30,{size:10,align:'right'});
-  y+=54;
-  line(PDF_M,y,right,y);
-  y+=18;
+  // ---- header: the mark, the company block, then Billing / number / date
+  const hy=y;
+  out.push({t:'image',p:page,d:MARK_INK,x:PDF_M,y:hy,w:50,h:36});
+  let ly=hy+13;
+  t(cfg.company||'RSR ENGINEERING SERVICES',PDF_M+62,ly,{size:13,bold:true});ly+=13;
+  String(cfg.address||'').split('\n').forEach(a=>{
+    if(a.trim()){t(a.trim(),PDF_M+62,ly,{size:8.5});ly+=11;}});
+  if(cfg.contact){t(cfg.contact,PDF_M+62,ly,{size:8.5});ly+=11;}
+  if(cfg.contactNo){t('contact no.: '+cfg.contactNo,PDF_M+62,ly,{size:8.5});ly+=11;}
+  let ry=hy+13;
+  t('Billing',right,ry,{size:11,bold:true,align:'right'});ry+=16;
+  if(issuedNo){t(issuedNo,right,ry,{size:12,bold:true,align:'right'});ry+=13;}
+  t(fmtDate(today()),right,ry,{size:9,align:'right'});ry+=11;
+  y=Math.max(ly,ry,hy+42)+2;
+  line(PDF_M,y,right,y);y+=16;
 
+  // ---- Bill to: contact person above the company, the order print uses
   const rec=facts.rec||{};
-  t('BILL TO',PDF_M,y,{size:8,bold:true});
-  y+=13;
-  t(facts.client||'',PDF_M,y,{size:10,bold:true});y+=13;
-  if(rec.contact_person){t(rec.contact_person,PDF_M,y,{size:9});y+=12;}
-  if(rec.address){t(rec.address,PDF_M,y,{size:9});y+=12;}
-  if(facts.oneVessel){t('Vessel: '+facts.oneVessel,PDF_M,y,{size:9});y+=12;}
-  if(facts.from||facts.to){t('Period: '+(facts.from||'')+' to '+(facts.to||''),PDF_M,y,{size:9});y+=12;}
+  t('Bill to',PDF_M,y,{size:8,bold:true});y+=13;
+  if(rec.contact_person){t(rec.contact_person,PDF_M,y,{size:9.5});y+=12;}
+  if(facts.client){t(facts.client,PDF_M,y,{size:10,bold:true});y+=12;}
+  String(rec.address||'').split('\n').forEach(a=>{
+    if(a.trim()){t(a.trim(),PDF_M,y,{size:9});y+=11;}});
   y+=8;
+  if(facts.oneVessel){
+    t('Vessel name',PDF_M,y,{size:8,bold:true});
+    t(facts.oneVessel,PDF_M+82,y,{size:9.5,bold:true});
+    y+=17;
+  }
+  const m2=PDF_M+230,m3=PDF_M+360;
+  t('Period covered',PDF_M,y,{size:8,bold:true});
+  t('Terms',m2,y,{size:8,bold:true});
+  t('Due on',m3,y,{size:8,bold:true});y+=12;
+  t(fmtDate(facts.from)+' \u2014 '+fmtDate(facts.to),PDF_M,y,{size:9});
+  t(facts.terms+' days',m2,y,{size:9});
+  t(fmtDate(facts.due),m3,y,{size:9});y+=18;
 
-  const cQty=right-190,cRate=right-120,cAmt=right;
-  line(PDF_M,y,right,y);y+=12;
-  t('DESCRIPTION',PDF_M,y,{size:8,bold:true});
-  t('QTY',cQty,y,{size:8,bold:true,align:'right'});
-  t('RATE',cRate,y,{size:8,bold:true,align:'right'});
-  t('AMOUNT',cAmt,y,{size:8,bold:true,align:'right'});
-  y+=6;line(PDF_M,y,right,y);y+=14;
-
-  facts.list.forEach(r=>{
-    t(r.drawing_title||'',PDF_M,y,{size:9});
-    t(r.qty==null?'':r.qty,cQty,y,{size:9,align:'right'});
-    t(money(r.rate),cRate,y,{size:9,align:'right'});
-    t(money(amountOf(r)),cAmt,y,{size:9,align:'right'});
-    y+=12;
-    const sub=[facts.oneVessel?'':r.vessel,r.drawing_no].filter(Boolean).join(' · ');
-    if(sub){t(sub,PDF_M,y,{size:8});y+=12;}
-    y+=2;
+  // ---- the table. The head is a function because a page break inside the
+  // table has to redraw it before the rows continue.
+  const head=()=>{
+    line(PDF_M,y,right,y);y+=11;
+    t('No.',cNo,y,{size:8,bold:true});
+    t('Description',cDesc,y,{size:8,bold:true});
+    t('Qty',cQty,y,{size:8,bold:true,align:'right'});
+    t('Rate',cRate,y,{size:8,bold:true,align:'right'});
+    t('Amount (PHP)',cAmt,y,{size:8,bold:true,align:'right'});
+    y+=6;line(PDF_M,y,right,y);y+=13;
+  };
+  head();
+  facts.list.forEach((r,i)=>{
+    const tl=pdfWrap(r.drawing_title,descW,9);
+    const sub=(facts.oneVessel?[r.drawing_no]:[r.vessel,r.drawing_no])
+      .filter(Boolean).join(' \u00b7 ');
+    const sl=sub?pdfWrap(sub,descW,8):[];
+    const h=Math.max(11,tl.length*11)+sl.length*10+5;
+    if(y+h>PDF_BOT){brk();head();}
+    const top=y;
+    t((i+1)+'.0',cNo,top,{size:9});
+    if(r.qty!=null&&r.qty!=='')t(r.qty,cQty,top,{size:9,align:'right'});
+    // a no-charge line says so in BOTH cells, as print does: the real rate
+    // beside a zero amount reads to the client as an arithmetic error
+    t(noCharge(r)?'No Charge':pdfMoney(r.rate),cRate,top,{size:9,align:'right'});
+    t(noCharge(r)?'No Charge':pdfMoney(amountOf(r)),cAmt,top,{size:9,align:'right'});
+    if(!tl.length)y+=11;
+    tl.forEach(s=>{t(s,cDesc,y,{size:9});y+=11;});
+    sl.forEach(s=>{t(s,cDesc,y,{size:8});y+=10;});
+    y+=5;
   });
 
-  y+=4;line(cQty-30,y,right,y);y+=14;
-  t('Subtotal',cRate,y,{size:9,align:'right'});
-  t(money(facts.sub),cAmt,y,{size:9,align:'right'});y+=13;
+  // ---- the tail: totals, the amount in words, the payment details and the
+  // closing. Laid out into its own list at y=0 first so its height is known
+  // before it is placed -- a break through it would separate the total from
+  // the words that restate it, so it moves to the next page whole.
+  const tail=[];out=tail;
+  const yTop=y;y=0;
+  line(cRate-120,y,right,y);y+=14;
+  const n=facts.list.length,nc=facts.list.filter(noCharge).length;
+  t('Subtotal \u2014 '+n+' item'+(n===1?'':'s')+(nc?', '+nc+' at no charge':''),
+    cRate,y,{size:9,align:'right'});
+  t(pdfMoney(facts.sub),cAmt,y,{size:9,align:'right'});y+=13;
   const adjLabel=facts.vat>0?'Add: VAT 12%':facts.vat<0?'Less: Withholding tax 2%':'';
   if(adjLabel){
     t(adjLabel,cRate,y,{size:9,align:'right'});
-    t(money(facts.adj),cAmt,y,{size:9,align:'right'});y+=13;
+    t(pdfMoney(facts.adj),cAmt,y,{size:9,align:'right'});y+=13;
   }
-  t('TOTAL',cRate,y,{size:11,bold:true,align:'right'});
-  t(money(facts.grand),cAmt,y,{size:11,bold:true,align:'right'});y+=18;
+  t('Total amount due',cRate,y,{size:11,bold:true,align:'right'});
+  t(pdfMoney(facts.grand),cAmt,y,{size:11,bold:true,align:'right'});y+=20;
+  // the sign cannot be drawn, so the currency is said in words instead
+  t('All amounts in Philippine Pesos (PHP)',PDF_M,y,{size:8});y+=14;
+  t('Amount in words',PDF_M,y,{size:8,bold:true});y+=12;
   // pesoWords, not words: the printed copy says "... Pesos and ... Centavos
   // Only" and the attachment has to read the same for the same billing
-  t(pesoWords(facts.grand),PDF_M,y,{size:9,bold:true});y+=18;
-  t('Terms: '+facts.terms+' days · Due on '+facts.due,PDF_M,y,{size:9});y+=20;
+  pdfWrap(pesoWords(facts.grand),colW,9)
+    .forEach(s=>{t(s,PDF_M,y,{size:9,bold:true});y+=11;});
+  y+=12;
+  // cfg.banks rows carry {bank,name,acct}; payBlock() reads the same three,
+  // and drops the whole block when payee, banks and remit email are all empty
+  const banks=(cfg.banks||[]).filter(b=>b&&(b.bank||b.name||b.acct));
+  if(cfg.payee||banks.length||cfg.remitEmail){
+    t('Payment details',PDF_M,y,{size:8,bold:true});y+=13;
+    if(cfg.payee){t('Please issue payment to '+cfg.payee,PDF_M,y,{size:9});y+=13;}
+    banks.forEach(b=>{
+      if(b.bank)t(b.bank,PDF_M,y,{size:9});
+      if(b.name)t(b.name,PDF_M+150,y,{size:9});
+      if(b.acct)t(b.acct,cAmt,y,{size:9,align:'right'});
+      y+=12;
+    });
+    if(cfg.remitEmail)pdfWrap('Kindly email a copy of the deposit slip to '+
+      cfg.remitEmail+' for confirmation of payment.',colW,9)
+      .forEach(s=>{t(s,PDF_M,y,{size:9});y+=11;});
+    y+=10;
+  }
+  t('Thank you for your business.',PDF_M,y,{size:9});y+=13;
+  if(cfg.showPrepared&&cfg.signer)
+    t('Prepared by: '+cfg.signer+(cfg.role?', '+cfg.role:''),PDF_M,y,{size:9});
+  const tailH=y+4;
+  out=ops;
+  let base=yTop;
+  // already at the top of a page and still too tall: nothing is gained by
+  // breaking again, so it stays rather than opening a blank page
+  if(base+tailH>PDF_BOT&&base>PDF_M){brk();base=PDF_M;}
+  tail.forEach(o=>{o.p=page;
+    if(o.t==='line'){o.y1+=base;o.y2+=base;}else o.y+=base;});
+  ops.push.apply(ops,tail);
+  y=base+tailH;
 
-  t('PAYMENT DETAILS',PDF_M,y,{size:8,bold:true});y+=13;
-  (cfg.banks||[]).forEach(b=>{
-    // cfg.banks rows carry {bank,name,acct} — not `number`; payBlock() (above)
-    // reads the same three fields for the printed/emailed copy.
-    t([b.bank,b.name,b.acct].filter(Boolean).join(' · '),PDF_M,y,{size:9});
-    y+=12;
-  });
-
-  return {filename:pdfFilename(issuedNo),page:{w:PDF_W,h:PDF_H},ops:ops};
+  // the footer names the page count, so it can only be written once every
+  // page exists. It carries the billing number, never the tracking code.
+  const pages=page+1,fy=PDF_H-PDF_M;
+  for(let p=0;p<pages;p++){
+    ops.push({t:'line',p:p,x1:PDF_M,y1:fy-12,x2:right,y2:fy-12,foot:true});
+    if(issuedNo)ops.push({t:'text',p:p,s:pdfText(issuedNo),x:PDF_M,y:fy,size:8,foot:true});
+    ops.push({t:'text',p:p,s:'Page '+(p+1)+' of '+pages,x:right,y:fy,
+              size:8,align:'right',foot:true});
+  }
+  // pdfDoc only ever moves forward a page, so the ops reach it in page order.
+  // Sort is stable, so drawing order within a page is untouched.
+  ops.sort((a,b)=>a.p-b.p);
+  return {filename:pdfFilename(issuedNo),
+          page:{w:PDF_W,h:PDF_H,m:PDF_M,bottom:PDF_BOT},ops:ops};
 }
 
-// Thin on purpose: it makes no layout decisions, it only plays back the plan.
+// Thin on purpose: it makes no layout decisions, it only plays the plan back.
+// Page breaks arrive as data -- an op's p is the page it belongs on.
 async function pdfDoc(plan){
   const JsPDF=await loadJsPdf();
   const doc=new JsPDF({unit:'pt',format:[plan.page.w,plan.page.h]});
+  let page=0;
   plan.ops.forEach(o=>{
+    while(page<(o.p||0)){doc.addPage([plan.page.w,plan.page.h]);page++;}
     if(o.t==='image'){doc.addImage(o.d,'PNG',o.x,o.y,o.w,o.h);return;}
     if(o.t==='line'){doc.setLineWidth(0.6);doc.line(o.x1,o.y1,o.x2,o.y2);return;}
     doc.setFont('helvetica',o.bold?'bold':'normal');
