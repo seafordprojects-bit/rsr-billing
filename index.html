@@ -4259,14 +4259,15 @@ $('cSave').onclick=async()=>{
   // warn while the box is still open and editable, which is the moment it
   // can actually be fixed
   const lw=letterWarning(letterTemplate(),{contact:'{contact}'});
-  if(lw)toast('This letter has no {contact} — recipients will not be addressed by name',true);
   cfg.autoMarkPrint=$('cMarkPrint').checked;
   cfg.hideNoCharge=$('cHideFree').checked;
   saveCfg();pushSharedSettings();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
   hide();
-  // the generic confirmation would otherwise overwrite the letter warning in
-  // the same tick, so the actionable message wins when there is one
-  if(!lw)toast('Settings saved');
+  // One toast, not two: toast() rewrites the same element synchronously, so a
+  // second call in the same tick erases the first. Say both in one line -- the
+  // save did succeed, and a lone red toast reads as though it had not.
+  toast(lw?'Settings saved. This letter has no {contact} — recipients will not be addressed by name'
+          :'Settings saved',!!lw);
   if(online()&&!authed()){showGate();return;}
   await pull();
 };
