@@ -1380,6 +1380,35 @@ const jobLabel=job=>{
 };
 const deadJobs=()=>queue.filter(j=>j.dead);
 
+// A client name is unique on the server, so an insert for a name that
+// already exists can never succeed. Heal it instead of jamming: adopt the
+// server's row and contribute only what the server is missing. Fill-only,
+// never overwrite — a stale local copy must not clobber a corrected
+// server value, which is exactly what happened on 2026-08-23.
+async function healClientDup(job){
+  const name=String((job.data&&job.data.name)||'').trim();
+  if(!name)return false;
+  const found=await sb(CLI_TABLE+'?select=*&name=eq.'+encodeURIComponent(name));
+  const srv=found&&found[0];
+  if(!srv)return false;
+  const patch={};
+  CLI_FIELDS.forEach(k=>{
+    const mine=job.data[k],theirs=srv[k];
+    if(String(mine==null?'':mine).trim()&&!String(theirs==null?'':theirs).trim())patch[k]=mine;
+  });
+  if(Object.keys(patch).length){
+    await sb(CLI_TABLE+'?id=eq.'+encodeURIComponent(srv.id),
+      {method:'PATCH',body:JSON.stringify(patch)});
+    Object.assign(srv,patch);
+  }
+  // pull() keeps every loc- row forever, so replacing the local row is
+  // what stops the duplicate reappearing after the next sync
+  const i=clients.findIndex(c=>c.id===job.localId);
+  if(i>-1)clients[i]=srv;else clients.push(srv);
+  toast('"'+name+'" already existed — merged with the saved record');
+  return true;
+}
+
 async function flushQueue(){
   if(!online()||!queue.length)return;
   const still=[];
@@ -1405,6 +1434,12 @@ async function flushQueue(){
         await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'DELETE'});
       }
     }catch(err){
+      // a duplicate client is recoverable; anything else follows the
+      // transient/permanent split below
+      if(job.store==='clients'&&job.op==='insert'&&err.status===409){
+        try{ if(await healClientDup(job))continue; }
+        catch(e){ err=e; }
+      }
       if(transient(err)){still.push(job);continue;}
       job.dead=true;
       job.err=(err.status?err.status+': ':'')+(err.message||'Rejected by the server');

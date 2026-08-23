@@ -201,7 +201,11 @@ globalThis.fetch = async (url, opts={}) => {
   const hit = scripted(url, method);
   if (hit) {
     const body = hit.body || {};
-    return { ok:false, status:hit.status, json:async()=>body,
+    // status decides ok, not a hardcoded false: every prior suite only ever
+    // scripted a 4xx/5xx, but a heal-style lookup needs to script a genuine
+    // 200 too, and this stays backward-compatible with those (status>=400
+    // still reads as a failure).
+    return { ok:hit.status<400, status:hit.status, json:async()=>body,
              text:async()=>JSON.stringify(body) };
   }
   // online: echo inserts back with a server id
