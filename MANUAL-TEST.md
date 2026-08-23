@@ -263,6 +263,9 @@ Needs two browsers signed into the same project.
       billings. All three land on one client and one statement finds all three.
 - [ ] The typeahead lists that client once, not three times.
 - [ ] Contact person and address entered in Settings appear under Bill To.
+- [ ] **Salutation is not Bill To.** With Salutation `Mr. Chua` and Contact
+      person `Ashford Chua`, the printed Bill To reads `Ashford Chua` over the
+      company name. `Mr. Chua` appears nowhere on the document.
 
 ## 8. Email
 
@@ -273,13 +276,14 @@ Needs two browsers signed into the same project.
 - [ ] Sending as a user **not** in `billing_senders` is refused with a clear
       message.
 - [ ] **The covering letter.** Email opens a review sheet, not a send. The
-      letter is filled in: salutation from the client's contact person,
+      letter is filled in: salutation from the client's Salutation field,
       billing no., vessel, period, total. Read it in a real inbox — the
       letter sits above the billing, paragraphs are separated, and the date
       is today's.
-- [ ] **Salutation.** {contact} prints the Contact person field **verbatim**.
-      For "Dear Mr. Chua," the field must say `Mr. Chua`, not `Ashford Chua`
-      — nothing can derive the honorific. Blank field reads "Dear Sir/Madam,".
+- [ ] **Salutation.** {contact} prints the client's **Salutation** field
+      verbatim. Blank it and the letter falls back to Contact person; blank
+      both and it reads "Dear Sir/Madam,". Nothing derives an honorific — for
+      "Dear Mr. Chua," someone must have typed `Mr. Chua` into Salutation.
 - [ ] **Editing at review** changes that send only. Reopen Settings after —
       the template is unchanged.
 - [ ] **Back claims nothing.** Open the review on an unnumbered draft, press

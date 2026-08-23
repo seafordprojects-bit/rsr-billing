@@ -48,7 +48,7 @@ would be signed out mid-outage.
 |---|---|
 | `drawing_billing` | every billing **line** |
 | `drawing_catalog` | reusable standard items, per document type |
-| `clients` | name, contact person, address, billing email |
+| `clients` | name, salutation, contact person, address, billing email |
 | `app_settings` | shared settings + the billing counters |
 | `billing_senders` | who may email a billing (allowlist) |
 
@@ -150,8 +150,12 @@ so an **empty** value means `LETTER_DEFAULT` rather than an empty letter — the
 same shape as `termsDefault()`. Placeholders are whitelisted in `LETTER_KEYS`;
 an unknown `{token}` is deliberately left standing so a typo shows up at the
 review step instead of leaving a hole. `{contact}` is the client's
-`contact_person` **verbatim** — there is no honorific or gender in the data, so
-"Ashford Chua" cannot become "Mr. Chua".
+`salutation` **verbatim**, falling back to `contact_person` and then to
+"Sir/Madam". Nothing is derived: there is no honorific or gender in the data,
+so "Ashford Chua" never *becomes* "Mr. Chua" — the two are separate columns
+because the letter wants the short form while **Bill To prints the full
+`contact_person`** on the document. `letter.test.mjs` asserts the salutation
+never reaches the printed copy.
 
 Status moves through `markBilledNow(list)`, which touches **DRAFT only**: a
 BILLED billing keeps its original `billed_date` and a PAID one is never walked
@@ -215,7 +219,7 @@ node test/run.mjs groups     # one suite, by prefix
 node test/groups.test.mjs    # directly, same thing
 ```
 
-1113 assertions, no dependencies, Node only. `fn.test.mjs` needs
+1124 assertions, no dependencies, Node only. `fn.test.mjs` needs
 `--experimental-strip-types` (the runner passes it).
 
 `test/harness.mjs` extracts the inline `<script>` from `index.html`, appends a

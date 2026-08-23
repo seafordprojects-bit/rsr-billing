@@ -963,7 +963,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="f" style="margin-top:13px"><label for="cRemit">Email deposit slips to</label><input id="cRemit" type="email" inputmode="email" autocomplete="off" spellcheck="false" placeholder="billing@yourdomain.com"><div class="hint">Printed as the deposit-slip instruction line.</div></div>
 
     <div class="sect-t">Covering letter</div>
-    <div class="hint" style="margin:-4px 0 9px">Opens every emailed billing, above the document, and is shown for review before each send. Placeholders: <span style="font-family:var(--mono)">{contact} {billno} {vessel} {period} {total} {due}</span> — <b>{contact}</b> is the client's contact person, or "Sir/Madam" when that is blank. Clear the box to go back to the standard wording.</div>
+    <div class="hint" style="margin:-4px 0 9px">Opens every emailed billing, above the document, and is shown for review before each send. Placeholders: <span style="font-family:var(--mono)">{contact} {billno} {vessel} {period} {total} {due}</span> — <b>{contact}</b> is the client's Salutation, or their contact person when that is blank, or "Sir/Madam" when both are. Clear the box to go back to the standard wording.</div>
     <div class="f"><textarea id="cLetter" style="min-height:190px;line-height:1.55"></textarea></div>
     <label class="chk"><input type="checkbox" id="cMarkPrint"><span>Auto-mark billed on print<span class="s">A successful email always marks the billing BILLED. Printing asks first unless this is on.</span></span></label>
 
@@ -1778,7 +1778,10 @@ async function maybeSeedCatalog(){
 }
 
 /* ---- client records: who to bill, and where ---- */
-const CLI_FIELDS=['name','contact_person','address','billing_email'];
+// salutation is how the covering letter addresses this client ("Mr. Chua");
+// contact_person is the full name printed under Bill To. One field cannot
+// serve both, which is why there are two.
+const CLI_FIELDS=['name','salutation','contact_person','address','billing_email'];
 function cliPayload(c){
   const o={};CLI_FIELDS.forEach(k=>{o[k]=c[k]===''?null:c[k];});
   o.name=String(c.name||'').trim();
@@ -1848,7 +1851,7 @@ async function setBillingEmail(name,email){
     c.billing_email=email;
     await cliSave(c,false);
   }else{
-    await cliSave({name:name,contact_person:'',address:'',billing_email:email},true);
+    await cliSave({name:name,salutation:'',contact_person:'',address:'',billing_email:email},true);
   }
 }
 
@@ -2107,7 +2110,7 @@ function clientSuggest(q){
 async function rememberClient(name){
   name=canonClient(name);
   if(!name||clientRec(name))return;
-  await cliSave({name:name,contact_person:'',address:'',billing_email:''},true);
+  await cliSave({name:name,salutation:'',contact_person:'',address:'',billing_email:''},true);
 }
 
 /* ---- multi-line manual entry ---- */
@@ -2813,6 +2816,7 @@ function renderCliMgr(){
       <div class="imp-f">
         <input data-clf="name" data-cli="${esc(c.id)}" value="${esc(c.name||'')}" placeholder="Company name" autocomplete="off">
         <input data-clf="contact_person" data-cli="${esc(c.id)}" value="${esc(c.contact_person||'')}" placeholder="Contact person (optional)" autocomplete="off">
+        <input data-clf="salutation" data-cli="${esc(c.id)}" value="${esc(c.salutation||'')}" placeholder="Salutation, e.g. Mr. Chua (optional)" autocomplete="off">
         <input data-clf="address" data-cli="${esc(c.id)}" value="${esc(c.address||'')}" placeholder="Address (optional)" autocomplete="off">
         <input data-clf="billing_email" data-cli="${esc(c.id)}" value="${esc(c.billing_email||'')}" placeholder="Billing email" type="email" autocomplete="off" spellcheck="false">
       </div>
@@ -2838,7 +2842,7 @@ $('cCliList').addEventListener('click',async e=>{
   await cliDelete(c.id);renderCliMgr();
 });
 $('cCliAdd').onclick=async()=>{
-  const item={name:'New client',contact_person:'',address:'',billing_email:''};
+  const item={name:'New client',salutation:'',contact_person:'',address:'',billing_email:''};
   await cliSave(item,true);
   renderCliMgr();
   const f=$('cCliList').querySelector('[data-clf="name"][data-cli="'+item.id+'"]');
@@ -3409,13 +3413,15 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .ltr p{margin:0 0 11px}`;
 
 /* ---- the covering letter ---- */
-// {contact} is the client's contact person verbatim. There is no honorific
-// or gender anywhere in the data, so "Ashford Chua" cannot be turned into
-// "Mr. Chua" — store the form you want to be addressed by in the client's
-// Contact person field, or edit the line at the review step.
+// {contact} is the client's Salutation verbatim, falling back to the full
+// contact person and then to Sir/Madam. Nothing is derived: there is no
+// honorific or gender anywhere in the data, so "Ashford Chua" is never turned
+// into "Mr. Chua" — that form is typed into Salutation, which exists because
+// Bill To needs the full name on the same record.
 function letterVars(f,no){
   return {
-    contact:(f.rec&&String(f.rec.contact_person||'').trim())||'Sir/Madam',
+    contact:(f.rec&&(String(f.rec.salutation||'').trim()||
+                     String(f.rec.contact_person||'').trim()))||'Sir/Madam',
     billno:String(no||'').trim(),
     vessel:f.vessels.length?f.vessels.join(', '):'your vessel',
     period:fmtDate(f.from)+' — '+fmtDate(f.to),
@@ -3769,6 +3775,7 @@ create policy rsr_dwg_catalog_authed on drawing_catalog
 create table if not exists clients (
   id             uuid primary key default gen_random_uuid(),
   name           text unique not null,
+  salutation     text,
   contact_person text,
   address        text,
   billing_email  text,
@@ -3778,6 +3785,10 @@ create table if not exists clients (
 -- printed under Bill To on the billing document
 alter table clients add column if not exists contact_person text;
 alter table clients add column if not exists address        text;
+
+-- how the covering letter opens ("Dear Mr. Chua,"). Left blank, the letter
+-- falls back to contact_person and then to Sir/Madam.
+alter table clients add column if not exists salutation     text;
 
 alter table clients enable row level security;
 

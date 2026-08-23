@@ -106,6 +106,66 @@ openStmt(noContact);
 ok('falls back to Sir/Madam',
    /^Dear Sir\/Madam,/.test(noContact.composeLetter(noContact.pickedRows(), 'X')),
    noContact.composeLetter(noContact.pickedRows(), 'X').split('\n')[0]);
+
+console.log('\n--- Salutation opens the letter; Bill To keeps the full name ---');
+// The reason the column exists: the letter wants "Dear Mr. Chua," while the
+// document wants "Ashford Chua" printed over the company name. One field
+// cannot serve both, and nothing is derived from the other.
+const both = reset();
+await both.cliSave({ name:'Seaford', salutation:'Mr. Chua', contact_person:'Ashford Chua',
+                     address:'Cebu', billing_email:'ap@seaford.test' }, true);
+await make(both, ['Shell Expansion Plan']);
+openStmt(both);
+const bothLetter = both.composeLetter(both.pickedRows(), 'BILLDWG-26-001');
+ok('the letter opens with the salutation, not the full name',
+   /^Dear Mr\. Chua,/.test(bothLetter), bothLetter.split('\n')[0]);
+both.renderStatement(both.pickedRows());
+ok('Bill To still carries the full contact person',
+   el('printRoot').innerHTML.includes('Ashford Chua'));
+ok('and the salutation never reaches the document',
+   !el('printRoot').innerHTML.includes('Mr. Chua'),
+   (el('printRoot').innerHTML.match(/Mr\.[^<]*/) || [''])[0]);
+ok('the salutation is queued for sync, not dropped on the device',
+   (both.queue.find(j => j.store === 'clients') || { data:{} }).data.salutation === 'Mr. Chua',
+   JSON.stringify((both.queue.find(j => j.store === 'clients') || {}).data));
+
+console.log('\n--- and it falls back when left blank ---');
+const blankSal = reset();
+await blankSal.cliSave({ name:'Seaford', salutation:'', contact_person:'Ashford Chua',
+                         address:'Cebu', billing_email:'ap@seaford.test' }, true);
+await make(blankSal, ['Shell Expansion Plan']);
+openStmt(blankSal);
+ok('a blank salutation uses the contact person',
+   /^Dear Ashford Chua,/.test(blankSal.composeLetter(blankSal.pickedRows(), 'X')),
+   blankSal.composeLetter(blankSal.pickedRows(), 'X').split('\n')[0]);
+const neither = reset();
+await neither.cliSave({ name:'Seaford', salutation:'', contact_person:'',
+                        address:'Cebu', billing_email:'ap@seaford.test' }, true);
+await make(neither, ['Shell Expansion Plan']);
+openStmt(neither);
+ok('both blank still reaches Sir/Madam',
+   /^Dear Sir\/Madam,/.test(neither.composeLetter(neither.pickedRows(), 'X')),
+   neither.composeLetter(neither.pickedRows(), 'X').split('\n')[0]);
+
+console.log('\n--- the column is plumbed through settings and SQL ---');
+const plumb = reset();
+await plumb.cliSave({ name:'Seaford', salutation:'Mr. Chua', contact_person:'Ashford Chua',
+                      address:'Cebu', billing_email:'ap@seaford.test' }, true);
+plumb.renderCliMgr();
+const salBox = el('cCliList')
+  .querySelector('[data-clf="salutation"][data-cli="' + plumb.clients[0].id + '"]');
+ok('the client editor exposes a salutation field', !!salBox);
+ok('and shows the stored value', salBox && salBox.value === 'Mr. Chua', salBox && salBox.value);
+el('sqlWrap').hidden = true;
+el('cSql').onclick();
+const cliSql = el('cSqlBox').value;
+ok('a fresh clients table declares the column',
+   /create table if not exists clients[\s\S]*?salutation\s+text/.test(cliSql));
+ok('an existing one gets it added, never with a bare alter',
+   /alter table clients add column if not exists salutation\s+text;/.test(cliSql));
+ok('Settings documents the fallback order',
+   /\{contact\}[\s\S]{0,200}Salutation[\s\S]{0,200}Sir\/Madam/.test(html));
+
 app = reset();
 await app.cliSave({ name:'Seaford', contact_person:'Mr. Chua', address:'Cebu',
                     billing_email:'ap@seaford.test' }, true);
