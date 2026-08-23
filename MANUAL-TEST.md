@@ -2,11 +2,64 @@
 
 Everything here is something the automated suites **cannot** verify: real
 layout, real printing, real focus, real touch. Ordered by risk — if you only
-have twenty minutes, do section 1.
+have twenty minutes, do section 1. If you are setting the app up on a phone
+for the first time, start at section 0.
 
 The suites cover logic, data and wiring — `node test/run.mjs`, 28 suites, 1113
 assertions. They do **not** render, paginate, or lay anything out. Every bug you
 hit that the tests missed was in this category.
+
+---
+
+## 0. First run on the phone — once, after deploying
+
+The live app: **https://seafordprojects-bit.github.io/rsr-billing/**
+
+Do this on the handset you will actually bill from, not a desktop emulator.
+Everything below is per-device: the project URL, the anon key and the session
+live in that phone's `localStorage` and are not carried over from the laptop.
+
+- [ ] **Before anything else — signup is disabled.** Supabase → Authentication
+      → Providers → Email, turn **off** "Allow new users to sign up". RLS is
+      `to authenticated using (true)` on all five tables, so anyone who can
+      create an account can read and rewrite every billing record — and the
+      app is now on a public URL. Confirm it by trying to sign up with a
+      throwaway address and being refused.
+- [ ] **The page loads over HTTPS** at the URL above and shows the sign-in
+      gate with the red RSR mark. If it 404s, Pages has not finished building.
+- [ ] **Connection settings.** Tap **Connection settings** on the gate and
+      enter the Supabase project URL and the **anon** key (never the service
+      role key — it bypasses RLS entirely). Save.
+- [ ] **Sign in** with your Supabase user. The gate closes and Monitoring
+      loads. If it refuses, check you are in `billing_senders` only for
+      *emailing* — signing in does not need it.
+- [ ] **Install it.** Chrome ⋮ menu → the entry must read **"Install app"**.
+      If it says "Add to Home screen" you are getting a bookmark, not an app:
+      the manifest is not being accepted, so check it loads at
+      `…/rsr-billing/manifest.webmanifest` and comes back as
+      `application/manifest+json`.
+- [ ] **The home-screen icon is a full red tile** with the white RSR mark
+      filling it — not a small logo floating in a white circle, which means
+      the maskable icon was not picked up.
+- [ ] **It opens as an app**: no address bar, dark splash, and "RSR Billing"
+      in the task switcher.
+- [ ] **Now close the browser tab and work only from the installed app** for
+      the rest of this. The installed PWA and the tab share `localStorage` on
+      the same origin, so you should already be signed in — confirm that
+      rather than assuming it.
+- [ ] **Walk the combobox checks** from section 2 inside the installed app:
+      all three client entry points, popup fully visible and unclipped, and
+      the near-the-bottom-of-the-screen case. The installed app has no
+      browser chrome, so the viewport is taller than the tab — this is a
+      different layout from the one you checked in the browser.
+- [ ] **Walk the covering-letter checks** from section 8 from the installed
+      app: the review sheet opens with the letter filled in, editing it
+      affects that send only, Back claims no billing number, and a
+      successful send marks the billing BILLED. Send one real billing to
+      yourself and read it in a phone mail client.
+- [ ] **Then print one** from the installed app — Share → Print — and confirm
+      it matches section 1. Mobile print is a different renderer, and the
+      installed app is a different surface again.
 
 ---
 

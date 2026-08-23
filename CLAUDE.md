@@ -387,8 +387,24 @@ px).
 
 ## Deploy status
 
-**Not yet deployed.** Everything is local: one branch (`master`), no remote,
-nothing pushed. Records so far are test data.
+**The app is published.** One branch, `main`, on a **public** repo:
+
+| | |
+|---|---|
+| repo | https://github.com/seafordprojects-bit/rsr-billing |
+| live | https://seafordprojects-bit.github.io/rsr-billing/ |
+| Pages source | `main`, root — a push to `main` republishes |
+
+Public means the source is readable by anyone and so is the site. Nothing in
+the tree is a credential: `DEFAULT_CFG` ships `url:''`/`key:''`, and the only
+Supabase strings anywhere in the history are test placeholders
+(`proj.supabase.co`, `anon-key`). The project URL and anon key are entered
+per-device and live in `localStorage`, never in the repo.
+
+Because the site is reachable by URL, the sign-in gate is now the only thing
+in front of the data — see step 2 below, which is no longer theoretical.
+
+Records so far are test data.
 
 Before going live:
 
