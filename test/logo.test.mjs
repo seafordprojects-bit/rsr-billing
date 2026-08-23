@@ -51,7 +51,7 @@ const mailCss = html.slice(html.indexOf('const STMT_MAIL_CSS'),
 ok('the mail stylesheet carries no embedded image',
    !/data:image/.test(mailCss));
 ok('and no reference to the mark rule', !/background-image/.test(mailCss));
-ok('it still paints the red box', /\.stmt-hd \.m\{[^}]*background:#B4142A/.test(mailCss),
+ok('it still paints the red box', /\.stmt-hd \.m\{[^}]*background:#C81E23/.test(mailCss),
    (mailCss.match(/\.stmt-hd \.m\{[^}]*\}/) || [''])[0]);
 ok('with white text in it', /\.stmt-hd \.m\{[^}]*color:#fff/.test(mailCss));
 
@@ -85,7 +85,7 @@ const mail = app.statementEmailHtml();
 ok('the emailed copy embeds no image at all', !/data:image/.test(mail));
 ok('so nothing for Gmail to strip', !/base64/.test(mail));
 ok('the mark still reads RSR in the email', /<div class="m">RSR<\/div>/.test(mail));
-ok('and it is styled as the red box', /\.stmt-hd \.m\{[^}]*background:#B4142A/.test(mail));
+ok('and it is styled as the red box', /\.stmt-hd \.m\{[^}]*background:#C81E23/.test(mail));
 
 console.log('\n--- the source artwork is not committed ---');
 const tracked = fs.existsSync(path.join(ROOT, '.gitignore'))
