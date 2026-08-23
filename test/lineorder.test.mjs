@@ -130,9 +130,13 @@ ok('and numbered from zero', cg.lines.map(r => r.line_no).join(',') === '0,1,2',
 
 console.log('\n--- 1. print margins ---');
 const pr = html.slice(html.indexOf('@media print{'), html.indexOf('@media print{') + 2600);
-ok('A4 portrait', /@page\{size:A4 portrait/.test(pr));
-ok('one balanced margin on all four sides', /@page\{size:A4 portrait;margin:15mm\}/.test(pr),
-   (pr.match(/@page\{[^}]*\}/) || [''])[0]);
+// @page sits outside @media print, where Chrome honours it more reliably
+ok('page rule is at the top level',
+   html.indexOf('@page{') > -1 &&
+   html.indexOf('@page{') < html.indexOf('@media print{'),
+   '@page at ' + html.indexOf('@page{'));
+ok('one balanced margin on all four sides', /@page\{size:auto;margin:14mm\}/.test(html),
+   (html.match(/@page\{[^}]*\}/) || [''])[0]);
 ok('body is not width-constrained', /html,body\{[\s\S]{0,140}max-width:none/.test(pr));
 ok('the document takes the printable width', /\.stmt\{width:auto;max-width:none/.test(pr));
 ok('printRoot adds no padding of its own', /#printRoot\{display:block !important;width:auto;margin:0;padding:0\}/.test(pr));

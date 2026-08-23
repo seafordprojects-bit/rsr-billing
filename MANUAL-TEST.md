@@ -14,8 +14,15 @@ hit that the tests missed was in this category.
 
 Print to PDF first, then to paper. Chrome desktop, margins **Default**.
 
-- [ ] **A4, balanced margins.** Content sits centred with even space on all
-      four sides. No slack down the right edge.
+- [ ] **Margins hold.** Content sits centred with even space on all four sides
+      and does not touch the paper edges. Check with the Margins dropdown on
+      **Default**, then on **None** — on None the page margin is gone and only
+      the 4mm side inset remains, which is expected but should still not touch.
+- [ ] **Both papers.** Try A4 and Letter. Nothing should be scaled or clipped;
+      `@page` declares no paper size on purpose.
+- [ ] **The mark prints as black ink**, not a red box, and survives with
+      "Background graphics" switched **off** — it is an `<img>`, not a
+      background. Print one page in greyscale to confirm it reads.
 - [ ] **Line numbers read `1.0`, `2.0`** on one line each — not `1.` with a
       stray `0` beneath. This regressed once already.
 - [ ] **Backgrounds print.** The table header is dark with white text and the

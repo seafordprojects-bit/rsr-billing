@@ -14,9 +14,9 @@ const el = id => document.getElementById(id);
 const html = fs.readFileSync(SRC, 'utf8');
 const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
 
-console.log('\n--- the mark is inlined once, not per use ---');
+console.log('\n--- two marks: a red box for the app, ink for print ---');
 const uses = (html.match(/data:image\/png;base64,/g) || []).length;
-ok('exactly one embedded image', uses === 1, String(uses));
+ok('one asset per context, no duplication', uses === 2, String(uses));
 const m = css.match(/url\("data:image\/png;base64,([A-Za-z0-9+/=]+)"\)/);
 ok('it sits in a CSS url()', !!m);
 const b64 = m ? m[1] : '';
@@ -34,14 +34,19 @@ ok('decoded bytes are far smaller than the source',
    png.length < 8000, png.length + ' bytes');
 
 console.log('\n--- it covers every place the mark appears ---');
-ok('one rule targets both the app mark and the printed one',
-   /\.mark,\.stmt-hd \.m\{/.test(css));
+ok('the app mark is a background', /\.mark\{\s*background-image:url\("data:/.test(css));
+ok('the printed mark is not', !/\.mark,\.stmt-hd \.m\{/.test(css));
 ok('scaled to fill the box', /background-size:cover/.test(css));
 ok('the underlying text is hidden on screen', /color:transparent/.test(css));
 ok('app header still carries the mark', /<div class="mark">RSR<\/div>/.test(html));
 ok('the gate does too', (html.match(/<div class="mark">RSR<\/div>/g) || []).length >= 2,
    String((html.match(/<div class="mark">RSR<\/div>/g) || []).length));
-ok('the printed billing does', /<div class="m">RSR<\/div>/.test(html));
+ok('the printed billing draws it as an img, not a background',
+   /<img src="\$\{MARK_INK\}"/.test(html));
+ok('with intrinsic dimensions so it lays out before decode',
+   /alt="RSR" width="\d+" height="\d+"/.test(html));
+ok('and no red box behind it in print',
+   /\.stmt-hd \.m\{flex:0 0 auto;display:block/.test(css));
 ok('the text is kept for screen readers', /class="mark">RSR</.test(html));
 
 console.log('\n--- email falls back to the text mark ---');
@@ -78,9 +83,13 @@ el('sNo').value = 'BILLDWG-26-001';
 app.renderStatement(app.pickedRows());
 
 const doc = el('printRoot').innerHTML;
-ok('the printed markup carries the text mark', /<div class="m">RSR<\/div>/.test(doc));
-ok('and no inline image of its own', !/data:image/.test(doc));
+ok('the printed markup carries the ink mark as an image',
+   /<img src="data:image\/png;base64,/.test(doc));
+ok('as black ink, not a coloured box', !/background/.test(doc.slice(0, 400)));
 
+// the email flow renders with {email:true} first, which is what swaps the
+// image for the text mark
+app.renderStatement(app.pickedRows(), { email: true });
 const mail = app.statementEmailHtml();
 ok('the emailed copy embeds no image at all', !/data:image/.test(mail));
 ok('so nothing for Gmail to strip', !/base64/.test(mail));

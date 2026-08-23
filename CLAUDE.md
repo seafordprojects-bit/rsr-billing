@@ -127,6 +127,22 @@ migration.
 
 ---
 
+## Printing
+
+`@page` lives at the **top level, not inside `@media print`** — nested there
+Chrome honours it less reliably — and declares `size:auto` rather than a paper
+name, so a Letter tray is not scaled to fit a declared A4 page.
+
+`@page { margin }` is overridden by the print dialog's **Margins** dropdown and
+no CSS can prevent that, so `.stmt` also carries `padding:0 4mm`. That inset is
+the part that always survives, and being horizontal padding on the block it
+applies on every page, not just the first.
+
+The dark table header still depends on `print-color-adjust:exact`. The mark
+does not, by design.
+
+---
+
 ## SQL regeneration workflow
 
 There is no migration file. **The SQL lives in `sqlText()` inside `index.html`**
@@ -217,19 +233,29 @@ outright**, so an inlined image would never appear there. Remote images or CID
 attachments would be the only ways to show a logo in email, and neither suits a
 single offline file. Do not "fix" this by adding the image to the mail CSS.
 
+Print uses a **different asset**: a black monogram with a transparent field,
+drawn as a real `<img>` in the statement header rather than a background. An
+`<img>` is content, so it prints whatever the dialog's "Background graphics"
+setting says, and black ink reads on a mono printer where white-on-crimson does
+not. `renderStatement(picked, {email:true})` swaps it back to the text mark for
+the emailed copy.
+
 Source artwork is **not committed** (`.gitignore`); it is ~110 KB of 1940px PNG.
 `tools/mkicon.py` regenerates the inlined asset without any image library:
 
 ```
-python tools/mkicon.py rsr-logo-red.png 192 0.10 mark.png
+python tools/mkicon.py rsr-logo-red.png 192 0.10 mark.png       # app, red box
+python tools/mkicon.py rsr-logo-white.png --ink 128 0.04 ink.png # print, black
 ```
+
+`--ink` takes alpha from darkness, so the white field drops out and the glyph
+prints as solid black. `rsr-logo-white.png` is black on white despite the name;
+it is useless for the app's dark chrome but exactly right here.
 
 It crops to the glyph with a 10% margin — the original has ~27% padding, which
 renders weakly at 34px — box-downsamples, and picks the best PNG filter. 192px
 costs ~5.7 KB of base64 and covers print (a 46px box at 300dpi is ~144 device
-px). `rsr-logo-white.png` is **black on white**, despite the name, with large
-margins; it suits none of the current contexts, all of which are red boxes.
-
+px). 
 ## Conventions
 
 - **Anchored edits, never line-range replacement.** A range edit here once

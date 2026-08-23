@@ -433,13 +433,16 @@ header.top{
 #printRoot{display:none}
 .stmt{font-family:var(--sans);color:#000;background:#fff;padding:0}
 .stmt-hd{display:flex;gap:14px;align-items:flex-start;border-bottom:3px solid var(--ink);padding-bottom:10px}
-.stmt-hd .m{width:46px;height:46px;background:var(--rsr);color:#fff;display:grid;place-items:center;font-weight:800;font-size:16px;border-radius:8px;flex:0 0 auto}
+/* No box and no colour: the printed mark is ink, so it survives a
+   black-and-white printer and a print dialog with backgrounds switched off. */
+.stmt-hd .m{flex:0 0 auto;display:block;line-height:0}
+.stmt-hd .m img{height:36px;width:auto;display:block}
 
 /* The real mark, inlined once so it works offline and in print. The "RSR"
    text underneath is kept in the DOM for screen readers and is what the
    emailed copy falls back to: Gmail strips data: URIs, and the mail
    stylesheet deliberately does not carry this rule. */
-.mark,.stmt-hd .m{
+.mark{
   background-image:url("data:image/png;base64,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");
   background-size:cover;background-position:center;background-repeat:no-repeat;
   color:transparent
@@ -501,10 +504,12 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-ft{margin-top:22px;padding-top:8px;border-top:1px solid #ccc;font-size:9px;color:#666;display:flex}
 .stmt-ft span:last-child{margin-left:auto;font-family:var(--mono)}
 
+/* Top level on purpose: nested inside @media print this is honoured less
+   reliably, and naming a paper size fights a tray loaded with another one —
+   size:auto keeps A4 and Letter both unscaled. */
+@page{size:auto;margin:14mm}
+
 @media print{
-  /* One margin on all four sides, so the block of content sits centred in the
-     printable area instead of drifting to the top left. */
-  @page{size:A4 portrait;margin:15mm}
   html,body{
     background:#fff;margin:0;padding:0;
     width:auto;min-width:0;max-width:none;height:auto;
@@ -513,7 +518,10 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   #app,.fab-bar,.scrim,.sheet,.toast,#dropOverlay,#gate{display:none !important}
   #printRoot{display:block !important;width:auto;margin:0;padding:0}
   /* @page reserves the margin, so the document takes the full printable width */
-  .stmt{width:auto;max-width:none;margin:0;padding:0;box-sizing:border-box}
+  /* @page carries the margin, but the print dialog's Margins dropdown can
+     zero it. This inset is the part that always survives, and it applies on
+     every page because it is horizontal padding on the block. */
+  .stmt{width:auto;max-width:none;margin:0;padding:0 4mm;box-sizing:border-box}
   .stmt *{box-sizing:border-box}
   /* keep the dark table header and the red mark instead of letting the
      browser drop the backgrounds */
@@ -3311,7 +3319,7 @@ $('sEmailBtn').onclick=async()=>{
       return;
     }
     const issued=await issueBillNos();
-    renderStatement(list);
+    renderStatement(list,{email:true});
     await fnPost('send-statement',{
       to:to,
       client:client,
@@ -3326,6 +3334,10 @@ $('sEmailBtn').onclick=async()=>{
     toast(e.message||'Could not send the statement',true);
   }finally{btn.disabled=false;btn.textContent='Email';}
 };
+
+// The printed mark: black, transparent field, drawn as an <img> rather than
+// a background so no print setting can drop it.
+const MARK_INK='data:image/png;base64,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';
 
 // Payment block, printed after the total on every billing.
 function payBlock(){
@@ -3368,7 +3380,7 @@ function renderStatement(picked,opts){
   $('printRoot').innerHTML=`
   <div class="stmt">
     <div class="stmt-hd">
-      <div class="m">RSR</div>
+      <div class="m">${o.email?'RSR':`<img src="${MARK_INK}" alt="RSR" width="50" height="36">`}</div>
       <div>
         <h1>${esc(cfg.company||'RSR ENGINEERING SERVICES')}</h1>
         <p>${esc(cfg.address||'').replace(/\n/g,'<br>')}${cfg.contact?'<br>'+esc(cfg.contact):''}</p>

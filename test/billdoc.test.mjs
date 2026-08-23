@@ -144,8 +144,12 @@ ok('and saved back', /setBillingEmail\(client,to\)/.test(html));
 
 console.log('\n--- D. A4 print layout ---');
 const pr = html.slice(html.indexOf('@media print{'), html.indexOf('@media print{') + 2200);
-ok('A4 page size', /@page\{size:A4/.test(pr));
-ok('margins in the 15-18mm range', /margin:1[5-8]mm/.test(pr), (pr.match(/margin:\d+mm/)||[])[0]);
+// size:auto rather than a named paper, so a Letter tray is not scaled
+ok('page size left to the paper', /@page\{size:auto/.test(html));
+ok('a real page margin is declared', /@page\{size:auto;margin:1[2-8]mm\}/.test(html),
+   (html.match(/@page\{[^}]*\}/) || [''])[0]);
+ok('plus a side inset that survives Margins: None',
+   /\.stmt\{[^}]*padding:0 \dmm/.test(pr));
 // @page reserves the margin, so the document is auto-width inside it
 ok('content fills the printable width', /\.stmt\{width:auto;max-width:none/.test(pr));
 ok('table header repeats across pages', /thead\{display:table-header-group\}/.test(pr));
