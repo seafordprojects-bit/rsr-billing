@@ -16,7 +16,8 @@ package manager, no framework.
 ```
 index.html                                  the entire app: markup, CSS, JS
 supabase/functions/send-statement/index.ts  Deno Edge Function, emails a billing
-test/                                       harness + 25 suites (node test/run.mjs)
+test/                                       harness + 26 suites (node test/run.mjs)
+tools/mkicon.py                             regenerates the inlined brand mark
 MANUAL-TEST.md                              what the tests cannot check — read it
 ```
 
@@ -154,12 +155,12 @@ another app's policy.
 ## Tests
 
 ```bash
-node test/run.mjs            # all 25 suites
+node test/run.mjs            # all 26 suites
 node test/run.mjs groups     # one suite, by prefix
 node test/groups.test.mjs    # directly, same thing
 ```
 
-908 assertions, no dependencies, Node only. `fn.test.mjs` needs
+935 assertions, no dependencies, Node only. `fn.test.mjs` needs
 `--experimental-strip-types` (the runner passes it).
 
 `test/harness.mjs` extracts the inline `<script>` from `index.html`, appends a
@@ -195,6 +196,39 @@ There are now guard tests for each *pattern*, but they check CSS declarations,
 not rendering. **`MANUAL-TEST.md` is the real check** — walk it before deploying.
 
 ---
+
+## Brand mark
+
+The RSR monogram is inlined **once** as a base64 PNG in a single CSS rule:
+
+```css
+.mark,.stmt-hd .m{ background-image:url("data:image/png;base64,…") }
+```
+
+That one rule covers all three places the mark appears — app header, sign-in
+gate, printed billing — because each was already a red square. The `RSR` text
+stays in the DOM underneath, hidden with `color:transparent`; it is what screen
+readers announce.
+
+**The emailed copy deliberately does not get this rule.** `STMT_MAIL_CSS` is a
+separate stylesheet, so the same markup renders as the plain red text mark in
+email. That is not a fallback for a rare failure — **Gmail strips `data:` URIs
+outright**, so an inlined image would never appear there. Remote images or CID
+attachments would be the only ways to show a logo in email, and neither suits a
+single offline file. Do not "fix" this by adding the image to the mail CSS.
+
+Source artwork is **not committed** (`.gitignore`); it is ~110 KB of 1940px PNG.
+`tools/mkicon.py` regenerates the inlined asset without any image library:
+
+```
+python tools/mkicon.py rsr-logo-red.png 192 0.10 mark.png
+```
+
+It crops to the glyph with a 10% margin — the original has ~27% padding, which
+renders weakly at 34px — box-downsamples, and picks the best PNG filter. 192px
+costs ~5.7 KB of base64 and covers print (a 46px box at 300dpi is ~144 device
+px). `rsr-logo-white.png` is **black on white**, despite the name, with large
+margins; it suits none of the current contexts, all of which are red boxes.
 
 ## Conventions
 
