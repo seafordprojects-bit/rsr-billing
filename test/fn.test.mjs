@@ -112,8 +112,9 @@ ok('sends to exactly one recipient',
    JSON.stringify(netState.sentPayload.to));
 ok('uses the configured From', netState.sentPayload.from === 'RSR <billing@rsr.test>',
    netState.sentPayload.from);
-ok('replies go to the signed-in user',
-   netState.sentPayload.reply_to === 'raffy@rsr.test', netState.sentPayload.reply_to);
+ok('replies go to the company mailbox, not whoever pressed Send',
+   netState.sentPayload.reply_to === 'rsrengineering.services2025@gmail.com',
+   netState.sentPayload.reply_to);
 ok('html forwarded intact', netState.sentPayload.html === '<h1>Statement</h1>');
 
 console.log('\n--- E. subject falls back to the statement number ---');
@@ -199,10 +200,24 @@ ok('every lookup uses the service role key',
    netState.svcAuth.length >= 2 && netState.svcAuth.every(a => a === 'Bearer service-key'),
    JSON.stringify(netState.svcAuth));
 
-console.log('\n--- M. reply-to comes from the verified session, not the body ---');
+console.log('\n--- M. reply-to is fixed by the function, never taken from the body ---');
 await call({ ...good, reply_to: 'spoof@evil.test' });
-ok('reply_to is the caller, ignoring any body value',
-   netState.sentPayload.reply_to === 'raffy@rsr.test', netState.sentPayload.reply_to);
+ok('reply_to ignores any body value',
+   netState.sentPayload.reply_to === 'rsrengineering.services2025@gmail.com',
+   netState.sentPayload.reply_to);
+
+console.log('\n--- M2. STATEMENT_REPLY_TO retires the sandbox constant ---');
+ENV.STATEMENT_REPLY_TO = 'billing@rsr.test';
+await call(good);
+ok('the secret wins over the constant',
+   netState.sentPayload.reply_to === 'billing@rsr.test', netState.sentPayload.reply_to);
+// a typo in a secret must not ship a broken header
+ENV.STATEMENT_REPLY_TO = 'not an email';
+await call(good);
+ok('a malformed secret falls back to the constant',
+   netState.sentPayload.reply_to === 'rsrengineering.services2025@gmail.com',
+   netState.sentPayload.reply_to);
+delete ENV.STATEMENT_REPLY_TO;
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
