@@ -290,6 +290,55 @@ ok('the library is loaded before anything is claimed', loads === 1, String(loads
 ok('a library that will not load costs no billing number',
    a2.rows.every(r => !r.bill_no), JSON.stringify(a2.rows.map(r => r.bill_no)));
 
+console.log('\n--- 16. the wrap budget is the Description column, not the next one ---');
+// The print widths are 7/53/7/16/17, so Description ends at 60%. Budgeting the
+// wrap to cQty (67%, the right edge of Qty) let a wrapped line reach across the
+// Qty number -- the overlap the wrap exists to prevent.
+{
+  const M = 42, right = pl.page.w - M, colW = right - M;
+  const cDesc = M + 0.07 * colW, descEnd = M + 0.60 * colW;
+  const descOps = pl.ops.filter(o => o.t === 'text' && Math.abs(o.x - cDesc) < 0.01);
+  ok('there are description ops to check', descOps.length > 2, String(descOps.length));
+  const over = descOps.filter(o => o.x + o.s.length * (o.size || 9) * 0.5 > descEnd + 0.5);
+  ok('no description line is budgeted past the Description column',
+     over.length === 0, JSON.stringify(over.map(o => o.s).slice(0, 2)));
+}
+
+console.log('\n--- 17. characters typed by a user are sanitised too ---');
+{
+  const curly = Object.assign({}, rows[0], { id:'C1',
+    drawing_title: 'Owner’s “final” lines plan — rev B' });
+  const cp = app.pdfPlan(app.stmtFacts([app.groupOf([curly])]), 'BILLDWG-26-005');
+  ok('no code point above U+00FF survives from user text',
+     !/[Ā-￿]/.test(JSON.stringify(cp)), JSON.stringify(cp).slice(0, 80));
+  const ct = cp.ops.filter(o => o.t === 'text').map(o => o.s).join('\n');
+  ok('a curly apostrophe becomes a straight one', ct.indexOf("Owner's") > -1, ct.slice(0, 60));
+  ok('curly quotes become straight ones', ct.indexOf('"final"') > -1);
+  ok('and nothing became a question mark', ct.indexOf('?') === -1, ct.slice(0, 120));
+}
+
+console.log('\n--- 18. the branches the fixture does not otherwise reach ---');
+{
+  const wh = Object.assign({}, facts, { vat:-2, adj:-110, grand:facts.sub - 110 });
+  const wt = app.pdfPlan(wh, 'BILLDWG-26-006').ops
+    .filter(o => o.t === 'text').map(o => o.s).join('\n');
+  ok('a negative adjustment is labelled as withholding tax',
+     wt.indexOf('Less: Withholding tax 2%') > -1, wt.match(/Less[^\n]*/));
+
+  app.cfg.showPrepared = true; app.cfg.signer = 'Raffy J. Ramirez';
+  app.cfg.role = 'Naval Architect';
+  const withSig = app.pdfPlan(facts, 'BILLDWG-26-007').ops
+    .filter(o => o.t === 'text').map(o => o.s).join('\n');
+  ok('the preparer is named when Settings says to',
+     withSig.indexOf('Prepared by: Raffy J. Ramirez, Naval Architect') > -1,
+     withSig.match(/Prepared[^\n]*/));
+
+  app.cfg.showPrepared = false;
+  const noSig = app.pdfPlan(facts, 'BILLDWG-26-008').ops
+    .filter(o => o.t === 'text').map(o => o.s).join('\n');
+  ok('and left off when it does not', noSig.indexOf('Prepared by') === -1);
+}
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

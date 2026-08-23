@@ -3925,7 +3925,11 @@ function pdfPlan(facts,issuedNo){
   // the print stylesheet's column widths: 7 / 53 / 7 / 16 / 17 per cent
   const cNo=PDF_M, cDesc=PDF_M+0.07*colW;
   const cQty=PDF_M+0.67*colW, cRate=PDF_M+0.83*colW, cAmt=right;
-  const descW=cQty-8-cDesc;
+  // Description ends where its 53% runs out, at 60% -- NOT at cQty, which is
+  // the right edge of the Qty column. Budgeting to cQty let a wrapped line
+  // reach across the Qty number, the exact overlap the wrap exists to stop.
+  const descEnd=PDF_M+0.60*colW;
+  const descW=descEnd-8-cDesc;
   const brk=()=>{page++;y=PDF_M;};
 
   // ---- header: the mark, the company block, then Billing / number / date
