@@ -3801,6 +3801,91 @@ function renderStatement(picked,opts){
   </div>`;
 }
 
+/* ================= billing pdf ================= */
+// The layout is built as data, not drawn directly, for one reason: jsPDF
+// cannot load in the test harness. As a list of ops every value on the page
+// is assertable, and the money can be checked against stmtFacts.
+//
+// pdfPlan must never read the DOM. Everything it needs is on `facts`, so the
+// arithmetic on the PDF cannot drift from the body, the letter or the print
+// view — the same rule stmtFacts exists to enforce.
+const PDF_W=595.28, PDF_H=841.89;   // A4 in points
+const PDF_M=42;                     // margin
+
+function pdfFilename(issuedNo){
+  const n=String(issuedNo||'').trim();
+  return (n||'BILLING')+'.pdf';
+}
+
+function pdfPlan(facts,issuedNo){
+  const ops=[];
+  const t=(s,x,y,o)=>ops.push(Object.assign({t:'text',s:String(s==null?'':s),x:x,y:y},o||{}));
+  const line=(x1,y1,x2,y2)=>ops.push({t:'line',x1:x1,y1:y1,x2:x2,y2:y2});
+  const right=PDF_W-PDF_M;
+  let y=PDF_M;
+
+  ops.push({t:'image',d:MARK_INK,x:PDF_M,y:y,w:50,h:36});
+  t(cfg.company||'RSR Engineering Services',PDF_M+62,y+14,{size:13,bold:true});
+  t('Naval Architecture · UTG · Drydocking',PDF_M+62,y+28,{size:8});
+  t('BILLING',right,y+14,{size:16,bold:true,align:'right'});
+  t(issuedNo||'',right,y+30,{size:10,align:'right'});
+  y+=54;
+  line(PDF_M,y,right,y);
+  y+=18;
+
+  const rec=facts.rec||{};
+  t('BILL TO',PDF_M,y,{size:8,bold:true});
+  y+=13;
+  t(facts.client||'',PDF_M,y,{size:10,bold:true});y+=13;
+  if(rec.contact_person){t(rec.contact_person,PDF_M,y,{size:9});y+=12;}
+  if(rec.address){t(rec.address,PDF_M,y,{size:9});y+=12;}
+  if(facts.oneVessel){t('Vessel: '+facts.oneVessel,PDF_M,y,{size:9});y+=12;}
+  if(facts.from||facts.to){t('Period: '+(facts.from||'')+' to '+(facts.to||''),PDF_M,y,{size:9});y+=12;}
+  y+=8;
+
+  const cQty=right-190,cRate=right-120,cAmt=right;
+  line(PDF_M,y,right,y);y+=12;
+  t('DESCRIPTION',PDF_M,y,{size:8,bold:true});
+  t('QTY',cQty,y,{size:8,bold:true,align:'right'});
+  t('RATE',cRate,y,{size:8,bold:true,align:'right'});
+  t('AMOUNT',cAmt,y,{size:8,bold:true,align:'right'});
+  y+=6;line(PDF_M,y,right,y);y+=14;
+
+  facts.list.forEach(r=>{
+    t(r.drawing_title||'',PDF_M,y,{size:9});
+    t(r.qty==null?'':r.qty,cQty,y,{size:9,align:'right'});
+    t(money(r.rate),cRate,y,{size:9,align:'right'});
+    t(money(amountOf(r)),cAmt,y,{size:9,align:'right'});
+    y+=12;
+    const sub=[facts.oneVessel?'':r.vessel,r.drawing_no].filter(Boolean).join(' · ');
+    if(sub){t(sub,PDF_M,y,{size:8});y+=12;}
+    y+=2;
+  });
+
+  y+=4;line(cQty-30,y,right,y);y+=14;
+  t('Subtotal',cRate,y,{size:9,align:'right'});
+  t(money(facts.sub),cAmt,y,{size:9,align:'right'});y+=13;
+  const adjLabel=facts.vat>0?'Add: VAT 12%':facts.vat<0?'Less: Withholding tax 2%':'';
+  if(adjLabel){
+    t(adjLabel,cRate,y,{size:9,align:'right'});
+    t(money(facts.adj),cAmt,y,{size:9,align:'right'});y+=13;
+  }
+  t('TOTAL',cRate,y,{size:11,bold:true,align:'right'});
+  t(money(facts.grand),cAmt,y,{size:11,bold:true,align:'right'});y+=18;
+  t(words(facts.grand),PDF_M,y,{size:9,bold:true});y+=18;
+  t('Terms: '+facts.terms+' days · Due on '+facts.due,PDF_M,y,{size:9});y+=20;
+
+  t('PAYMENT DETAILS',PDF_M,y,{size:8,bold:true});y+=13;
+  (cfg.banks||[]).forEach(b=>{
+    // cfg.banks rows carry {bank,name,acct} — not `number`; payBlock() (above)
+    // reads the same three fields for the printed/emailed copy.
+    t([b.bank,b.name,b.acct].filter(Boolean).join(' · '),PDF_M,y,{size:9});
+    y+=12;
+  });
+
+  return {filename:pdfFilename(issuedNo),page:{w:PDF_W,h:PDF_H},ops:ops};
+}
+
 /* ---- settings ---- */
 // The bucket name is configurable, so the script is generated against
 // whatever is in the Storage bucket field rather than a hard-coded name.

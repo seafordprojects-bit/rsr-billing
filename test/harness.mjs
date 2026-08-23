@@ -43,6 +43,7 @@ globalThis.__t={
   issueBillNos, setGroupBillNo, billSeqOf, setBillSeq,
   noCharge, baseTitle, revNoOf, priorBillings, nextRevNo, amountOf, confirmMultiGroup, repaint, canonClient, maxIssuedNo, cmbHide, get sNoMode(){return sNoMode},
   stmtFacts, letterTemplate, letterVars, fillLetter, composeLetter, letterHtml,
+  pdfPlan, pdfFilename, words,
   mailSubject, markBilledNow, termsDefault, canonVessel, LETTER_DEFAULT, LETTER_KEYS,
   fmtDate, today, money,
   get pendingSend(){return pendingSend}
