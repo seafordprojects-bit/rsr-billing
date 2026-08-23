@@ -3,11 +3,9 @@
 // Deploy:
 //   supabase functions deploy send-statement
 //   supabase secrets set RESEND_API_KEY=re_...
-//   supabase secrets set STATEMENT_FROM="RSR Engineering <billing@yourdomain.com>"
 //
-// The From address must be on a domain verified in Resend. Without
-// STATEMENT_FROM the function falls back to Resend's onboarding sender,
-// which only delivers to the address that owns the Resend account.
+// Who the mail comes from is decided by the SENDER IDENTITY block below —
+// read that before changing anything about the From or Reply-To.
 //
 // Authorisation, in three layers, because this endpoint sends mail from a
 // verified company domain and would otherwise be a phishing relay for
@@ -46,6 +44,31 @@ function cleanEmail(v: unknown): string {
 const cleanHeader = (v: unknown, max: number) =>
   String(v ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, max);
 
+// ===========================================================================
+// SENDER IDENTITY — THIS IS WHAT CHANGES WHEN A DOMAIN IS VERIFIED IN RESEND
+// ===========================================================================
+// RSR has no verified sending domain yet, so mail leaves through Resend's
+// shared sandbox address. That address has one hard limitation, and it is not
+// an error you will see: Resend accepts the send, returns an id, and then
+// DELIVERS ONLY TO THE MAILBOX THAT OWNS THE RESEND ACCOUNT
+// (rsrengineering.services2025@gmail.com). Mail addressed to a real client is
+// dropped silently. Until a domain is verified, this function can only usefully
+// mail RSR itself — treat any other recipient as a test that did not arrive.
+//
+// Replies to the sandbox address go nowhere, which is why REPLY_TO carries a
+// real mailbox: a client answering the billing lands in RSR's inbox, not
+// Resend's void.
+//
+// ---- once <yourdomain> is verified in Resend, do this and nothing else -----
+//   supabase secrets set STATEMENT_FROM="RSR Engineering <billing@yourdomain>"
+//   supabase secrets set STATEMENT_REPLY_TO="billing@yourdomain"
+// Both are read at invocation, so NO redeploy is needed. Once they are set the
+// two constants below are dead and can be deleted along with this comment.
+// Leave STATEMENT_FROM unset and every billing keeps going only to RSR.
+// ---------------------------------------------------------------------------
+const SANDBOX_FROM = "RSR Engineering <onboarding@resend.dev>";
+const SANDBOX_REPLY_TO = "rsrengineering.services2025@gmail.com";
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ ok: false, error: "Use POST" }, 405);
@@ -54,7 +77,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-  const FROM = Deno.env.get("STATEMENT_FROM") || "onboarding@resend.dev";
+  // see SENDER IDENTITY above. A malformed STATEMENT_REPLY_TO falls back to the
+  // constant rather than shipping a broken header.
+  const FROM = Deno.env.get("STATEMENT_FROM") || SANDBOX_FROM;
+  const REPLY_TO = cleanEmail(Deno.env.get("STATEMENT_REPLY_TO")) || SANDBOX_REPLY_TO;
 
   if (!RESEND_API_KEY) {
     return json({ ok: false, error: "RESEND_API_KEY is not set on the function" }, 500);
@@ -173,7 +199,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
         to: [to],
         subject: subject || (statementNo ? `Statement of Account ${statementNo}` : "Statement of Account"),
         html,
-        reply_to: senderEmail,
+        // the company mailbox, not the person who pressed Send — see SENDER
+        // IDENTITY. The sender is still recorded in the log line below.
+        reply_to: REPLY_TO,
       }),
     });
   } catch (e) {
