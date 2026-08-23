@@ -42,7 +42,7 @@ globalThis.__t={
   get multiLocked(){return multiLocked}, get editingId(){return editingId},
   issueBillNos, setGroupBillNo, billSeqOf, setBillSeq,
   noCharge, baseTitle, revNoOf, priorBillings, nextRevNo, amountOf, confirmMultiGroup, repaint, canonClient, maxIssuedNo, cmbHide, get sNoMode(){return sNoMode},
-  stmtFacts, letterTemplate, letterVars, fillLetter, composeLetter, letterHtml,
+  stmtFacts, letterTemplate, letterVars, fillLetter, composeLetter, letterWarning, letterHtml,
   pdfPlan, pdfFilename, words, pesoWords,
   mailSubject, markBilledNow, termsDefault, canonVessel, LETTER_DEFAULT, LETTER_KEYS,
   fmtDate, today, money,

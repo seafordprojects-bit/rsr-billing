@@ -3608,8 +3608,22 @@ function fillLetter(tpl,vars){
   return String(tpl==null?'':tpl).replace(/\{([a-z]+)\}/g,
     (m,k)=>LETTER_KEYS.indexOf(k)<0?m:String(vars[k]==null?'':vars[k]));
 }
+// A billing that does not address anyone is a defect, but on 2026-08-23 one
+// composed that way and could not be reproduced. The cause is still unknown,
+// so this reports rather than repairs: the resolved contact must appear in
+// the finished letter, whatever shape the template takes.
+function letterWarning(text,vars){
+  const who=String((vars&&vars.contact)||'').trim();
+  if(!who)return '';
+  return String(text||'').indexOf(who)>-1?'':
+    'This letter does not address '+who+' anywhere — check the template.';
+}
 function composeLetter(picked,no){
-  return fillLetter(letterTemplate(),letterVars(stmtFacts(picked),no));
+  const vars=letterVars(stmtFacts(picked),no);
+  const out=fillLetter(letterTemplate(),vars);
+  const w=letterWarning(out,vars);
+  if(w)toast(w,true);
+  return out;
 }
 // Blank lines separate paragraphs; single newlines break within one. The
 // date is rendered here rather than kept in the template — it is the date
@@ -4242,10 +4256,17 @@ $('cSave').onclick=async()=>{
   cfg.showPrepared=$('cPrepared').checked;
   // an emptied box means the standard wording, not an empty letter
   cfg.letter=$('cLetter').value.trim()===LETTER_DEFAULT.trim()?'':$('cLetter').value;
+  // warn while the box is still open and editable, which is the moment it
+  // can actually be fixed
+  const lw=letterWarning(letterTemplate(),{contact:'{contact}'});
+  if(lw)toast('This letter has no {contact} — recipients will not be addressed by name',true);
   cfg.autoMarkPrint=$('cMarkPrint').checked;
   cfg.hideNoCharge=$('cHideFree').checked;
   saveCfg();pushSharedSettings();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
-  hide();toast('Settings saved');
+  hide();
+  // the generic confirmation would otherwise overwrite the letter warning in
+  // the same tick, so the actionable message wins when there is one
+  if(!lw)toast('Settings saved');
   if(online()&&!authed()){showGate();return;}
   await pull();
 };

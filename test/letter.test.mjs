@@ -345,6 +345,28 @@ ok('no tracking code anywhere in the posted body',
    JSON.stringify(posted).indexOf('RSR-') === -1);
 globalThis.fetch = realFetch;
 
+console.log('\n--- 10. a letter that does not address anyone is reported ---');
+openStmt(app);
+const facts10 = app.stmtFacts(app.pickedRows());
+const vars10 = app.letterVars(facts10, 'BILLDWG-26-001');
+ok('contact is never empty', String(vars10.contact || '').length > 0, vars10.contact);
+
+ok('the default template addresses the contact',
+   app.letterWarning(app.fillLetter(app.LETTER_DEFAULT, vars10), vars10) === '',
+   app.letterWarning(app.fillLetter(app.LETTER_DEFAULT, vars10), vars10));
+
+const noAddressee = 'Please find our billing {billno}.\n\nRespectfully yours,';
+const warn10 = app.letterWarning(app.fillLetter(noAddressee, vars10), vars10);
+ok('a letter missing the addressee warns', warn10 !== '', warn10);
+ok('the warning names the contact it expected',
+   warn10.indexOf(vars10.contact) > -1, warn10);
+
+console.log('\n--- 11. a custom template without {contact} warns when saved ---');
+ok('a template without {contact} is reported',
+   app.letterWarning('Please find our billing {billno}.', vars10) !== '');
+ok('a template with {contact} is not',
+   app.letterWarning('Dear {contact}, please find our billing.', {contact:'{contact}'}) === '');
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
