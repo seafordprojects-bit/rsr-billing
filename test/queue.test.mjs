@@ -109,7 +109,7 @@ ok('still signed in after an offline refresh attempt', app.authed() === true,
    'session=' + JSON.stringify(app.session));
 ok('queue untouched by the failed refresh', Array.isArray(app.queue));
 
-console.log('\n--- N. a permanent rejection is surfaced, not retried forever ---');
+console.log('\n--- 8. a permanent rejection is surfaced, not retried forever ---');
 net.mode = 'online';
 net.script.length = 0;
 app = globalThis.__loadApp();
@@ -132,7 +132,7 @@ await app.flushQueue();
 ok('a dead job is not retried', net.calls.length === callsBefore,
    'calls=' + (net.calls.length - callsBefore));
 
-console.log('\n--- N+1. a transient failure still retries silently ---');
+console.log('\n--- 9. a transient failure still retries silently ---');
 net.script.length = 0;
 app = globalThis.__loadApp();
 configure(app);
