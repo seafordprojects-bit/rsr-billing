@@ -3872,7 +3872,9 @@ function pdfPlan(facts,issuedNo){
   }
   t('TOTAL',cRate,y,{size:11,bold:true,align:'right'});
   t(money(facts.grand),cAmt,y,{size:11,bold:true,align:'right'});y+=18;
-  t(words(facts.grand),PDF_M,y,{size:9,bold:true});y+=18;
+  // pesoWords, not words: the printed copy says "... Pesos and ... Centavos
+  // Only" and the attachment has to read the same for the same billing
+  t(pesoWords(facts.grand),PDF_M,y,{size:9,bold:true});y+=18;
   t('Terms: '+facts.terms+' days · Due on '+facts.due,PDF_M,y,{size:9});y+=20;
 
   t('PAYMENT DETAILS',PDF_M,y,{size:8,bold:true});y+=13;

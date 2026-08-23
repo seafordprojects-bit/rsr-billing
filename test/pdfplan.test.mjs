@@ -49,8 +49,10 @@ ok('subtotal is facts.sub', text.indexOf(app.money(facts.sub)) > -1, app.money(f
 ok('adjustment is facts.adj', text.indexOf(app.money(facts.adj)) > -1, app.money(facts.adj));
 ok('grand total is facts.grand', text.indexOf(app.money(facts.grand)) > -1,
    app.money(facts.grand));
-ok('amount in words is words(facts.grand)',
-   text.indexOf(app.words(facts.grand)) > -1, app.words(facts.grand));
+// pesoWords, not words: words(grand) is a PREFIX of pesoWords(grand), so an
+// assertion on words() passes even when the PDF is missing "Pesos ... Only"
+ok('amount in words is pesoWords(facts.grand)',
+   text.indexOf(app.pesoWords(facts.grand)) > -1, app.pesoWords(facts.grand));
 ok('line 1 amount is amountOf(row)',
    text.indexOf(app.money(app.amountOf(rows[0]))) > -1);
 ok('line 2 amount is amountOf(row)',
@@ -69,7 +71,7 @@ ok('the total follows the facts it was given',
    text2.indexOf(app.money(facts.sub)) > -1 &&
    text2.indexOf(app.money(facts.grand)) === -1,
    app.money(facts.sub) + ' vs ' + app.money(facts.grand));
-ok('the words follow too', text2.indexOf(app.words(facts.sub)) > -1);
+ok('the words follow too', text2.indexOf(app.pesoWords(facts.sub)) > -1);
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
