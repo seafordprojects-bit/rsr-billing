@@ -1379,6 +1379,9 @@ const jobLabel=job=>{
   return (job.op==='insert'?'New ':job.op==='delete'?'Deleted ':'Edited ')+what+
          (name?' "'+name+'"':'');
 };
+// A transient failure retries, but not forever: after this many tries the job
+// stops looping and waits in Settings -> Pending writes for a decision.
+const MAX_ATTEMPTS=3;
 const deadJobs=()=>queue.filter(j=>j.dead);
 
 // A client name is unique on the server, so an insert for a name that
@@ -1422,7 +1425,20 @@ async function flushQueue(){
     const store=job.store==='catalog'?catalog:job.store==='clients'?clients:rows;
     try{
       if(job.op==='insert'){
-        const out=await sb(tbl,{method:'POST',body:JSON.stringify(job.data)});
+        // clients.name is the table's only unique column, so it is the only
+        // usable conflict target -- id is a server-defaulted uuid and a row
+        // this device invented carries a loc- id no server row will match.
+        // merge-duplicates resolves a duplicate into an update server-side, so
+        // the job clears instead of sticking on a 409 that can never succeed.
+        //
+        // The cost is deliberate and was chosen: an upsert sends the local row
+        // WHOLESALE, so a stale local field overwrites a corrected server one.
+        // On 2026-08-23 the local Seaford row held an out-of-date billing email
+        // while the server held the fixed one; this path would now lose the fix.
+        const cli=job.store==='clients';
+        const out=await sb(cli?tbl+'?on_conflict=name':tbl,{method:'POST',
+          headers:cli?{'Prefer':'resolution=merge-duplicates,return=representation'}:undefined,
+          body:JSON.stringify(job.data)});
         const srv=out&&out[0];
         if(srv){const i=store.findIndex(r=>r.id===job.localId);if(i>-1)store[i]=srv;}
       }else if(job.op==='update'){
@@ -1435,15 +1451,23 @@ async function flushQueue(){
         await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'DELETE'});
       }
     }catch(err){
-      // a duplicate client is recoverable; anything else follows the
-      // transient/permanent split below
+      // a server too old for on_conflict still answers 409; that is recoverable
       if(job.store==='clients'&&job.op==='insert'&&err.status===409){
         try{ if(await healClientDup(job))continue; }
         catch(e){ err=e; }
       }
-      if(transient(err)){still.push(job);continue;}
+      // Jobs queued before this shipped carry neither field, so both default.
+      job.attempts=(job.attempts||0)+1;
+      job.last_error=(err&&err.status?err.status+': ':'')+
+                     ((err&&err.message)||'Rejected by the server');
+      console.error('queue job failed',{id:job.id||job.localId||null,op:job.op,
+        store:job.store||'billing',table:tbl,attempts:job.attempts},err);
+      // A permanent rejection stops at once -- retrying a constraint violation
+      // can never succeed. A transient one gets MAX_ATTEMPTS before it is put
+      // in front of a person rather than looping forever.
+      if(transient(err)&&job.attempts<MAX_ATTEMPTS){still.push(job);continue;}
       job.dead=true;
-      job.err=(err.status?err.status+': ':'')+(err.message||'Rejected by the server');
+      job.err=job.last_error;
       still.push(job);
       toast(jobLabel(job)+' — '+job.err,true);
     }
