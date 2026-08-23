@@ -18,6 +18,7 @@ globalThis.__t={
   get queue(){return queue}, get rows(){return rows}, get cfg(){return cfg},
   get session(){return session},
   saveRow, saveBatch, flushQueue, deleteRow, persist, online, authed, setSession, pull, uploadPdf,
+  deadJobs, jobLabel, syncBadge,
   get catalog(){return catalog}, catSave, catDelete, catReorder, catSorted, catActive,
   effRate, openCat, renderCat, catShown, renderCatMgr, get kPicked(){return kPicked}, nextCode,
   codePrefix, typeOf, typeList, typeLabel, renderTypes, render, visible,
@@ -177,12 +178,31 @@ globalThis.localStorage = {
 };
 
 /* ---------------- controllable fetch ---------------- */
-export const net = { mode:'offline', calls:[], nextId:1 };
+// net.script lets a suite make one specific request fail the way the real
+// server would: push {match, status, body} and the next request whose URL
+// contains `match` gets that response. Entries are consumed once unless
+// `keep` is true.
+export const net = { mode:'offline', calls:[], nextId:1, script:[] };
+const scripted = (url, method) => {
+  const i = net.script.findIndex(s =>
+    String(url).indexOf(s.match) > -1 && (!s.method || s.method === method));
+  if (i < 0) return null;
+  const s = net.script[i];
+  if (!s.keep) net.script.splice(i, 1);
+  return s;
+};
 globalThis.fetch = async (url, opts={}) => {
-  net.calls.push({ url, method: opts.method || 'GET' });
+  const method = opts.method || 'GET';
+  net.calls.push({ url, method });
   if (net.mode === 'offline') throw new TypeError('Failed to fetch');
   if (net.mode === 'unauthorized') {
     return { ok:false, status:401, json:async()=>({message:'JWT expired'}), text:async()=>'' };
+  }
+  const hit = scripted(url, method);
+  if (hit) {
+    const body = hit.body || {};
+    return { ok:false, status:hit.status, json:async()=>body,
+             text:async()=>JSON.stringify(body) };
   }
   // online: echo inserts back with a server id
   let body = null;

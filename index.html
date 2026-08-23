@@ -1347,16 +1347,42 @@ async function sb(path,opts,retried){
     showGate('Your session expired. Sign in again.');
     throw new Error('Session expired');
   }
-  if(!res.ok){let t='';try{t=(await res.json()).message||'';}catch(e){}
-    throw new Error(t||('HTTP '+res.status));}
+  if(!res.ok){
+    // the status is what tells a caller whether retrying could ever help;
+    // throwing it away is what let one 409 wedge the queue in silence
+    let t='',code='';
+    try{const d=await res.json();t=d.message||'';code=d.code||'';}catch(e){}
+    const err=new Error(t||('HTTP '+res.status));
+    err.status=res.status;err.code=code;
+    throw err;
+  }
   const txt=await res.text();
   return txt?JSON.parse(txt):null;
 }
+
+// A 4xx is the server saying this write can never succeed. Retrying it
+// forever is what turns one constraint violation into an app whose only
+// symptom is "1 queued". Transient failures keep their silent retry.
+// 401/403 belong to sb()'s own refresh-then-gate path, never to this
+// classification: if one job's failed refresh already cleared the session,
+// authed() is false for the next job in the same pass, sb() skips the gate,
+// and a plain 401 would otherwise read as a permanent 4xx here.
+const transient=err=>!err||!err.status||err.status>=500||err.status===429||err.status===401||err.status===403;
+const jobLabel=job=>{
+  const what=job.store==='clients'?'client':job.store==='catalog'?'catalog item':'billing line';
+  const name=(job.data&&(job.data.name||job.data.drawing_title||job.data.title))||'';
+  return (job.op==='insert'?'New ':job.op==='delete'?'Deleted ':'Edited ')+what+
+         (name?' "'+name+'"':'');
+};
+const deadJobs=()=>queue.filter(j=>j.dead);
 
 async function flushQueue(){
   if(!online()||!queue.length)return;
   const still=[];
   for(const job of queue){
+    // a job the server has already refused is not retried; it waits in
+    // Settings -> Pending writes for a decision
+    if(job.dead){still.push(job);continue;}
     // jobs written before the catalog existed carry neither field
     const tbl=job.table||cfg.table;
     const store=job.store==='catalog'?catalog:job.store==='clients'?clients:rows;
@@ -1374,7 +1400,13 @@ async function flushQueue(){
       }else if(job.op==='delete'){
         await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'DELETE'});
       }
-    }catch(err){still.push(job);}
+    }catch(err){
+      if(transient(err)){still.push(job);continue;}
+      job.dead=true;
+      job.err=(err.status?err.status+': ':'')+(err.message||'Rejected by the server');
+      still.push(job);
+      toast(jobLabel(job)+' — '+job.err,true);
+    }
   }
   queue=still;persist();
 }
@@ -1635,7 +1667,11 @@ async function catReorder(list){
   persist();
   if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
 }
-const syncBadge=()=>setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
+const syncBadge=()=>{
+  const dead=deadJobs().length,live=queue.length-dead;
+  if(dead)return setSync('err',dead+' failed'+(live?', '+live+' queued':''));
+  setSync(live?'off':'ok',live?live+' queued':'Synced');
+};
 
 /* ================= shared settings ================= */
 // Everything here has to agree across devices. The project URL, key and

@@ -109,6 +109,50 @@ ok('still signed in after an offline refresh attempt', app.authed() === true,
    'session=' + JSON.stringify(app.session));
 ok('queue untouched by the failed refresh', Array.isArray(app.queue));
 
+console.log('\n--- N. a permanent rejection is surfaced, not retried forever ---');
+net.mode = 'online';
+net.script.length = 0;
+app = globalThis.__loadApp();
+configure(app);
+app.setSession({ access_token:'tok-1', refresh_token:'ref-1', expires_in:3600,
+                 user:{ email:'raffy@rsr.test' } });
+
+net.script.push({ match:'/rest/v1/drawing_billing', method:'POST', status:409,
+  body:{ code:'23505',
+         message:'duplicate key value violates unique constraint "drawing_billing_pkey"' } });
+await app.saveRow(newRow('Duplicate Line'), true);
+ok('a 409 does not stay silently queued', app.deadJobs().length === 1,
+   'dead=' + app.deadJobs().length);
+ok('the server message is kept verbatim',
+   /duplicate key value/.test(app.deadJobs()[0].err), app.deadJobs()[0].err);
+ok('the status is kept', /409/.test(app.deadJobs()[0].err), app.deadJobs()[0].err);
+
+const callsBefore = net.calls.length;
+await app.flushQueue();
+ok('a dead job is not retried', net.calls.length === callsBefore,
+   'calls=' + (net.calls.length - callsBefore));
+
+console.log('\n--- N+1. a transient failure still retries silently ---');
+net.script.length = 0;
+app = globalThis.__loadApp();
+configure(app);
+app.setSession({ access_token:'tok-1', refresh_token:'ref-1', expires_in:3600,
+                 user:{ email:'raffy@rsr.test' } });
+// section N's dead job is permanent by design and still sits in the queue;
+// count live (non-dead) jobs so this section only asserts its own scenario.
+const deadBefore = app.deadJobs().length;
+net.script.push({ match:'/rest/v1/drawing_billing', method:'POST', status:503,
+  body:{ message:'service unavailable' } });
+await app.saveRow(newRow('Server Hiccup'), true);
+ok('a 5xx stays queued', app.queue.length - app.deadJobs().length === 1,
+   'live=' + (app.queue.length - app.deadJobs().length));
+ok('a 5xx is not marked dead', app.deadJobs().length === deadBefore,
+   'dead=' + app.deadJobs().length + ' expected ' + deadBefore);
+net.script.length = 0;
+await app.flushQueue();
+ok('it drains once the server recovers', app.queue.length - app.deadJobs().length === 0,
+   'live=' + (app.queue.length - app.deadJobs().length));
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
