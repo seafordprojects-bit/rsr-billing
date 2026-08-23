@@ -1313,6 +1313,118 @@ other check in that file, and add an `fn` assertion for it. Update the existing
 
 Run the full suite, `node --check` the extracted script, then commit.
 
+### Task 10: Give the PDF the print copy's rules and boxes
+
+**Files:**
+- Modify: `index.html` — `pdfPlan` and `pdfDoc`
+- Test: `test/pdfplan.test.mjs` (extend)
+
+**Why.** The repo owner walked `MANUAL-TEST.md` section 9 and reported the
+content matches but the styling does not: print has boxed Bill To, vessel and
+period sections and a dark table header, the PDF has plain rules and a light
+header. Content parity was Task 8; this is presentation parity.
+
+Two things were chosen and two were declined. **Do A and B. Do not do C or D.**
+
+- **A — the dark table header and the heavier totals rule.** In scope.
+- **B — the five boxes and the meta cell dividers.** In scope.
+- ~~C — alternating row shading~~ declined: one filled rect per line item for
+  a marginal tint.
+- ~~D — Courier figures, letter-spaced labels~~ declined: jsPDF has no
+  Consolas, so Courier would change the look rather than match it.
+
+**The harness cannot see any of this.** Every assertion here is against the op
+list; whether it *looks* right is `MANUAL-TEST.md` section 9, walked by hand.
+So this is one deliberate pass, not an iteration — get it right rather than
+close.
+
+#### The print styling being reproduced
+
+Read these rules in `index.html` rather than trusting this summary:
+
+| element | rule |
+|---|---|
+| `.bill-to` | `border:1px solid #000; border-top:0; padding:8px 10px` |
+| `.ves-box` | `border:1px solid #000; padding:6px 10px` |
+| `.stmt-meta` | `border:1px solid #000`, cells `padding:7px 10px` with `border-left:1px solid #000` except the first; first cell is `flex:1.35`, other two `flex:1` |
+| `.words` | `border:1px solid #000; padding:7px 10px` |
+| `.pay` | `border:1px solid #000; padding:9px 11px` |
+| `table.stmt-t th` | `background:#101F2E; color:#fff` |
+| `.stmt-tot` | `border-top:2px solid var(--ink)`, and `--ink` is `#101F2E` |
+
+`#101F2E` is rgb(16, 31, 46).
+
+- [ ] **Step 1: Two new op capabilities**
+
+`pdfPlan` currently emits `text`, `line` and `image` ops. Add:
+
+- a `rect` op: `{t:'rect', p, x, y, w, h, fill?:[r,g,b], lw?:number}` — filled
+  when `fill` is present, otherwise stroked.
+- a `color` field on `text` ops for white header text.
+- an `lw` field on `line` ops for the 2pt totals rule.
+
+`pdfDoc` gains the matching calls (`setFillColor`/`setDrawColor`/
+`setTextColor`/`setLineWidth`, `doc.rect(x,y,w,h,'F')` or `'S'`) and **must
+reset colour and line width after each op** so state cannot leak into the next
+one. It still makes no layout decisions.
+
+- [ ] **Step 2: Write the failing tests**
+
+Assert against the op list: a filled `rect` in `#101F2E` sits behind the table
+header on **every** page that carries the header; the header text ops carry
+white; there is a `lw:2` line above the totals; and there is a stroked `rect`
+around each of Bill To, vessel, meta, amount in words and payment details. For
+the meta box, assert two internal divider lines at the flex boundaries.
+
+Also assert the property that matters most for pagination: **no `rect` op
+straddles a page** — for every rect, `y + h` is within that page's bottom
+bound.
+
+- [ ] **Step 3: The dark table header**
+
+A filled rect spanning `PDF_M` to `right`, tall enough for the header row,
+emitted **before** the header text so the text sits on top. The header already
+redraws on each continuation page — the fill must follow it there.
+
+- [ ] **Step 4: The 2pt totals rule**
+
+The existing rule above the totals becomes `lw:2` in `#101F2E`.
+
+- [ ] **Step 5: The five boxes**
+
+Each boxed block records its start `y`, draws its content, then emits a
+**stroked** rect with `h = y - yStart` plus the block's padding. Stroke-only
+and emitted after the text means it cannot paint over the content, so no
+height needs to be known in advance.
+
+`.bill-to` has `border-top:0` in print because it butts against the header
+rule. The PDF already draws that rule, so a full rect is correct there — its
+top edge lands on the existing line.
+
+Match the paddings in the table above; they are what stops the text touching
+the rules.
+
+- [ ] **Step 6: The meta cell dividers**
+
+Two vertical lines inside the meta box at the flex boundaries. With widths
+1.35 / 1 / 1 of the content width, the first divider sits at `1.35/3.35` and
+the second at `2.35/3.35` of the box's inner width.
+
+- [ ] **Step 7: Boxes must not straddle a page break**
+
+A stroked box drawn across a page boundary is worse than no box. Before
+starting each boxed block, check the remaining space and break first if the
+block will not fit — the same keep-together the totals, amount in words and
+payment block already use. Extend it to Bill To, vessel and meta.
+
+Verify with the pagination fixture that no rect crosses a page bound.
+
+- [ ] **Step 8: Run everything, syntax-check, commit**
+
+Full suite, `node --check` on the extracted script, then commit.
+
+---
+
 ## Parked
 
 **A letter composed once without its salutation line (2026-08-23).** Not
