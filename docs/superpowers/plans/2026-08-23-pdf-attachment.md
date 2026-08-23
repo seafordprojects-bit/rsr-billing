@@ -1033,6 +1033,129 @@ supabase functions deploy send-statement
 
 ---
 
+### Task 7: The letter must address someone, and say so when it does not
+
+**Files:**
+- Modify: `index.html` — `composeLetter` at `:3470-3472`, the Settings save at `:3988`
+- Test: `test/letter.test.mjs` (append)
+
+**Interfaces:**
+- Consumes: `letterTemplate()`, `letterVars(f,no)`, `fillLetter(tpl,vars)`.
+- Produces: `letterWarning(text, vars)` returning a warning string or `''`.
+
+**Background — read this before writing the check.** On 2026-08-23 a letter
+composed once with no salutation line: it opened at "Please find our billing"
+instead of "Dear Mr. Chua,". It did not reproduce, and every mechanism was
+eliminated by inspection — `letterVars.contact` falls back to `'Sir/Madam'`
+and so can never be empty; `cfg.letter` was `""`, so `LETTER_DEFAULT` (which
+contains `{contact}`) was in use; `cfg.letter` is per-device and appears in
+neither `pushSharedSettings` nor `migrateSettings`, so there is no second copy
+to have diverged. **The cause is unknown.** This task does not fix it. It makes
+the next occurrence announce itself instead of depending on someone noticing.
+
+Do not weaken the check into "the letter starts with Dear". The template is
+user-editable and a legitimate custom letter may open differently. The
+invariant is that the resolved contact appears somewhere in the output.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `test/letter.test.mjs`:
+
+```js
+console.log('\n--- N. a letter that does not address anyone is reported ---');
+const facts = app.stmtFacts([app.groupOf(rows)]);
+const vars = app.letterVars(facts, 'BILLDWG-26-001');
+ok('contact is never empty', String(vars.contact || '').length > 0, vars.contact);
+
+ok('the default template addresses the contact',
+   app.letterWarning(app.fillLetter(app.LETTER_DEFAULT, vars), vars) === '',
+   app.letterWarning(app.fillLetter(app.LETTER_DEFAULT, vars), vars));
+
+const noAddressee = 'Please find our billing {billno}.\n\nRespectfully yours,';
+const warn = app.letterWarning(app.fillLetter(noAddressee, vars), vars);
+ok('a letter missing the addressee warns', warn !== '', warn);
+ok('the warning names the contact it expected',
+   warn.indexOf(vars.contact) > -1, warn);
+
+console.log('\n--- N+1. a custom template without {contact} warns when saved ---');
+ok('a template without {contact} is reported',
+   app.letterWarning('Please find our billing {billno}.', vars) !== '');
+ok('a template with {contact} is not',
+   app.letterWarning('Dear {contact}, please find our billing.', {contact:'{contact}'}) === '');
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+Run: `node test/run.mjs letter`
+Expected: FAIL — `app.letterWarning is not a function`.
+
+- [ ] **Step 3: Implement the check**
+
+Add beside `composeLetter` in `index.html`:
+
+```js
+// A billing that does not address anyone is a defect, but on 2026-08-23 one
+// composed that way and could not be reproduced. The cause is still unknown,
+// so this reports rather than repairs: the resolved contact must appear in
+// the finished letter, whatever shape the template takes.
+function letterWarning(text,vars){
+  const who=String((vars&&vars.contact)||'').trim();
+  if(!who)return '';
+  return String(text||'').indexOf(who)>-1?'':
+    'This letter does not address '+who+' anywhere — check the template.';
+}
+```
+
+- [ ] **Step 4: Surface it at compose time**
+
+Replace `composeLetter` (`index.html:3470-3472`):
+
+```js
+function composeLetter(picked,no){
+  const vars=letterVars(stmtFacts(picked),no);
+  const out=fillLetter(letterTemplate(),vars);
+  const w=letterWarning(out,vars);
+  if(w)toast(w,true);
+  return out;
+}
+```
+
+- [ ] **Step 5: Surface it at Settings save**
+
+At `index.html:3988`, after `cfg.letter` is assigned, add:
+
+```js
+  // warn while the box is still open and editable, which is the moment it
+  // can actually be fixed
+  const lw=letterWarning(letterTemplate(),{contact:'{contact}'});
+  if(lw)toast('This letter has no {contact} — recipients will not be addressed by name',true);
+```
+
+- [ ] **Step 6: Expose to the harness**
+
+In `test/harness.mjs`, add `letterWarning` to the `__t` hook beside `composeLetter`. `letterVars`, `fillLetter`, `LETTER_DEFAULT` and `stmtFacts` are already exposed — do not add them again.
+
+- [ ] **Step 7: Run the tests, syntax-check, commit**
+
+```bash
+node test/run.mjs
+sed -n '/^<script>$/,/^<\/script>$/p' index.html | sed '1d;$d' > /tmp/app.js && node --check /tmp/app.js
+git add index.html test/harness.mjs test/letter.test.mjs
+git commit -m "report a letter that addresses nobody, rather than sending it"
+```
+
+---
+
+## Parked
+
+**A letter composed once without its salutation line (2026-08-23).** Not
+reproduced; cause unknown. Every mechanism was eliminated by inspection — see
+the background note in Task 7. Task 7 adds detection, not a fix. If it recurs,
+the captured evidence to collect is the stored `cfg.letter`, the first line of
+`lBody`, and the local Seaford client row, together.
+
+---
+
 ## Self-Review
 
 **Spec coverage:**
@@ -1059,6 +1182,7 @@ supabase functions deploy send-statement
 | `pdfplan`, `clients` suites; `queue` extended | 1, 3, 4 |
 | MANUAL-TEST section | 6 step 6 |
 | no schema change | Global Constraints |
+| letter addresses someone, or reports it | 7 (added after the plan was written, from a parked bug — not a spec requirement) |
 
 **Placeholders:** two deliberate ones, both flagged as work the implementer must do rather than guess — the jsPDF version and SRI hash (Task 5 Step 1, with the command to obtain them) and the send-capture mechanism in `letter.test.mjs` (Task 6 Step 1, which must follow that suite's existing pattern rather than invent one).
 
