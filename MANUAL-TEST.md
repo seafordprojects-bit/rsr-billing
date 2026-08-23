@@ -45,10 +45,14 @@ Chrome on the phone, or DevTools at **380 × 780**.
 - [ ] **Segmented tabs.** Monitoring / Create Billing, then UTG / Drawing /
       Drydocking Cert. Every tap registers first time, including on the gaps
       between buttons and at the far edges.
-- [ ] **Touch targets.** These measure under 40px and are the ones to judge in
-      the hand — see "Open items" below:
-      the expand control on a billing card (~21px), status filter chips (~29px),
-      the header sync/settings icons (~36px), the ↑↓/× buttons in Settings (~28px).
+- [ ] **Touch targets.** Everything interactive is now declared at 44px or more.
+      Judge them in the hand: the expand control on a billing card, the status
+      filter chips, the header sync/settings icons, the ↑↓/× buttons in
+      Settings, Mark billed / Edit on a card, and the typeahead suggestion rows.
+- [ ] **Density.** The header, chip row, card actions and Settings rows are all
+      taller than before. Check nothing wraps awkwardly or pushes the fold — in
+      particular a Settings catalog row, which carries three 44px buttons plus a
+      label on one line.
 - [ ] **Typeahead popups.** Type in a line title. The list appears below the
       field, is reachable by scrolling, and is not clipped by the sheet edge.
       Tapping a suggestion picks it — it does not just dismiss.
@@ -148,10 +152,9 @@ Needs two browsers signed into the same project.
    not. Fixing it properly means marking such numbers provisional and
    re-claiming on reconnect — a behaviour change, so it is left alone.
 
-2. **Touch targets below 40px** (listed in section 2). Raising them changes the
-   density of the header, toolbar and Settings rows, so it is a design decision
-   rather than a bug fix. The billing-card expand control at ~21px is the one I
-   would raise first.
+2. ~~Touch targets below 40px.~~ Done — everything interactive is 44px or more.
+   Checkbox rows (`.pick-item`, `.chk`) keep small boxes, but the whole label is
+   the tap target, so the effective area is a full row.
 
 3. **A deliberate counter reset can still hand out a number already in use.**
    The confirm now names the clash, but proceeding is allowed — you may well be

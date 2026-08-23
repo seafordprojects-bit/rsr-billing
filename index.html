@@ -64,9 +64,9 @@ header.top{
 .brand h1{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}
 .brand p{margin:0;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,.55);font-weight:500}
 .top-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
-.icon-btn{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.16)}
+.icon-btn{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.16)}
 .icon-btn:hover{background:rgba(255,255,255,.09)}
-.icon-btn svg{width:17px;height:17px}
+.icon-btn svg{width:19px;height:19px}
 
 .sync{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;color:rgba(255,255,255,.6);padding-right:2px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--slate);flex:0 0 auto}
@@ -147,8 +147,9 @@ header.top{
 .chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .chips::-webkit-scrollbar{display:none}
 .chip{
-  padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);
-  font-size:12px;font-weight:600;white-space:nowrap;color:var(--slate);letter-spacing:.01em
+  display:inline-flex;align-items:center;min-height:44px;padding:0 15px;
+  border-radius:999px;border:1px solid var(--line);background:var(--card);
+  font-size:12.5px;font-weight:600;white-space:nowrap;color:var(--slate);letter-spacing:.01em
 }
 .chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
 .chip .n{font-family:var(--mono);font-size:10.5px;opacity:.65;margin-left:5px}
@@ -192,9 +193,9 @@ header.top{
 .row-meta b{font-weight:600;color:var(--ink2)}
 .row-meta .m{font-family:var(--mono);font-size:11.5px}
 
-.gtoggle{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.gtoggle{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;font-size:12.5px;font-weight:600;color:var(--ink2);border:1px solid var(--line);border-radius:999px}
 .gtoggle:hover{background:var(--paper)}
-.gtoggle .ar{font-size:9px;color:var(--slate)}
+.gtoggle .ar{font-size:11px;color:var(--slate)}
 .glines{margin-top:9px;border-top:1px solid var(--line2);padding-top:8px;display:flex;flex-direction:column;gap:6px}
 .gl{display:flex;gap:9px;align-items:baseline;font-size:12.5px}
 .gl .n{font-family:var(--mono);font-size:10.5px;color:var(--slate);flex:0 0 26px}
@@ -208,8 +209,9 @@ header.top{
 .badge.free{color:var(--slate)}
 .row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
 .act{
-  padding:6px 11px;border-radius:8px;border:1px solid var(--line);font-size:12px;font-weight:600;
-  color:var(--ink2);background:var(--card)
+  display:inline-flex;align-items:center;justify-content:center;
+  min-height:44px;padding:0 14px;border-radius:9px;border:1px solid var(--line);
+  font-size:12.5px;font-weight:600;color:var(--ink2);background:var(--card)
 }
 .act:hover{background:var(--paper)}
 .act.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -348,7 +350,7 @@ header.top{
 
 .imp{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 11px}
 .imp.off{opacity:.48}
-.imp-h{display:flex;align-items:center;gap:9px}
+.imp-h{display:flex;align-items:center;gap:7px}
 .imp-h input[type=checkbox]{width:18px;height:18px;flex:0 0 auto;accent-color:var(--rsr)}
 .imp-h .fn{font-family:var(--mono);font-size:10.5px;color:var(--slate);min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imp-h .pg{font-family:var(--mono);font-size:10px;color:var(--slate);border:1px solid var(--line);border-radius:4px;padding:1px 5px;white-space:nowrap}
@@ -373,18 +375,18 @@ header.top{
   box-shadow:var(--shadow);max-height:188px;overflow-y:auto;padding:4px
 }
 .cmb-pop button{
-  display:block;width:100%;text-align:left;padding:8px 9px;border-radius:6px;
-  font-size:13px;font-weight:600;line-height:1.3;color:var(--ink)
+  display:block;width:100%;text-align:left;min-height:44px;padding:10px 11px;border-radius:7px;
+  font-size:13px;font-weight:600;line-height:1.35;color:var(--ink)
 }
 .cmb-pop button .s{display:block;font-size:11px;color:var(--slate);font-weight:400;font-family:var(--mono);margin-top:1px}
 .cmb-pop button .s.hist{font-size:10.5px;color:var(--ink2);padding-left:9px;border-left:2px solid var(--line);margin-top:2px}
 .cmb-pop button.act,.cmb-pop button:hover{background:var(--paper)}
 
 /* compact row controls for the catalog manager */
-.mini{width:28px;height:28px;flex:0 0 auto;border:1px solid var(--line);border-radius:7px;display:grid;place-items:center;color:var(--slate);background:var(--card)}
+.mini{width:44px;height:44px;flex:0 0 auto;border:1px solid var(--line);border-radius:9px;display:grid;place-items:center;color:var(--slate);background:var(--card)}
 .mini:hover{background:var(--paper);color:var(--ink)}
 .mini[disabled]{opacity:.3;pointer-events:none}
-.mini svg{width:13px;height:13px}
+.mini svg{width:16px;height:16px}
 .mini.del{color:var(--rsr)}
 .imp-status{font-size:12.5px;color:var(--slate);padding:12px 2px;display:flex;align-items:center;gap:9px}
 .spin{width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:spin .7s linear infinite;flex:0 0 auto}
@@ -421,11 +423,6 @@ header.top{
 #gErr{margin-top:12px;font-size:12.5px;color:#FF9A9A;min-height:17px;line-height:1.4}
 #gCfg,#gFor{margin-top:20px;font-size:12px;color:rgba(255,255,255,.5);border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:1px}
 #gFor{margin-right:18px}
-.acct{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 13px;display:flex;align-items:center;gap:10px;margin-bottom:12px}
-.acct .who{min-width:0}
-.acct .who .e{font-family:var(--mono);font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acct .who .s{font-size:11px;color:var(--slate)}
-.acct button{margin-left:auto;flex:0 0 auto;padding:8px 13px;border-radius:8px;border:1px solid var(--line);font-size:12.5px;font-weight:600;color:var(--rsr)}
 #dropOverlay{position:fixed;inset:0;z-index:80;background:rgba(16,31,46,.88);color:#fff;display:none;place-items:center;padding:24px;text-align:center}
 #dropOverlay.on{display:grid}
 #dropOverlay .b{border:2px dashed rgba(255,255,255,.45);border-radius:18px;padding:38px 30px;max-width:420px;pointer-events:none}
