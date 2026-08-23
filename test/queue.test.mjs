@@ -138,7 +138,7 @@ app = globalThis.__loadApp();
 configure(app);
 app.setSession({ access_token:'tok-1', refresh_token:'ref-1', expires_in:3600,
                  user:{ email:'raffy@rsr.test' } });
-// section N's dead job is permanent by design and still sits in the queue;
+// section 8's dead job is permanent by design and still sits in the queue;
 // count live (non-dead) jobs so this section only asserts its own scenario.
 const deadBefore = app.deadJobs().length;
 net.script.push({ match:'/rest/v1/drawing_billing', method:'POST', status:503,
@@ -153,7 +153,7 @@ await app.flushQueue();
 ok('it drains once the server recovers', app.queue.length - app.deadJobs().length === 0,
    'live=' + (app.queue.length - app.deadJobs().length));
 
-console.log('\n--- N+2. a discard names what it would destroy ---');
+console.log('\n--- 10. a discard names what it would destroy ---');
 net.mode = 'online';
 net.script.length = 0;
 app = globalThis.__loadApp();

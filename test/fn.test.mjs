@@ -67,9 +67,14 @@ const call = (body, { auth = 'Bearer user-jwt', method = 'POST' } = {}) =>
     body: method === 'POST' ? JSON.stringify(body) : undefined,
   }));
 
+// every scenario now needs a valid attachment to get past the required-PDF
+// check, so `good` carries one; section N below overrides or drops it to
+// exercise that check itself
+const goodAtt = Buffer.from('%PDF-1.4 fake billing').toString('base64');
 const good = { to:'billing@seaford.test', client:'Seaford',
                subject:'Statement of Account RSR-SOA-082026-001',
-               html:'<h1>Statement</h1>', statement_no:'RSR-SOA-082026-001' };
+               html:'<h1>Statement</h1>', statement_no:'RSR-SOA-082026-001',
+               attachment:{ filename:'BILLDWG-26-001.pdf', content:goodAtt } };
 
 console.log('\n--- A. JWT verification ---');
 let r = await call(good, { auth: '' });
@@ -220,7 +225,6 @@ ok('a malformed secret falls back to the constant',
 delete ENV.STATEMENT_REPLY_TO;
 
 console.log('\n--- N. the pdf attachment, validated server-side ---');
-const goodAtt = Buffer.from('%PDF-1.4 fake billing').toString('base64');
 r = await call({ ...good, attachment: { filename: 'BILLDWG-26-001.pdf', content: goodAtt } });
 j = await r.json();
 ok('a well-formed attachment is accepted', r.status === 200, JSON.stringify(j));
@@ -249,11 +253,15 @@ r = await call({ ...good, attachment: { filename: 'BILLDWG-26-001.pdf', content:
 ok('an attachment over the 2 MB decoded cap is refused', r.status === 413, String(r.status));
 
 netState.sentPayload = null;
-r = await call(good); // the shared `good` fixture carries no attachment
+const { attachment: _drop, ...noAtt } = good;
+r = await call(noAtt);
 j = await r.json();
-ok('a send with no attachment at all still works', r.status === 200, JSON.stringify(j));
-ok('and no attachments key is sent to Resend',
-   !('attachments' in netState.sentPayload), JSON.stringify(netState.sentPayload));
+ok('a send with no attachment at all is refused', r.status === 400, JSON.stringify(j));
+ok('the message names the missing attachment', /attachment/i.test(j.error), JSON.stringify(j));
+ok('nothing reaches Resend', netState.sentPayload === null, JSON.stringify(netState.sentPayload));
+
+r = await call({ ...good, attachment: null });
+ok('an explicit null attachment is refused the same way', r.status === 400, String(r.status));
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');

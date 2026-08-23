@@ -339,9 +339,10 @@ ok('the body carries an attachment', !!posted && !!posted.attachment,
 ok('the filename is the billing number',
    !!posted && /^BILLDWG-\d\d-\d\d\d\.pdf$/.test(posted.attachment.filename),
    posted && posted.attachment.filename);
-ok('the content is base64', !!posted && /^[A-Za-z0-9+/]+=*$/.test(posted.attachment.content),
+ok('pdfRender strips the data-URI prefix, leaving bare base64',
+   !!posted && /^[A-Za-z0-9+/]+=*$/.test(posted.attachment.content),
    posted && posted.attachment.content);
-ok('no tracking code anywhere in the posted body',
+ok('no tracking code in the subject, body, client, statement number or filename',
    JSON.stringify(posted).indexOf('RSR-') === -1);
 globalThis.fetch = realFetch;
 

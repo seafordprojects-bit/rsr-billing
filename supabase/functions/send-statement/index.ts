@@ -159,27 +159,30 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!html.trim()) return json({ ok: false, error: "The statement body is empty" }, 400);
   if (html.length > 750_000) return json({ ok: false, error: "The statement is too large to email" }, 413);
 
-  // One attachment, a PDF, small. Everything here fails closed, matching the
-  // rest of this function: a malformed attachment refuses the send rather
-  // than quietly mailing a billing without its document.
+  // One attachment, a PDF, small, and required. There is deliberately no
+  // service worker in this app, so a stale cached index.html could still
+  // post without one — this is the last place that can stop a billing from
+  // mailing with no document. Everything here fails closed, matching the
+  // rest of this function: a missing or malformed attachment refuses the
+  // send rather than quietly mailing a billing without its document.
   const att = (body.attachment ?? null) as Record<string, unknown> | null;
-  let attachment: { filename: string; content: string } | null = null;
-  if (att) {
-    const filename = cleanHeader(att.filename, 80);
-    const content = typeof att.content === "string" ? att.content : "";
-    if (!/^[A-Za-z0-9._-]{1,80}\.pdf$/.test(filename)) {
-      return json({ ok: false, error: "The attachment filename is not acceptable" }, 400);
-    }
-    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(content) || content.length % 4 !== 0) {
-      return json({ ok: false, error: "The attachment is not valid base64" }, 400);
-    }
-    // 2 MB decoded; a vector billing is tens of kilobytes, so anything near
-    // this is a bug rather than a big document
-    if ((content.length * 3) / 4 > 2_000_000) {
-      return json({ ok: false, error: "The attachment is too large to email" }, 413);
-    }
-    attachment = { filename, content };
+  if (!att) {
+    return json({ ok: false, error: "The billing PDF attachment is required" }, 400);
   }
+  const filename = cleanHeader(att.filename, 80);
+  const content = typeof att.content === "string" ? att.content : "";
+  if (!/^[A-Za-z0-9._-]{1,80}\.pdf$/.test(filename)) {
+    return json({ ok: false, error: "The attachment filename is not acceptable" }, 400);
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(content) || content.length % 4 !== 0) {
+    return json({ ok: false, error: "The attachment is not valid base64" }, 400);
+  }
+  // 2 MB decoded; a vector billing is tens of kilobytes, so anything near
+  // this is a bug rather than a big document
+  if ((content.length * 3) / 4 > 2_000_000) {
+    return json({ ok: false, error: "The attachment is too large to email" }, 413);
+  }
+  const attachment: { filename: string; content: string } = { filename, content };
 
   // (3) the recipient must be this client's on-file billing address, so the
   // endpoint can only ever mail addresses already recorded in the app — and
@@ -224,7 +227,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         // the company mailbox, not the person who pressed Send — see SENDER
         // IDENTITY. The sender is still recorded in the log line below.
         reply_to: REPLY_TO,
-        ...(attachment ? { attachments: [attachment] } : {}),
+        attachments: [attachment],
       }),
     });
   } catch (e) {
