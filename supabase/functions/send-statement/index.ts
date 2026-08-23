@@ -167,7 +167,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // send rather than quietly mailing a billing without its document.
   const att = (body.attachment ?? null) as Record<string, unknown> | null;
   if (!att) {
-    return json({ ok: false, error: "The billing PDF attachment is required" }, 400);
+    // there is no service worker, so the realistic cause is a browser holding
+    // an old copy of the app -- name the remedy rather than only the symptom
+    return json({
+      ok: false,
+      error: "This billing carried no PDF. Reload the app and send again.",
+    }, 400);
   }
   const filename = cleanHeader(att.filename, 80);
   const content = typeof att.content === "string" ? att.content : "";

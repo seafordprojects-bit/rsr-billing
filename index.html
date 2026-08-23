@@ -1449,6 +1449,10 @@ async function flushQueue(){
     }
   }
   queue=still;persist();
+  // The Pending writes panel indexes into deadJobs() positionally, and a flush
+  // can mark a job dead ahead of one already listed. Repaint so the row a user
+  // clicks is the row they read.
+  renderDeadJobs();
 }
 
 async function pull(quiet){
@@ -3708,6 +3712,9 @@ $('lSend').onclick=async()=>{
   if(!body.trim()){toast('The letter is empty',true);$('lBody').focus();return;}
   btn.disabled=true;btn.textContent='Sending…';
   try{
+    // the CDN is the likeliest failure in this path, so it happens before a
+    // number is claimed -- same order as Download PDF, for the same reason
+    await loadJsPdf();
     const issued=await issueBillNos();
     // another device may have taken the number this letter quotes; the
     // document is authoritative, so the letter is brought into line

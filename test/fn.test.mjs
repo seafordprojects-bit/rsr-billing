@@ -257,7 +257,8 @@ const { attachment: _drop, ...noAtt } = good;
 r = await call(noAtt);
 j = await r.json();
 ok('a send with no attachment at all is refused', r.status === 400, JSON.stringify(j));
-ok('the message names the missing attachment', /attachment/i.test(j.error), JSON.stringify(j));
+ok('the message says a PDF was missing', /pdf/i.test(j.error), JSON.stringify(j));
+ok('and tells the user what to do about it', /reload/i.test(j.error), JSON.stringify(j));
 ok('nothing reaches Resend', netState.sentPayload === null, JSON.stringify(netState.sentPayload));
 
 r = await call({ ...good, attachment: null });

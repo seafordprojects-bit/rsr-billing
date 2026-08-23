@@ -115,8 +115,12 @@ ok('print path issues through issueBillNos',
    /\$\('sPrint'\)\.onclick[\s\S]{0,400}await issueBillNos\(\)/.test(html));
 // the email path claims at the Send step, not when the letter is composed:
 // backing out of the review must not burn a number
+// the window is generous because lSend loads the PDF library before claiming,
+// so the CDN cannot cost a number -- see the same order in $('sPdf')
 ok('email path issues through issueBillNos',
-   /\$\('lSend'\)\.onclick[\s\S]{0,400}await issueBillNos\(\)/.test(html));
+   /\$\('lSend'\)\.onclick[\s\S]{0,700}await issueBillNos\(\)/.test(html));
+ok('and loads the pdf library before it claims',
+   /\$\('lSend'\)\.onclick[\s\S]{0,600}await loadJsPdf\(\)[\s\S]{0,200}await issueBillNos\(\)/.test(html));
 ok('and not before the letter is reviewed',
    !/\$\('sEmailBtn'\)\.onclick[\s\S]{0,1400}await issueBillNos\(\)/.test(html));
 ok('issueBillNos resolves the type per billing',
