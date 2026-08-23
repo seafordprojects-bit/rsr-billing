@@ -4,7 +4,7 @@ Everything here is something the automated suites **cannot** verify: real
 layout, real printing, real focus, real touch. Ordered by risk — if you only
 have twenty minutes, do section 1.
 
-The suites cover logic, data and wiring — `node test/run.mjs`, 28 suites, 1108
+The suites cover logic, data and wiring — `node test/run.mjs`, 28 suites, 1113
 assertions. They do **not** render, paginate, or lay anything out. Every bug you
 hit that the tests missed was in this category.
 
@@ -106,6 +106,18 @@ Chrome on the phone, or DevTools at **380 × 780**.
       its wrapper was not positioned, so it painted below the sheet: the list
       was built correctly and simply could not be seen. Automated tests
       cannot catch that; only this check can.
+- [ ] **On the phone, at ~390px — not just desktop Chrome.** Desktop lays the
+      sheet out as a centred dialog; the phone lays it out as a bottom sheet,
+      and that is the layout that actually ships. On a real handset (or
+      DevTools at 390px) open all three client entry points — Add manually,
+      the PDF import sheet, the From catalog sheet — and for each confirm the
+      list is **fully visible**: not clipped at either side, not cut off by
+      the sheet edge, and not painted behind the footer buttons or anything
+      else. Then scroll so the Client input sits **near the bottom of the
+      screen** and focus it: the popup opens downward, so it will run past
+      the bottom of the scrollable body — it must scroll into view rather
+      than be lost. `.sheet-body` is a scroll container and therefore clips
+      the popup in both axes; that is the one place this can go wrong.
 - [ ] **Revision hint.** Type a title billed before. The history list (up to six
       prior billings) fits and scrolls rather than covering the whole sheet.
 - [ ] **Multi-line editor.** Add six lines. The list scrolls, the running total

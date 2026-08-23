@@ -724,7 +724,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <div class="f"><label for="eDate">Date</label><input id="eDate" type="date"></div>
     </div>
     <div class="f" id="wCode"><label for="eCode">Billing code</label><input id="eCode" class="mono-in" autocomplete="off"></div>
-    <div class="f"><label for="eClient">Client</label><div class="cmb"><input id="eClient" autocomplete="off" placeholder="e.g. Seaford Shipping Lines"><div class="cmb-pop" id="eClientPop" hidden></div></div><datalist id="dlClients"></datalist></div>
+    <div class="f"><label for="eClient">Client</label><div class="cmb"><input id="eClient" autocomplete="off" placeholder="e.g. Seaford Shipping Lines"><div class="cmb-pop" id="eClientPop" hidden></div></div></div>
     <div class="f"><label for="eVessel">Vessel</label><input id="eVessel" list="dlVessels" autocomplete="off" placeholder="e.g. MV SF Voyager"><datalist id="dlVessels"></datalist></div>
     <div class="f-row" id="wRefQty">
       <div class="f" style="flex:1"><label for="eDwgNo" id="eRefLbl">Drawing no.</label><input id="eDwgNo" class="mono-in" autocomplete="off" placeholder="optional"></div>
@@ -1498,8 +1498,7 @@ function render(){
   syncSelect($('fClient'),uniq(rows.map(r=>r.client)),filters.client,'All clients');
   syncSelect($('fMonth'),uniq(rows.map(r=>monthKey(r.bill_date))).sort().reverse(),filters.month,'All months',monthLabel);
 
-  // datalists
-  $('dlClients').innerHTML=uniq(rows.map(r=>r.client)).map(v=>`<option value="${esc(v)}">`).join('');
+  // the client field is a combobox now; only the vessel still uses a datalist
   $('dlVessels').innerHTML=uniq(rows.map(r=>r.vessel)).map(v=>`<option value="${esc(v)}">`).join('');
 
   // list

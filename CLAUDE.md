@@ -215,7 +215,7 @@ node test/run.mjs groups     # one suite, by prefix
 node test/groups.test.mjs    # directly, same thing
 ```
 
-1108 assertions, no dependencies, Node only. `fn.test.mjs` needs
+1113 assertions, no dependencies, Node only. `fn.test.mjs` needs
 `--experimental-strip-types` (the runner passes it).
 
 `test/harness.mjs` extracts the inline `<script>` from `index.html`, appends a
@@ -255,6 +255,23 @@ That last one is the shape to watch for: the harness reported the list
 `pop.hidden === false` proves the JS ran, never that anyone can see it. When a
 "nothing appears" bug passes every behavioural assertion, stop testing the
 data and go read the positioning.
+
+**The guard tests for these are CSS-contract assertions: they match the text
+of the stylesheet, not rendered layout.** `combo.test.mjs` can confirm that
+`.cmb{position:relative}` is present and unscoped, that `.cmb-pop` carries a
+`z-index`, that no wrapper declares one — and every assertion still passes
+while the popup is invisible on a real screen, because nothing in the harness
+computes a box. They pin the *decisions*; they cannot see the *result*. A
+green suite is evidence the rule was not deleted, never evidence the user can
+see the list. Only `MANUAL-TEST.md`, on a phone, is that.
+
+Known and deliberate: `.sheet-body` is a scroll container
+(`overflow-y:auto`, which computes `overflow-x` to `auto` too), so it clips
+`.cmb-pop` in both axes. The popup contributes to scrollable overflow, so a
+list opening near the bottom of a sheet scrolls into view rather than being
+lost. Moving the popup out of that clip would mean positioning it against the
+viewport and tracking the input on scroll — more machinery than the problem
+warrants.
 
 There are now guard tests for each *pattern*, but they check CSS declarations,
 not rendering. **`MANUAL-TEST.md` is the real check** — walk it before deploying.

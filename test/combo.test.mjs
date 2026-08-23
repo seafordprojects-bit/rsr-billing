@@ -137,6 +137,11 @@ ok('the client datalist no longer drives these inputs',
    !/id="eClient" list="dlClients"/.test(html) &&
    !/id="iClient" list="dlClients"/.test(html) &&
    !/id="kClient" list="dlClients"/.test(html));
+// it is gone outright now, element and the renderLists line that filled it
+ok('and the datalist itself is gone', !/dlClients/.test(html),
+   (html.match(/.{0,60}dlClients.{0,40}/) || [''])[0]);
+ok('the vessel datalist is untouched', /id="dlVessels"/.test(html) &&
+   /\$\('dlVessels'\)\.innerHTML=/.test(html));
 
 console.log('\n--- H. picking a client fills the billing document ---');
 el('sClient').value = 'Seaford Shipping Lines';
@@ -189,6 +194,18 @@ const wrappers = (html.match(/<div class="cmb">/g) || []).length;
 ok('all four wrappers share that one class', wrappers === 4, String(wrappers));
 ok('the ml-row rule no longer has to carry positioning on its own',
    /\.ml-row \.cmb\{/.test(html));
+// Stacking: the popup paints above what follows it by an explicit z-index,
+// not by being late in the DOM. `.sheet` is the stacking context (it has a
+// transform), and inside it .cmb-pop's z-index is the only one declared.
+ok('the popup does not rely on DOM order to paint on top',
+   /z-index:\d+/.test(popRule), popRule);
+// A z-index on the WRAPPER would make it a stacking context of its own and
+// trap the popup inside it, unable to rise above any later sibling.
+ok('the wrapper stays out of the stacking order',
+   bare.length === 1 && !/z-index/.test(bare[0]), bare[0] || '');
+ok('nothing inside a sheet outranks it',
+   !/\.sheet-(head|body|foot)\{[^}]*z-index/.test(css),
+   (css.match(/\.sheet-(head|body|foot)\{[^}]*\}/g) || []).join(' '));
 
 console.log('\n--- every client entry point opens a visible list ---');
 app = reset();
