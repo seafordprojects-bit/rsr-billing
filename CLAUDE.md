@@ -1,0 +1,265 @@
+# RSR Billing
+
+A billing tracker for RSR Engineering Services: naval architecture drawings,
+UTG reports and drydocking certificates billed to shipping clients in the
+Philippines. Produces a printed/emailed **BILLING** document matching the firm's
+existing `BILLDWG-26-003` format.
+
+Everything is one file — `index.html` — plus one Supabase Edge Function. Open
+the file in a browser and it works; there is no build step, no bundler, no
+package manager, no framework.
+
+---
+
+## Layout
+
+```
+index.html                                  the entire app: markup, CSS, JS
+supabase/functions/send-statement/index.ts  Deno Edge Function, emails a billing
+test/                                       harness + 25 suites (node test/run.mjs)
+MANUAL-TEST.md                              what the tests cannot check — read it
+```
+
+`index.html` is ~3,900 lines: `<style>`, then markup, then one IIFE. Keep that
+order. Everything inside the IIFE is private; the test harness reaches in
+through an injected hook (see **Tests**).
+
+---
+
+## Architecture
+
+**Storage is Supabase REST**, called directly with `fetch` — no client library.
+`sb(path, opts)` is the only thing that talks to `/rest/v1/`. It attaches the
+session token, retries once after a token refresh on 401/403, and shows the
+sign-in gate if that fails.
+
+**Auth** is Supabase email/password. The session lives in `localStorage` and is
+refreshed when close to expiry. A refresh that fails *because the device is
+offline* deliberately keeps the session — otherwise a user with queued work
+would be signed out mid-outage.
+
+**Five tables**, all authenticated-only RLS. The generated SQL creates them:
+
+| table | holds |
+|---|---|
+| `drawing_billing` | every billing **line** |
+| `drawing_catalog` | reusable standard items, per document type |
+| `clients` | name, contact person, address, billing email |
+| `app_settings` | shared settings + the billing counters |
+| `billing_senders` | who may email a billing (allowlist) |
+
+### The group model — the thing to understand first
+
+`drawing_billing` rows are **lines**, not billings. Lines created together share
+a `group_id` and one tracking code; a *billing* is that group. Group-level
+fields (`code`, `bill_no`, `doc_type`, `client`, `vessel`, `bill_date`,
+`status`, dates, `invoice_no`, `remarks`) are **repeated on every line**.
+
+That denormalisation is deliberate: the row-based queue, sync and offline
+handling all carry group fields for free, and acting on a group is just
+touching its lines. The cost is that editing a 4-line billing queues 4 PATCHes.
+
+- `groupsFrom(rows)` / `allGroups()` / `groupById(id)` assemble groups
+- `groupOf(rows)` sorts lines by `line_no` so entry order survives a sync
+- `markGroup(gid, status)` moves every line together
+- `GROUP_FIELDS` is the list that must stay identical across a group's lines
+
+Rows predating this become single-line groups, in the app and in the SQL.
+
+### Two numbering systems — do not conflate them
+
+| | tracking code | billing number |
+|---|---|---|
+| looks like | `RSR-DW-082026-001` | `BILLDWG-26-001` |
+| on | every line of a group | the group, in `bill_no` |
+| counts | billings per type per **month** | billings per type per **year** |
+| assigned | when the billing is created | on first Print or Email |
+| client sees it | **no — never on the document** | yes |
+
+The client's copy carries the billing number only. Tracking codes are internal
+and appear in Monitoring. There are tests asserting no `RSR-…` string reaches
+the printed or emailed document.
+
+### Claiming a billing number
+
+Claimed **once per group**, then stored. Reprints reuse it and the counter does
+not move. The claim is a compare-and-swap against `app_settings`:
+
+```
+PATCH app_settings?key=eq.billseq:DW&seq_year=eq.26&seq_n=eq.3
+```
+
+If another device already took 4 the filter matches nothing, zero rows come
+back, and the claim retries against the fresh value. That is what stops two
+devices minting the same number.
+
+The `sNo` field has three states, tracked in `sNoMode` — **do not** go back to
+inferring this from the text:
+
+- `auto` — a live preview of the counter, follows it, nothing claimed
+- `manual` — typed by hand, kept verbatim, never drifts; clearing returns to auto
+- `issued` — a stored number, reused by every reprint
+
+Offline, or when the project is configured but unreachable, it falls back to the
+device counter and says the number is provisional. An **expired session still
+throws** so the gate appears, rather than quietly minting a local number.
+
+### Offline queue
+
+Every write goes through one queue in `localStorage`. Jobs carry `op`
+(`insert` / `update` / `upsert` / `delete`), optional `table` and `store`
+(`catalog` / `clients` / `settings`; absent means billing rows). `flushQueue()`
+drains it in order.
+
+Editing a record whose insert is still queued **folds into that insert** rather
+than adding an update — a row with no server id yet cannot be PATCHed.
+
+`saveBatch` must insert the whole list at once (`rows.unshift.apply(rows, list)`).
+Unshifting one at a time reverses the batch; that bug shipped once.
+
+### Storage
+
+The `drawings` bucket is **private**. Uploads store the object *path*, and a PDF
+link requests a one-hour signed URL at tap time. `objectPath()` accepts public,
+signed, authenticated or bare-path values, so a row works either side of the
+migration.
+
+---
+
+## SQL regeneration workflow
+
+There is no migration file. **The SQL lives in `sqlText()` inside `index.html`**
+and is regenerated from the current settings: Settings → Show SQL → copy → run
+in the Supabase SQL editor. It is written to be safe to re-run.
+
+When you add a column or table:
+
+1. Edit `sqlText()` — add `create table if not exists` and/or
+   `alter table … add column if not exists`. Never a bare `alter`.
+2. Add the field to `FIELDS` (billing rows), `CAT_FIELDS`, `CLI_FIELDS` or
+   `GROUP_FIELDS` as appropriate, and to the relevant `payloadOf`.
+3. Tell the user to re-run the SQL before the change syncs.
+
+> **No backticks inside the SQL string.** `sqlText()` returns a JS template
+> literal; a backtick in a comment terminates it and takes the whole script
+> with it. This has broken the app once. Same trap: `${` in SQL comments.
+
+Policies are `to authenticated` only, never `to anon`. Storage policies are
+scoped with `bucket_id = '<bucket>'` because the project is shared with other
+RSR apps, and policy names are prefixed `rsr_dwg_*` so a re-run cannot drop
+another app's policy.
+
+---
+
+## Tests
+
+```bash
+node test/run.mjs            # all 25 suites
+node test/run.mjs groups     # one suite, by prefix
+node test/groups.test.mjs    # directly, same thing
+```
+
+908 assertions, no dependencies, Node only. `fn.test.mjs` needs
+`--experimental-strip-types` (the runner passes it).
+
+`test/harness.mjs` extracts the inline `<script>` from `index.html`, appends a
+hook exposing the IIFE's internals as `globalThis.__t`, and evals it against a
+stubbed DOM. **Adding a function to the hook that does not exist in
+`index.html` breaks every suite at load** — the hook is version-coupled.
+
+The stub models: element lookup, classList, dataset, `innerHTML` (including
+rebuilding child inputs so focus behaviour is testable), focus/blur with
+`document.activeElement`, `contains`, compound attribute selectors, event
+dispatch for delegated handlers, `getBoundingClientRect`, `localStorage`, and a
+controllable `fetch` (`net.mode = 'offline' | 'online' | 'unauthorized'`).
+
+Listeners are cleared on every `__loadApp()`. Without that they accumulate on
+cached elements and an older closure overwrites what the current one reads.
+
+The MARINA catalog seed is suppressed by default so suites start from a known
+catalog; `seed.test.mjs` opts in with `globalThis.__seedOK = true`.
+
+### What the harness cannot see
+
+It has **no layout, no painting, no real hit-testing**. Every bug that reached
+the user in this project was in that blind spot:
+
+- an element hidden with `hidden` while its class set `display` (the attribute
+  was inert — hence the global `[hidden]{display:none !important}`)
+- closed sheets at `opacity:0` still eating clicks across the middle of the
+  window (hence `pointer-events:none` on `.sheet`)
+- `word-wrap:break-word` breaking `1.0` into `1.` and a stray `0`
+- a repaint moving the caret into the neighbouring input
+
+There are now guard tests for each *pattern*, but they check CSS declarations,
+not rendering. **`MANUAL-TEST.md` is the real check** — walk it before deploying.
+
+---
+
+## Conventions
+
+- **Anchored edits, never line-range replacement.** A range edit here once
+  deleted 190 lines silently; `node --check` passed because missing functions
+  are not a syntax error. After any bulk edit, grep for the symbols you expect.
+- **`node --check` the extracted script** after editing:
+  `sed -n '/^<script>$/,/^<\/script>$/p' index.html | sed '1d;$d' > /tmp/app.js && node --check /tmp/app.js`
+- **LF line endings.** Python's text-mode write turns the file CRLF on Windows
+  — always `io.open(p,'w',encoding='utf-8',newline='')`.
+- **No `\n` escapes inside heredoc-delivered Python.** They arrive as real
+  newlines and break JS strings. Assign `const br='\n\n'` with a normal edit
+  instead. This has bitten three times.
+- **Check every `$('id')` resolves** after markup changes; a null target throws
+  and kills the whole IIFE. There is a one-liner for this in the git history.
+- **No duplicate `id` attributes** — `getElementById` silently takes the first,
+  which is how three copies of the sign-in gate once coexisted.
+- Repaint Settings editors through `repaint(box, html, keys)`, never
+  `innerHTML =` directly, or the caret jumps.
+- Interactive elements are **44px minimum**; `touch.test.mjs` enforces it.
+- Type names are spelled out per type (`one`, `many`), never derived with
+  `toLowerCase()` — that produced "One utg report".
+
+---
+
+## Deploy status
+
+**Not yet deployed.** Everything is local: one branch (`master`), no remote,
+nothing pushed. Records so far are test data.
+
+Before going live:
+
+1. **Run the regenerated SQL** in the Supabase SQL editor. It creates all five
+   tables and adds every column added since. Without it, syncing fails silently
+   on the missing pieces.
+2. **Confirm signup is disabled** in Authentication → Providers. RLS is
+   `to authenticated using (true)` on every table, so anyone who can create an
+   account can read and rewrite all billing data.
+3. **Deploy the function and set its secrets:**
+   ```
+   supabase functions deploy send-statement
+   supabase secrets set RESEND_API_KEY=re_...
+   supabase secrets set STATEMENT_FROM="RSR Engineering <billing@yourdomain.com>"
+   ```
+   The From domain must be verified in Resend.
+4. **Add yourself to `billing_senders`**, or emailing is refused for everyone:
+   ```sql
+   insert into billing_senders (email) values ('you@example.com')
+   on conflict (email) do nothing;
+   ```
+5. **Reset the DW counter** in Settings → Document types; test prints left the
+   series ahead of reality.
+6. **Walk `MANUAL-TEST.md`.** Section 1 (print) at minimum.
+
+### Known open items
+
+- **Offline billing numbers are not reconciled.** A number issued during an
+  outage is kept after syncing even if another device has since used it. The
+  window is small and the local counter catches up, but the issued number does
+  not. Fixing it means marking such numbers provisional and re-claiming.
+- A deliberate counter reset can still hand out a number already in use. The
+  confirm names the clash; proceeding is allowed.
+- Revisions match on exact client **and** vessel. Names are canonicalised for
+  case and spacing, but a genuine client rename breaks the link.
+- The project URL, key and session are per-device by design. A new device needs
+  them entered once before anything syncs.
+- pdf.js loads from cdnjs pinned with an SRI hash. The **worker** is loaded via
+  `workerSrc` and cannot carry one.

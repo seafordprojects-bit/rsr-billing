@@ -4,9 +4,9 @@ Everything here is something the automated suites **cannot** verify: real
 layout, real printing, real focus, real touch. Ordered by risk — if you only
 have twenty minutes, do section 1.
 
-The suites cover logic, data and wiring (23 suites, ~840 assertions). They do
-**not** render, paginate, or lay anything out. Every bug you hit this session
-that the tests missed was in this category.
+The suites cover logic, data and wiring — `node test/run.mjs`, 25 suites, 908
+assertions. They do **not** render, paginate, or lay anything out. Every bug you
+hit that the tests missed was in this category.
 
 ---
 
