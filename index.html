@@ -3887,6 +3887,19 @@ const PDF_W=595.28, PDF_H=841.89;   // A4 in points
 const PDF_M=42;                     // margin
 // The last y a content row may occupy. Only the page footer goes below it.
 const PDF_BOT=PDF_H-PDF_M-18;
+// --ink and the paper it prints on, from the print stylesheet.
+const PDF_INK=[16,31,46], PDF_PAPER=[255,255,255];
+// Print insets the text inside a full-width box (.bill-to padding 8px 10px and
+// the rest); every x here is instead fixed against the margin, and moving the
+// text would drag the table's columns with it. So the box is outset from the
+// text by the padding rather than the text inset into the box, and one outset
+// serves all of them -- .pay's 11px gives way to the common 10 so the five
+// boxes and the table's header band line up on one pair of edges.
+const PDF_BX=10;
+// Helvetica sits about 0.75 of its point size above the baseline and 0.22
+// below it. pdfPlan never touches jsPDF, so it cannot measure; a box is fitted
+// to its text with these two instead.
+const PDF_ASC=0.75, PDF_DESC=0.22;
 
 // jsPDF's standard fonts are cp1252. A single code point above U+00FF makes
 // jsPDF re-encode the whole string as UTF-16 with no embedded font to read it
@@ -3926,9 +3939,16 @@ function pdfPlan(facts,issuedNo){
   const ops=[];
   let out=ops;                 // repointed while the tail is measured
   let page=0,y=PDF_M;
-  const t=(s,x,yy,o)=>out.push(Object.assign({t:'text',p:page,s:pdfText(s),x:x,y:yy},o||{}));
-  const line=(x1,y1,x2,y2)=>out.push({t:'line',p:page,x1:x1,y1:y1,x2:x2,y2:y2});
+  // the last baseline drawn and its size: box() closes a box a padding below
+  // that baseline's descender, and only the block itself knows where it ended
+  let lb=0,ls=9;
+  const t=(s,x,yy,o)=>{const op=Object.assign({t:'text',p:page,s:pdfText(s),x:x,y:yy},o||{});
+    lb=yy;ls=op.size||9;out.push(op);};
+  const line=(x1,y1,x2,y2,o)=>out.push(
+    Object.assign({t:'line',p:page,x1:x1,y1:y1,x2:x2,y2:y2},o||{}));
   const right=PDF_W-PDF_M, colW=right-PDF_M;
+  // the outer edges every box and the header band share
+  const boxL=PDF_M-PDF_BX, boxW=colW+2*PDF_BX;
   // the print stylesheet's column widths: 7 / 53 / 7 / 16 / 17 per cent
   const cNo=PDF_M, cDesc=PDF_M+0.07*colW;
   const cQty=PDF_M+0.67*colW, cRate=PDF_M+0.83*colW, cAmt=right;
@@ -3938,6 +3958,30 @@ function pdfPlan(facts,issuedNo){
   const descEnd=PDF_M+0.60*colW;
   const descW=descEnd-8-cDesc;
   const brk=()=>{page++;y=PDF_M;};
+
+  // A stroked box drawn across a page boundary is worse than no box, so a
+  // boxed block is measured before it is placed -- laid out into its own list
+  // at y=0 the way the tail is, then moved whole to the next page if it does
+  // not fit where it stands. Only valid while out===ops: the tail is placed
+  // later and carries its own keep-together.
+  const place=draw=>{
+    const buf=[],sy=y;
+    out=buf;y=0;draw();
+    const h=y;
+    out=ops;y=sy;
+    if(y+h>PDF_BOT&&y>PDF_M)brk();
+    const base=y;
+    buf.forEach(o=>{o.p=page;
+      if(o.t==='line'){o.y1+=base;o.y2+=base;}else o.y+=base;});
+    ops.push.apply(ops,buf);
+    y=base+h;
+  };
+  // The rule print puts round .bill-to, .ves-box, .stmt-meta, .words and .pay.
+  // Stroke-only and emitted after the block's text, so it cannot paint over
+  // anything -- which is why no height has to be known in advance. Returns the
+  // bottom edge, which is where the flow carries on from.
+  const box=(top,padY)=>{const bot=lb+ls*PDF_DESC+padY;
+    out.push({t:'rect',p:page,x:boxL,y:top,w:boxW,h:bot-top});return bot;};
 
   // ---- header: the mark, the company block, then Billing / number / date
   const hy=y;
@@ -3953,39 +3997,71 @@ function pdfPlan(facts,issuedNo){
   if(issuedNo){t(issuedNo,right,ry,{size:12,bold:true,align:'right'});ry+=13;}
   t(fmtDate(today()),right,ry,{size:9,align:'right'});ry+=11;
   y=Math.max(ly,ry,hy+42)+2;
-  line(PDF_M,y,right,y);y+=16;
+  // Drawn to the box's width, not the text's: print gives .bill-to
+  // border-top:0 because it butts against this rule, and a narrower rule
+  // would leave the box overhanging it at both ends.
+  line(boxL,y,boxL+boxW,y);
 
   // ---- Bill to: contact person above the company, the order print uses
   const rec=facts.rec||{};
-  t('Bill to',PDF_M,y,{size:8,bold:true});y+=13;
-  if(rec.contact_person){t(rec.contact_person,PDF_M,y,{size:9.5});y+=12;}
-  if(facts.client){t(facts.client,PDF_M,y,{size:10,bold:true});y+=12;}
-  String(rec.address||'').split('\n').forEach(a=>{
-    if(a.trim()){t(a.trim(),PDF_M,y,{size:9});y+=11;}});
-  y+=8;
+  place(()=>{
+    y=8+8*PDF_ASC;                    // .bill-to padding 8px, then the cap
+    t('Bill to',PDF_M,y,{size:8,bold:true});y+=13;
+    if(rec.contact_person){t(rec.contact_person,PDF_M,y,{size:9.5});y+=12;}
+    if(facts.client){t(facts.client,PDF_M,y,{size:10,bold:true});y+=12;}
+    String(rec.address||'').split('\n').forEach(a=>{
+      if(a.trim()){t(a.trim(),PDF_M,y,{size:9});y+=11;}});
+    y=box(0,8);                       // its top edge lands on the rule above
+  });
+  const GAP=8.5;                      // the 3mm print puts above the next box
   if(facts.oneVessel){
-    t('Vessel name',PDF_M,y,{size:8,bold:true});
-    t(facts.oneVessel,PDF_M+82,y,{size:9.5,bold:true});
-    y+=17;
+    y+=GAP;
+    place(()=>{
+      y=6+8*PDF_ASC;                  // .ves-box padding 6px 10px
+      t('Vessel name',PDF_M,y,{size:8,bold:true});
+      t(facts.oneVessel,PDF_M+82,y,{size:9.5,bold:true});
+      y=box(0,6);
+    });
   }
-  const m2=PDF_M+230,m3=PDF_M+360;
-  t('Period covered',PDF_M,y,{size:8,bold:true});
-  t('Terms',m2,y,{size:8,bold:true});
-  t('Due on',m3,y,{size:8,bold:true});y+=12;
-  t(fmtDate(facts.from)+' \u2014 '+fmtDate(facts.to),PDF_M,y,{size:9});
-  t(facts.terms+' days',m2,y,{size:9});
-  t(fmtDate(facts.due),m3,y,{size:9});y+=18;
+  // .stmt-meta divides its inner width 1.35 / 1 / 1 -- the date range reads as
+  // one span or not at all, so it takes the slack. The cells' text follows the
+  // dividers rather than the other way round: fixed at the old 230/360 the
+  // "Due on" label landed on top of the second divider.
+  const mDiv=[1.35,2.35].map(k=>boxL+boxW*k/3.35);
+  const m2=mDiv[0]+PDF_BX, m3=mDiv[1]+PDF_BX;
+  y+=GAP;
+  place(()=>{
+    y=7+8*PDF_ASC;                    // .stmt-meta>div padding 7px 10px
+    t('Period covered',PDF_M,y,{size:8,bold:true});
+    t('Terms',m2,y,{size:8,bold:true});
+    t('Due on',m3,y,{size:8,bold:true});y+=12;
+    t(fmtDate(facts.from)+' \u2014 '+fmtDate(facts.to),PDF_M,y,{size:9});
+    t(facts.terms+' days',m2,y,{size:9});
+    t(fmtDate(facts.due),m3,y,{size:9});
+    const bot=box(0,7);
+    mDiv.forEach(x=>line(x,0,x,bot)); // the cell dividers, inside the one box
+    y=bot;
+  });
+  y+=14;                              // table.stmt-t margin-top
+  // an orphan header band at the foot of a page reads as a mistake, so the
+  // head keeps at least one line's worth of room with it
+  if(y+48>PDF_BOT&&y>PDF_M)brk();
 
   // ---- the table. The head is a function because a page break inside the
   // table has to redraw it before the rows continue.
   const head=()=>{
-    line(PDF_M,y,right,y);y+=11;
-    t('No.',cNo,y,{size:8,bold:true});
-    t('Description',cDesc,y,{size:8,bold:true});
-    t('Qty',cQty,y,{size:8,bold:true,align:'right'});
-    t('Rate',cRate,y,{size:8,bold:true,align:'right'});
-    t('Amount (PHP)',cAmt,y,{size:8,bold:true,align:'right'});
-    y+=6;line(PDF_M,y,right,y);y+=13;
+    const y0=y;
+    // print gets this from table.stmt-t th{background:var(--ink);color:#fff};
+    // pushed before the labels so they land on top of it, and it takes the
+    // place of the two hairlines that used to fence the row
+    out.push({t:'rect',p:page,x:boxL,y:y0,w:boxW,h:17,fill:PDF_INK});
+    y+=11;
+    t('No.',cNo,y,{size:8,bold:true,color:PDF_PAPER});
+    t('Description',cDesc,y,{size:8,bold:true,color:PDF_PAPER});
+    t('Qty',cQty,y,{size:8,bold:true,align:'right',color:PDF_PAPER});
+    t('Rate',cRate,y,{size:8,bold:true,align:'right',color:PDF_PAPER});
+    t('Amount (PHP)',cAmt,y,{size:8,bold:true,align:'right',color:PDF_PAPER});
+    y=y0+30;
   };
   head();
   facts.list.forEach((r,i)=>{
@@ -4014,7 +4090,9 @@ function pdfPlan(facts,issuedNo){
   // the words that restate it, so it moves to the next page whole.
   const tail=[];out=tail;
   const yTop=y;y=0;
-  line(cRate-120,y,right,y);y+=14;
+  // .stmt-tot{border-top:2px solid var(--ink)}. It stops at cAmt rather than
+  // at the box edge because it belongs to the right-aligned figures under it.
+  line(cRate-120,y,right,y,{lw:2,color:PDF_INK});y+=14;
   const n=facts.list.length,nc=facts.list.filter(noCharge).length;
   t('Subtotal \u2014 '+n+' item'+(n===1?'':'s')+(nc?', '+nc+' at no charge':''),
     cRate,y,{size:9,align:'right'});
@@ -4027,17 +4105,22 @@ function pdfPlan(facts,issuedNo){
   t('Total amount due',cRate,y,{size:11,bold:true,align:'right'});
   t(pdfMoney(facts.grand),cAmt,y,{size:11,bold:true,align:'right'});y+=20;
   // the sign cannot be drawn, so the currency is said in words instead
-  t('All amounts in Philippine Pesos (PHP)',PDF_M,y,{size:8});y+=14;
+  // the note sits outside the box, so it needs enough room for the box's top
+  // edge to clear the parentheses' descenders
+  t('All amounts in Philippine Pesos (PHP)',PDF_M,y,{size:8});y+=20;
+  const wTop=y-7-8*PDF_ASC;           // .words padding 7px 10px
   t('Amount in words',PDF_M,y,{size:8,bold:true});y+=12;
   // pesoWords, not words: the printed copy says "... Pesos and ... Centavos
   // Only" and the attachment has to read the same for the same billing
   pdfWrap(pesoWords(facts.grand),colW,9)
     .forEach(s=>{t(s,PDF_M,y,{size:9,bold:true});y+=11;});
-  y+=12;
+  y=box(wTop,7);
   // cfg.banks rows carry {bank,name,acct}; payBlock() reads the same three,
   // and drops the whole block when payee, banks and remit email are all empty
   const banks=(cfg.banks||[]).filter(b=>b&&(b.bank||b.name||b.acct));
   if(cfg.payee||banks.length||cfg.remitEmail){
+    y+=14;                            // .pay margin-top
+    const pTop=y;y+=9+8*PDF_ASC;      // .pay padding 9px, then the cap
     t('Payment details',PDF_M,y,{size:8,bold:true});y+=13;
     if(cfg.payee){t('Please issue payment to '+cfg.payee,PDF_M,y,{size:9});y+=13;}
     banks.forEach(b=>{
@@ -4049,8 +4132,9 @@ function pdfPlan(facts,issuedNo){
     if(cfg.remitEmail)pdfWrap('Kindly email a copy of the deposit slip to '+
       cfg.remitEmail+' for confirmation of payment.',colW,9)
       .forEach(s=>{t(s,PDF_M,y,{size:9});y+=11;});
-    y+=10;
+    y=box(pTop,9);
   }
+  y+=20;                              // .stmt-close margin-top, then the cap
   t('Thank you for your business.',PDF_M,y,{size:9});y+=13;
   if(cfg.showPrepared&&cfg.signer)
     t('Prepared by: '+cfg.signer+(cfg.role?', '+cfg.role:''),PDF_M,y,{size:9});
@@ -4090,10 +4174,32 @@ async function pdfDoc(plan){
   plan.ops.forEach(o=>{
     while(page<(o.p||0)){doc.addPage([plan.page.w,plan.page.h]);page++;}
     if(o.t==='image'){doc.addImage(o.d,'PNG',o.x,o.y,o.w,o.h);return;}
-    if(o.t==='line'){doc.setLineWidth(0.6);doc.line(o.x1,o.y1,o.x2,o.y2);return;}
+    // Colour and line width are document state in jsPDF, not per-call
+    // arguments: whatever an op sets stays set. Every branch below puts it
+    // back, or one white label would go on painting the rest of the billing
+    // white.
+    if(o.t==='rect'){
+      doc.setLineWidth(o.lw||0.6);
+      if(o.fill){
+        doc.setFillColor(o.fill[0],o.fill[1],o.fill[2]);
+        doc.rect(o.x,o.y,o.w,o.h,'F');
+        doc.setFillColor(0,0,0);
+      }else doc.rect(o.x,o.y,o.w,o.h,'S');
+      doc.setLineWidth(0.6);
+      return;
+    }
+    if(o.t==='line'){
+      doc.setLineWidth(o.lw||0.6);
+      if(o.color)doc.setDrawColor(o.color[0],o.color[1],o.color[2]);
+      doc.line(o.x1,o.y1,o.x2,o.y2);
+      doc.setDrawColor(0,0,0);doc.setLineWidth(0.6);
+      return;
+    }
     doc.setFont('helvetica',o.bold?'bold':'normal');
     doc.setFontSize(o.size||9);
+    if(o.color)doc.setTextColor(o.color[0],o.color[1],o.color[2]);
     doc.text(o.s,o.x,o.y,o.align?{align:o.align}:undefined);
+    doc.setTextColor(0,0,0);
   });
   return doc;
 }

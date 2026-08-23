@@ -212,7 +212,8 @@ const p40 = app.pdfPlan(f40, 'BILLDWG-26-003');
 const pages = Math.max.apply(null, p40.ops.map(o => o.p || 0)) + 1;
 ok('forty lines do not fit on one page', pages > 1, 'pages=' + pages);
 // the real measurement: the largest y any content op actually emits
-const bottomOf = o => o.t === 'line' ? Math.max(o.y1, o.y2) : o.y;
+const bottomOf = o => o.t === 'line' ? Math.max(o.y1, o.y2)
+  : o.t === 'rect' ? o.y + o.h : o.y;
 const maxY = p40.ops.filter(o => !o.foot).reduce((m, o) => Math.max(m, bottomOf(o)), 0);
 ok('nothing is drawn past the bottom margin', maxY <= p40.page.bottom,
    'maxY=' + maxY + ' bottom=' + p40.page.bottom);
@@ -337,6 +338,203 @@ console.log('\n--- 18. the branches the fixture does not otherwise reach ---');
   const noSig = app.pdfPlan(facts, 'BILLDWG-26-008').ops
     .filter(o => o.t === 'text').map(o => o.s).join('\n');
   ok('and left off when it does not', noSig.indexOf('Prepared by') === -1);
+}
+
+console.log('\n--- 19. the print copy’s rules and boxes ---');
+// Presentation parity. The harness has no layout and no painting, so every
+// assertion here is against the op list: it can prove a rect exists, in the
+// right colour, at the right coordinates, in the right drawing order, and
+// that none straddles a page. Whether the result LOOKS right is MANUAL-TEST
+// section 9, walked by hand.
+const INK = [16, 31, 46];            // --ink, from the print stylesheet
+const sameRGB = (a, b) => !!a && a.length === 3 && a.every((n, i) => n === b[i]);
+const rects = (pl) => pl.ops.filter(o => o.t === 'rect');
+const filled = (pl) => rects(pl).filter(o => o.fill);
+const stroked = (pl) => rects(pl).filter(o => !o.fill);
+const opFor = (pl, s) => pl.ops.find(o => o.t === 'text' && o.s === s);
+const encloses = (r, o) => (r.p || 0) === (o.p || 0) &&
+  o.y >= r.y && o.y <= r.y + r.h && o.x >= r.x && o.x <= r.x + r.w;
+
+{
+  const heads = plan.ops.filter(o => o.t === 'text' && o.s === 'Amount (PHP)');
+  ok('the table header sits on a filled band', filled(plan).length === heads.length &&
+     filled(plan).length > 0, 'filled=' + filled(plan).length + ' heads=' + heads.length);
+  ok('the band is the print copy’s #101F2E',
+     filled(plan).length > 0 && filled(plan).every(o => sameRGB(o.fill, INK)),
+     JSON.stringify(filled(plan).map(o => o.fill)));
+  ok('every header label is enclosed by the band',
+     ['No.', 'Description', 'Qty', 'Rate', 'Amount (PHP)'].every(s =>
+       filled(plan).some(r => encloses(r, opFor(plan, s)))));
+  ok('the band is emitted before the labels, so they land on top of it',
+     filled(plan).length > 0 &&
+     plan.ops.indexOf(filled(plan)[0]) < plan.ops.indexOf(opFor(plan, 'Amount (PHP)')));
+  const hdrText = ['No.', 'Description', 'Qty', 'Rate', 'Amount (PHP)']
+    .map(s => opFor(plan, s));
+  ok('the header labels are white', hdrText.every(o => sameRGB(o.color, [255, 255, 255])),
+     JSON.stringify(hdrText.map(o => o.color)));
+  ok('nothing else on the page is white',
+     plan.ops.filter(o => o.t === 'text' && sameRGB(o.color, [255, 255, 255]))
+       .every(o => /^(No\.|Description|Qty|Rate|Amount \(PHP\))$/.test(o.s)));
+}
+
+{
+  const rule = plan.ops.filter(o => o.t === 'line' && o.lw === 2);
+  ok('there is one 2pt rule, the one above the totals', rule.length === 1,
+     String(rule.length));
+  ok('it is drawn in ink, as .stmt-tot’s border-top is',
+     rule.length === 1 && sameRGB(rule[0].color, INK),
+     rule.length ? JSON.stringify(rule[0].color) : '');
+  const tot = opFor(plan, 'Total amount due');
+  ok('it sits above the totals, on the same page',
+     rule.length === 1 && (rule[0].p || 0) === (tot.p || 0) && rule[0].y1 < tot.y);
+  ok('every other rule keeps its hairline weight',
+     plan.ops.filter(o => o.t === 'line' && o.lw !== undefined && o.lw !== 2).length === 0);
+}
+
+{
+  // Bill to, vessel, meta, amount in words, payment details
+  ok('five stroked boxes', stroked(plan).length === 5,
+     JSON.stringify(stroked(plan).map(o => [o.y, o.h])));
+  const boxOf = (s) => stroked(plan).find(r => encloses(r, opFor(plan, s)));
+  ['Bill to', 'Vessel name', 'Period covered', 'Amount in words', 'Payment details']
+    .forEach(s => ok('a box around ' + s, !!boxOf(s)));
+  const bt = boxOf('Bill to');
+  ok('the Bill to box holds the whole block, not just its label',
+     !!bt && encloses(bt, opFor(plan, 'Mr. Ashford Chua')) &&
+     encloses(bt, opFor(plan, 'Seaford Shipping Lines')) &&
+     encloses(bt, opFor(plan, 'Makati City, Philippines')));
+  ok('the boxes are outset from the text, never inset into it',
+     stroked(plan).every(r => r.x < 42 && r.x + r.w > plan.page.w - 42));
+  ok('all five share one pair of outer edges, and the band shares it too',
+     rects(plan).every(r => Math.abs(r.x - rects(plan)[0].x) < 0.01 &&
+                            Math.abs(r.w - rects(plan)[0].w) < 0.01),
+     JSON.stringify(rects(plan).map(r => [r.x, r.w])));
+  ok('each box is emitted after the text it surrounds, so a stroke cannot cover it',
+     stroked(plan).every(r => plan.ops.filter(o => o.t === 'text' && encloses(r, o))
+       .every(o => plan.ops.indexOf(o) < plan.ops.indexOf(r))));
+  ok('the boxes do not overlap each other',
+     stroked(plan).every((a, i) => stroked(plan).every((b, j) =>
+       i === j || (a.p || 0) !== (b.p || 0) ||
+       a.y + a.h <= b.y + 0.01 || b.y + b.h <= a.y + 0.01)));
+}
+
+{
+  // the meta box carries two internal dividers, one per cell boundary
+  const meta = stroked(plan).find(r => encloses(r, opFor(plan, 'Period covered')));
+  const vert = plan.ops.filter(o => o.t === 'line' && Math.abs(o.x1 - o.x2) < 0.01);
+  ok('two vertical rules, and only two', vert.length === 2, String(vert.length));
+  ok('both run the full height of the meta box', !!meta && vert.every(o =>
+     (o.p || 0) === (meta.p || 0) && Math.abs(Math.min(o.y1, o.y2) - meta.y) < 0.01 &&
+     Math.abs(Math.max(o.y1, o.y2) - (meta.y + meta.h)) < 0.01),
+     JSON.stringify(vert.map(o => [o.y1, o.y2])) +
+     ' box=' + JSON.stringify([meta && meta.y, meta && meta.h]));
+  ok('both sit inside the box, not on its edges',
+     !!meta && vert.every(o => o.x1 > meta.x + 1 && o.x1 < meta.x + meta.w - 1));
+  // 1.35 / 1 / 1 of the inner width, as .stmt-meta>div.wide sets it
+  const want = !meta ? [] : [1.35, 2.35].map(k => meta.x + meta.w * k / 3.35);
+  ok('at the flex boundaries print divides the row on',
+     vert.length === 2 && vert.map(o => o.x1).sort((a, b) => a - b)
+       .every((x, i) => Math.abs(x - want[i]) < 0.5),
+     JSON.stringify(vert.map(o => o.x1)) + ' want ' + JSON.stringify(want));
+  // and the cell text must clear its own divider, or the label prints on it
+  ['Terms', 'Due on'].forEach(s => ok(s + ' clears the divider to its left',
+     vert.some(o => opFor(plan, s).x - o.x1 > 4 && opFor(plan, s).x - o.x1 < 20),
+     String(opFor(plan, s).x)));
+}
+
+{
+  // the property a human eye would catch late and a test can catch now
+  const straddles = (pl) => rects(pl).filter(r =>
+    r.y < 0 || r.y + r.h > pl.page.bottom + 0.01 ||
+    r.x < 0 || r.x + r.w > pl.page.w + 0.01);
+  ok('no rect straddles a page in the base plan',
+     straddles(plan).length === 0, JSON.stringify(straddles(plan)));
+  ok('nor in the forty-line plan', straddles(p40).length === 0,
+     JSON.stringify(straddles(p40)));
+  const hdrRects = filled(p40).length;
+  const p40heads = p40.ops.filter(o => o.t === 'text' && o.s === 'Amount (PHP)').length;
+  ok('the band follows the header onto every continuation page',
+     hdrRects === p40heads && hdrRects > 1, 'rects=' + hdrRects + ' heads=' + p40heads);
+
+  // the boxed blocks are pushed down the page a line at a time, so every
+  // boundary case is walked rather than one lucky fixture
+  let bad = 0, worstPages = 0;
+  for (let n = 1; n <= 55; n++) {
+    const tall = Object.assign({}, app.clients[0], { id:'c'+n,
+      address: Array.from({ length:n }, (_, i) => 'Address line ' + (i+1)).join('\n') });
+    const pn = app.pdfPlan(Object.assign({}, facts, { rec: tall }), 'BILLDWG-26-009');
+    worstPages = Math.max(worstPages,
+      Math.max.apply(null, pn.ops.map(o => o.p || 0)) + 1);
+    if (straddles(pn).length) {
+      bad++;
+      if (bad === 1) console.log('    first bad n=' + n + ' ' +
+        JSON.stringify(straddles(pn)));
+    }
+  }
+  ok('no rect straddles a page at any block height', bad === 0, bad + ' of 55');
+  ok('and the sweep really does paginate', worstPages > 1, String(worstPages));
+}
+
+{
+  // the boxes are per-block, not decoration: drop a block and its box goes
+  const noVes = app.pdfPlan(Object.assign({}, facts, { oneVessel:'' }), 'BILLDWG-26-010');
+  ok('no vessel, no vessel box', stroked(noVes).length === 4,
+     String(stroked(noVes).length));
+  const keep2 = { payee:app.cfg.payee, remitEmail:app.cfg.remitEmail, banks:app.cfg.banks };
+  Object.assign(app.cfg, { payee:'', remitEmail:'', banks:[] });
+  const noPay = app.pdfPlan(facts, 'BILLDWG-26-011');
+  ok('no payment details, no payment box', stroked(noPay).length === 4,
+     String(stroked(noPay).length));
+  Object.assign(app.cfg, keep2);
+}
+
+console.log('\n--- 20. pdfDoc plays the plan back without leaking state ---');
+{
+  // Colour and line width are document state in jsPDF, not per-call arguments:
+  // whatever an op sets stays set. A missed reset would not fail loudly, it
+  // would quietly paint the rest of the billing white - so the plan is played
+  // through a recording double and every drawing call is checked against the
+  // op that asked for it.
+  const log = [];
+  let fill = [0,0,0], drawC = [0,0,0], txtC = [0,0,0], lw = 0.6, pageN = 0;
+  globalThis.window.jspdf = { jsPDF: class {
+    setFont(){} setFontSize(){}
+    setLineWidth(n){ lw = n; }
+    setFillColor(r, g, b){ fill = [r, g, b]; }
+    setDrawColor(r, g, b){ drawC = [r, g, b]; }
+    setTextColor(r, g, b){ txtC = [r, g, b]; }
+    addPage(){ pageN++; }
+    snap(k){ log.push({ k, fill:fill.slice(), draw:drawC.slice(),
+                        txt:txtC.slice(), lw, p:pageN }); }
+    text(){ this.snap('text'); }
+    line(){ this.snap('line'); }
+    rect(x, y, w, h, mode){ this.snap(mode === 'F' ? 'fill' : 'stroke'); }
+    addImage(){ this.snap('image'); }
+  } };
+  await app.pdfDoc(p40);
+  const kindOf = o => o.t === 'rect' ? (o.fill ? 'fill' : 'stroke') : o.t;
+  const wantFill = o => (o.t === 'rect' && o.fill) ? o.fill : [0, 0, 0];
+  const wantDraw = o => (o.t === 'line' && o.color) ? o.color : [0, 0, 0];
+  const wantTxt = o => o.t === 'text' && o.color ? o.color : [0, 0, 0];
+  const off = (f) => log.map((r, i) => [i, r, p40.ops[i]]).filter(a => !f(a[1], a[2]));
+  ok('every op is drawn, once, in order',
+     log.length === p40.ops.length && log.every((r, i) => r.k === kindOf(p40.ops[i])),
+     log.length + ' vs ' + p40.ops.length);
+  ok('each op is drawn on the page it names',
+     log.every((r, i) => r.p === (p40.ops[i].p || 0)));
+  const fillOK = (r, o) => r.fill.join() === wantFill(o).join();
+  ok('a filled rect gets the fill the plan asked for, and nothing else inherits it',
+     off(fillOK).length === 0, JSON.stringify(off(fillOK).slice(0, 2)));
+  const txtOK = (r, o) => r.txt.join() === wantTxt(o).join();
+  ok('a white label is white when it is drawn, and black is restored after it',
+     off(txtOK).length === 0, JSON.stringify(off(txtOK).slice(0, 2)));
+  const drawOK = (r, o) => r.draw.join() === wantDraw(o).join();
+  ok('the stroke colour is the op’s, and never outlives it',
+     off(drawOK).length === 0, JSON.stringify(off(drawOK).slice(0, 2)));
+  const lwOK = (r, o) => r.lw === (o.lw || 0.6);
+  ok('line width follows the op, then returns to a hairline',
+     off(lwOK).length === 0, JSON.stringify(off(lwOK).slice(0, 2)));
+  delete globalThis.window.jspdf;
 }
 
 console.log('\n' + '='.repeat(46));

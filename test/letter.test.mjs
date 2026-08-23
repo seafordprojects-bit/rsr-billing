@@ -54,7 +54,8 @@ globalThis.window.jspdf = {
   jsPDF: class {
     constructor(){}
     setFont(){} setFontSize(){} setLineWidth(){}
-    text(){} line(){} addImage(){}
+    setFillColor(){} setDrawColor(){} setTextColor(){}
+    text(){} line(){} rect(){} addImage(){} addPage(){}
     output(){ return 'data:application/pdf;base64,' + Buffer.from('fake-pdf').toString('base64'); }
   },
 };

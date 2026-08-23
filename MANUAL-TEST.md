@@ -320,6 +320,22 @@ check that anyone can read the document.
       the VAT or withholding line, the total, the amount in words, terms and
       due date, payment details **including the "Please issue payment to" and
       deposit-slip lines**, and the closing thank-you.
+- [ ] **The rules and boxes.** Still side by side: Bill To, the vessel line,
+      the period/terms/due row, the amount in words and the payment details
+      each sit inside a box, all five boxes share the same left and right
+      edges, and the period row is split into three cells by two dividers.
+      The table header is a dark band the colour of the printed one with
+      white labels on it, and the rule above the totals is visibly heavier
+      than every other rule. Nothing may touch a rule: no label sitting on a
+      divider, no descender cut by a box edge, no text jammed against a side.
+- [ ] **No box may cross a page break.** Check it on the 25-line billing
+      below, and again on a client with a long multi-line address. A box
+      split across two pages is the failure this pass is most likely to have
+      missed — the harness can prove the coordinates, never the paint.
+- [ ] Two differences from print are **deliberate, not omissions**: the PDF
+      has no alternating row shading, and its figures are not in a monospace
+      face — jsPDF carries no Consolas, so Courier would change the look
+      rather than match it.
 - [ ] **Read the amounts.** Every figure must be plain and correct — no `±`,
       no stray characters, no gaps between digits. The column reads
       **Amount (PHP)** and a line above the amount in words says all amounts
