@@ -1146,6 +1146,173 @@ git commit -m "report a letter that addresses nobody, rather than sending it"
 
 ---
 
+### Task 8: Make the PDF the printed document
+
+**Files:**
+- Modify: `index.html` — `pdfPlan`, `pdfDoc`, and the `$('sPdf')` handler
+- Test: `test/pdfplan.test.mjs` (extend)
+
+**Why this task exists.** The final whole-branch review compared `pdfPlan`
+against `renderStatement` field by field for the first time and found the PDF
+is not the printed document. Two findings were Critical. The seven per-task
+reviews all passed because each only checked its own brief, and the brief
+itself was a sketch. **Write every step below against the real markup in
+`renderStatement` and `payBlock()`, not from memory.**
+
+**Decision already taken by the repo owner — do not revisit.** jsPDF's standard
+Helvetica cannot render the peso sign U+20B1: it is outside cp1252 and the
+glyph reaches the content stream as a stray byte with a NUL before every digit.
+Amounts on the PDF are therefore printed **bare**, the amount column is headed
+**Amount (PHP)**, and a line reading **All amounts in Philippine Pesos (PHP)**
+sits above the amount in words. Do not embed a font. Do not reintroduce the
+sign anywhere in the PDF path.
+
+Note `renderStatement` already strips the sign from the line-item rate and
+amount cells; only the three totals keep it. So the PDF diverges from print in
+exactly three places, and the PHP label is what carries the currency.
+
+- [ ] **Step 1: A money helper for the PDF**
+
+Add beside `pdfPlan`:
+
+```js
+// jsPDF's standard fonts are cp1252; the peso sign is not in it and would be
+// written as a stray byte with a NUL before every digit. The column header and
+// the note above the total carry the currency instead.
+const pdfMoney=n=>money(n).replace('₱','');
+```
+
+Every amount drawn by `pdfPlan` goes through this. No exceptions.
+
+- [ ] **Step 2: Write the failing tests for the document's content**
+
+Extend `test/pdfplan.test.mjs`, asserting against the values `renderStatement`
+uses so the two cannot drift again. Assert: no peso sign anywhere in the plan;
+the amount column reads `Amount (PHP)`; the PHP note is present; the billing
+carries `fmtDate(today())`; period and due dates are formatted, not raw ISO;
+lines are numbered `1.0`, `2.0`; the subtotal label counts items as print does;
+the total reads `Total amount due`; the amount in words is labelled; and the
+closing line `Thank you for your business.` is present.
+
+- [ ] **Step 3: Reproduce the header, Bill To, vessel and meta blocks**
+
+Match `renderStatement` exactly, in its order:
+
+- header left: the mark image, then `cfg.company||'RSR ENGINEERING SERVICES'`
+  (note the casing — the current fallback is Title Case and is wrong), then
+  `cfg.address` split on newlines, then `cfg.contact`, then
+  `'contact no.: '+cfg.contactNo`. **Delete the invented
+  `Naval Architecture · UTG · Drydocking` tagline — it exists nowhere else in
+  the app.**
+- header right: `Billing`, the issued number, `fmtDate(today())`.
+- Bill To: the label `Bill to`, then `rec.contact_person`, **then** the client
+  name, then `rec.address` split on newlines. Contact person comes first, as in
+  print.
+- vessel: only when `facts.oneVessel`, labelled `Vessel name`.
+- meta: `Period covered` with `fmtDate(facts.from)` em-dash `fmtDate(facts.to)`,
+  `Terms` with `facts.terms+' days'`, `Due on` with `fmtDate(facts.due)`.
+
+- [ ] **Step 4: Reproduce the table, including no-charge lines**
+
+Columns `No.`, `Description`, `Qty`, `Rate`, `Amount (PHP)`. The line number is
+`(i+1)+'.0'`. The description carries the same sub-line print uses: the drawing
+number, preceded by the vessel when the billing covers more than one vessel.
+
+**A no-charge line prints `No Charge` in BOTH the rate and amount cells**, as
+`renderStatement` does. The current code prints the real rate beside a zero
+amount, so the client reads `2 x 1,500.00 = 0.00`. Use the existing
+`noCharge(r)`.
+
+- [ ] **Step 5: Paginate**
+
+`pdfPlan` emits no page break and `pdfDoc` never calls `addPage`, so past
+roughly twenty lines the totals, the amount in words and the payment details
+fall off the sheet silently. Measured: twenty-five lines reach 967pt on an
+842pt page.
+
+Give every op a page index `p`, starting at 0. While laying out, when the next
+row would pass the bottom margin, increment the page, reset `y` to the top
+margin, and **redraw the table header** on the new page. Keep the totals block,
+the amount in words and the payment details together — if they do not fit in
+the remaining space, break first rather than splitting them.
+
+After the ops are built, append a footer to each page carrying the billing
+number and `Page N of M`, now that M is known.
+
+`pdfDoc` calls `doc.addPage()` whenever `op.p` exceeds the page it is on. It
+still makes no layout decisions.
+
+- [ ] **Step 6: Write the failing pagination test**
+
+Build a forty-line billing and assert: it needs more than one page; no op is
+drawn past the bottom margin; the total, the amount in words and the payment
+details all survive to the last page; every page carries a `Page N of M`
+footer; and the table header repeats once per page.
+
+- [ ] **Step 7: Reproduce the payment block**
+
+Mirror `payBlock()`: the label `Payment details`; `Please issue payment to `
+plus `cfg.payee` when set; the bank rows; and `Kindly email a copy of the
+deposit slip to ` plus `cfg.remitEmail` plus ` for confirmation of payment.`
+when set. Omit the whole block when payee, banks and remit email are all empty,
+exactly as `payBlock()` does.
+
+Then the closing block: `Thank you for your business.`, and `Prepared by: `
+plus `cfg.signer` (with `, ` plus `cfg.role` when set) **only when**
+`cfg.showPrepared && cfg.signer`.
+
+- [ ] **Step 8: Stop Download PDF burning billing numbers**
+
+`$('sPdf')` skips `confirmMultiGroup(list)` — which Print calls for exactly this
+reason — while still calling `issueBillNos()`, so it claims and persists a
+number for every picked group. If the build then throws (offline, CDN down),
+the number is already spent.
+
+Reorder: confirm first, then **load jsPDF**, then claim, then build and save.
+Loading first means the likeliest failure cannot cost a number.
+
+- [ ] **Step 9: Run everything, syntax-check, commit**
+
+Run the full suite, `node --check` the extracted script, then commit.
+
+---
+
+### Task 9: Close the final review's minor findings
+
+**Files:**
+- Modify: `test/queue.test.mjs`, `test/letter.test.mjs`,
+  `supabase/functions/send-statement/index.ts`
+
+- [ ] **Step 1: Finish the section renumbering**
+
+`ca08292` renumbered sections 8 and 9 and missed two: `test/queue.test.mjs`
+still prints a `N+2` section label, and a nearby comment still refers to a
+section by placeholder letter. Check the surrounding numbering before choosing
+replacements; do not assume.
+
+- [ ] **Step 2: Rename two assertions that overstate what they cover**
+
+In `test/letter.test.mjs`, `the content is base64` proves the fake jsPDF's own
+output round-trips; what it genuinely exercises is `pdfRender` stripping the
+data-URI prefix. Rename it to say that. Likewise `no tracking code anywhere in
+the posted body` cannot see inside the attachment, because base64 is opaque —
+rename it to name the fields it actually scans. The real coverage lives in
+`pdfplan.test.mjs`. Do not delete either assertion; stop them claiming more
+than they do.
+
+- [ ] **Step 3: Make the attachment required, failing closed**
+
+`supabase/functions/send-statement/index.ts` treats `attachment` as optional.
+There is deliberately no service worker, but a stale cached `index.html` could
+still post without one and mail a billing with no document — the exact failure
+this branch exists to prevent. Refuse the send when it is absent, matching every
+other check in that file, and add an `fn` assertion for it. Update the existing
+"a send with no attachment still works" assertion to expect refusal.
+
+- [ ] **Step 4: Run everything, syntax-check, commit**
+
+Run the full suite, `node --check` the extracted script, then commit.
+
 ## Parked
 
 **A letter composed once without its salutation line (2026-08-23).** Not
