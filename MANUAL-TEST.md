@@ -311,13 +311,35 @@ The harness has no layout and no painting. It can prove the numbers on the
 PDF come from `stmtFacts`; it cannot see the page. This section is the only
 check that anyone can read the document.
 
-- [ ] Open a billing with at least two lines, one of them a revision, and one
-      no-charge line. Tap **Download PDF**.
+- [ ] Open a billing with at least two lines, one of them a revision, one
+      no-charge line, and one with a long title. Tap **Download PDF**.
 - [ ] Put the PDF beside the printed page — Print, same billing — and
-      compare: the mark, Bill To (company, contact person, address), vessel,
-      period, every line with its drawing number, subtotal, the VAT or
-      withholding line, the total, the amount in words, terms and due date,
-      payment details.
+      compare: the mark, the company name **with its address and contact
+      no.**, the **date**, Bill To (contact person first, then company, then
+      address), vessel, period, every line with its drawing number, subtotal,
+      the VAT or withholding line, the total, the amount in words, terms and
+      due date, payment details **including the "Please issue payment to" and
+      deposit-slip lines**, and the closing thank-you.
+- [ ] **Read the amounts.** Every figure must be plain and correct — no `±`,
+      no stray characters, no gaps between digits. The column reads
+      **Amount (PHP)** and a line above the amount in words says all amounts
+      are in Philippine Pesos. There is deliberately no ₱ sign on the PDF:
+      jsPDF's standard font cannot encode it. This is the one place the PDF
+      is allowed to differ from the printed page.
+- [ ] Three known, deliberate substitutions: the em dash in the period range
+      and the subtotal label prints as a hyphen, and curly quotes print
+      straight. Anything else non-Latin prints as `?` — if you see a `?` on
+      the document, tell Claude, it means a character has no substitute yet.
+- [ ] A no-charge line reads **No Charge** in *both* the Rate and Amount
+      columns, exactly as it does on paper — never a rate beside a zero.
+- [ ] The long title wraps inside the Description column. It must not run
+      under Qty, Rate or Amount.
+- [ ] **Pagination.** Build a billing with **25 or more lines** and download
+      it. There must be a second page; the table header repeats on it; every
+      page is footed with the billing number and `Page N of M`; and the
+      totals, amount in words and payment details all survive to the last
+      page. Before this was fixed they fell off the bottom of page one
+      silently, so two lines is not enough to test it.
 - [ ] Confirm the billing number matches the printed copy and that no
       `RSR-` code appears anywhere on the PDF.
 - [ ] Print the PDF. The mark must read as solid black on a mono printer.
