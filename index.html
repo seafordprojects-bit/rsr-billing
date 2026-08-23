@@ -3947,14 +3947,6 @@ async function pdfRender(plan){
   if(i<0)throw new Error('The PDF could not be encoded');
   return uri.slice(i+1);
 }
-// A Blob alongside the base64 string: whichever the caller needs (an email
-// attachment wants base64, a browser download API would want this) without
-// rendering the plan twice.
-async function pdfBlob(plan){
-  const doc=await pdfDoc(plan);
-  return doc.output('blob');
-}
-
 /* ---- settings ---- */
 // The bucket name is configurable, so the script is generated against
 // whatever is in the Storage bucket field rather than a hard-coded name.
