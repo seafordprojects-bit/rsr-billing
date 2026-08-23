@@ -887,6 +887,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   </div>
   <div class="sheet-foot">
     <button class="btn-ghost" id="sPreview">Preview</button>
+    <button class="btn-ghost" id="sPdf">Download PDF</button>
     <button class="btn-ghost" id="sEmailBtn">Email</button>
     <button class="btn-fill" id="sPrint">Print</button>
   </div>
@@ -2470,6 +2471,28 @@ function loadPdfJs(){
   return pdfLib;
 }
 
+// Loaded on demand, with an SRI hash, exactly as pdf.js is. Emailing already
+// requires connectivity, so a load at send time costs nothing offline.
+// Pinned to 4.2.1, hash from https://api.cdnjs.com/libraries/jspdf?fields=version,sri
+let jsPdfP=null;
+function loadJsPdf(){
+  if(window.jspdf&&window.jspdf.jsPDF)return Promise.resolve(window.jspdf.jsPDF);
+  if(jsPdfP)return jsPdfP;
+  jsPdfP=new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js';
+    s.integrity='sha512-plOdviVmws4Y3JAvbnpfKb2hVxKM1lCwsi3vmElYRj+tiDLffZ4FVUj5a8vyKJ9pIgl8JCAHEJ4D1iUKBecswg==';
+    s.crossOrigin='anonymous';
+    s.onload=()=>{
+      if(window.jspdf&&window.jspdf.jsPDF)res(window.jspdf.jsPDF);
+      else rej(new Error('The PDF library loaded but is not usable'));
+    };
+    s.onerror=()=>{jsPdfP=null;rej(new Error('Could not load the PDF library'));};
+    document.head.appendChild(s);
+  });
+  return jsPdfP;
+}
+
 // Title blocks sit bottom-right on page 1, so text there is weighted first.
 async function readPdf(file){
   const lib=await loadPdfJs();
@@ -3460,6 +3483,22 @@ $('sPreview').onclick=()=>{
   hide();
   setTimeout(()=>window.print(),220);
 };
+$('sPdf').onclick=async()=>{
+  const btn=$('sPdf');
+  btn.disabled=true;btn.textContent='Building…';
+  try{
+    const picked=pickedRows();
+    if(!picked.length)throw new Error('Nothing is selected to bill');
+    const facts=stmtFacts(picked);
+    const issued=await issueBillNos();
+    const plan=pdfPlan(facts,issued);
+    const doc=await pdfDoc(plan);
+    doc.save(plan.filename);
+  }catch(e){
+    // no swallowed catch: the reason is what makes this debuggable
+    toast(e.message||'Could not build the PDF',true);
+  }finally{btn.disabled=false;btn.textContent='Download PDF';}
+};
 $('sPrint').onclick=async()=>{
   const list=pickedRows();
   if(!list.length){toast('Pick at least one document',true);return;}
@@ -3886,6 +3925,34 @@ function pdfPlan(facts,issuedNo){
   });
 
   return {filename:pdfFilename(issuedNo),page:{w:PDF_W,h:PDF_H},ops:ops};
+}
+
+// Thin on purpose: it makes no layout decisions, it only plays back the plan.
+async function pdfDoc(plan){
+  const JsPDF=await loadJsPdf();
+  const doc=new JsPDF({unit:'pt',format:[plan.page.w,plan.page.h]});
+  plan.ops.forEach(o=>{
+    if(o.t==='image'){doc.addImage(o.d,'PNG',o.x,o.y,o.w,o.h);return;}
+    if(o.t==='line'){doc.setLineWidth(0.6);doc.line(o.x1,o.y1,o.x2,o.y2);return;}
+    doc.setFont('helvetica',o.bold?'bold':'normal');
+    doc.setFontSize(o.size||9);
+    doc.text(o.s,o.x,o.y,o.align?{align:o.align}:undefined);
+  });
+  return doc;
+}
+async function pdfRender(plan){
+  const doc=await pdfDoc(plan);
+  const uri=doc.output('datauristring');
+  const i=uri.indexOf(',');
+  if(i<0)throw new Error('The PDF could not be encoded');
+  return uri.slice(i+1);
+}
+// A Blob alongside the base64 string: whichever the caller needs (an email
+// attachment wants base64, a browser download API would want this) without
+// rendering the plan twice.
+async function pdfBlob(plan){
+  const doc=await pdfDoc(plan);
+  return doc.output('blob');
 }
 
 /* ---- settings ---- */
