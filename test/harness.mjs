@@ -40,7 +40,11 @@ globalThis.__t={
   get expanded(){return expanded}, set expanded(v){expanded=v},
   get multiLocked(){return multiLocked}, get editingId(){return editingId},
   issueBillNos, setGroupBillNo, billSeqOf, setBillSeq,
-  noCharge, baseTitle, revNoOf, priorBillings, nextRevNo, amountOf, confirmMultiGroup, repaint, canonClient, maxIssuedNo, cmbHide, get sNoMode(){return sNoMode}
+  noCharge, baseTitle, revNoOf, priorBillings, nextRevNo, amountOf, confirmMultiGroup, repaint, canonClient, maxIssuedNo, cmbHide, get sNoMode(){return sNoMode},
+  stmtFacts, letterTemplate, letterVars, fillLetter, composeLetter, letterHtml,
+  mailSubject, markBilledNow, termsDefault, canonVessel, LETTER_DEFAULT, LETTER_KEYS,
+  fmtDate, today, money,
+  get pendingSend(){return pendingSend}
 };
 `;
 const lastIdx = js.lastIndexOf('})();');
@@ -48,6 +52,11 @@ js = js.slice(0, lastIdx) + hook + js.slice(lastIdx);
 
 /* ---------------- DOM stub ---------------- */
 class El {
+  // a real <input>.value is a DOMString, so `el.value = 7` reads back as '7'.
+  // Without this the app can assign a number and a suite comparing to '7'
+  // fails on a value that is correct in the browser.
+  get value(){ return this._value; }
+  set value(v){ this._value = v==null ? '' : String(v); }
   constructor(id){ this.id=id; this._cls=new Set(); this.value=''; this.textContent='';
     this._html=''; this.checked=false; this.disabled=false; this.hidden=false;
     this.style={}; this.dataset={};

@@ -1,0 +1,249 @@
+// The covering letter, the review step, and what a send does to status.
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SRC = process.argv[2] || path.join(ROOT, 'index.html');
+import { net } from './harness.mjs';
+import fs from 'node:fs';
+
+let pass = 0, fail = 0;
+const ok = (name, cond, extra='') => {
+  if (cond) { pass++; console.log('  PASS  ' + name); }
+  else { fail++; console.log('  FAIL  ' + name + (extra ? '  -> ' + extra : '')); }
+};
+const el = id => document.getElementById(id);
+const html = fs.readFileSync(SRC, 'utf8');
+const KEYS = ['rsr_dwg_cfg_v1','rsr_dwg_rows_v1','rsr_dwg_queue_v1','rsr_dwg_session_v1',
+              'rsr_dwg_catalog_v1','rsr_dwg_clients_v1','rsr_dwg_shared_v1'];
+const reset = () => {
+  KEYS.forEach(k => globalThis.localStorage.removeItem(k));
+  globalThis.localStorage.setItem('rsr_dwg_cfg_v1', JSON.stringify({ seededDW:true }));
+  el('sNo').value = '';
+  return globalThis.__loadApp();
+};
+const make = async (app, titles, vessel='MV SF Voyager') => {
+  app.openEntry(null, 'DW');
+  el('eClient').value = 'Seaford'; el('eVessel').value = vessel;
+  el('eDate').value = '2026-08-21'; el('eRate').value = '1000';
+  app.mlines = titles.map(t => ({ id:null, title:t, ref:'DWG-'+t.length, qty:1, rate:'',
+                                  billable:true, rev_of:null, rev_no:null }));
+  app.renderML();
+  await el('eSave').onclick();
+};
+const openStmt = (app) => {
+  el('sClient').value = 'Seaford';
+  el('sFrom').value = '2026-08-01'; el('sTo').value = '2026-08-31';
+  el('sType').value = ''; el('sTerms').value = '7'; el('sVat').value = '0';
+  app.buildPick();
+};
+// The send refuses to run with anything still queued, so a suite that wants
+// to reach it has to be online from the first write, not just at send time.
+const online = (app) => {
+  net.mode = 'online';
+  app.cfg.url = 'https://proj.supabase.co'; app.cfg.key = 'anon';
+  app.setSession({ access_token:'t', refresh_token:'r', expires_at: 2e9,
+                   user:{ email:'me@rsr.test' } });
+  return app;
+};
+
+net.mode = 'offline';
+let app = reset();
+
+console.log('\n--- 1. the seeded template ---');
+ok('Settings carries the letter box', /id="cLetter"/.test(html));
+ok('an unset template resolves to the standard wording',
+   app.letterTemplate() === app.LETTER_DEFAULT);
+ok('it opens with the salutation', /^Dear \{contact\},/.test(app.LETTER_DEFAULT));
+ok('it names billing, vessel, period and total',
+   ['{billno}','{vessel}','{period}','{total}'].every(k => app.LETTER_DEFAULT.includes(k)),
+   app.LETTER_DEFAULT);
+ok('it carries the agreed-terms sentence',
+   /We would appreciate settlement within the agreed terms\./.test(app.LETTER_DEFAULT));
+ok('and the closing block',
+   /Respectfully yours,[\s\S]*Raffy J\. Ramirez[\s\S]*Naval Architect & Marine Engineer[\s\S]*RSR Engineering Services$/
+     .test(app.LETTER_DEFAULT), JSON.stringify(app.LETTER_DEFAULT.slice(-90)));
+ok('every documented placeholder is substitutable',
+   ['contact','billno','vessel','period','total','due'].every(k => app.LETTER_KEYS.includes(k)),
+   app.LETTER_KEYS.join(','));
+ok('Settings shows the seeded wording in the box',
+   (app.openCfg(), el('cLetter').value === app.LETTER_DEFAULT), el('cLetter').value.slice(0, 40));
+
+console.log('\n--- 2. placeholders resolve ---');
+await app.cliSave({ name:'Seaford', contact_person:'Mr. Chua', address:'Cebu',
+                    billing_email:'ap@seaford.test' }, true);
+await make(app, ['Shell Expansion Plan']);
+openStmt(app);
+let letter = app.composeLetter(app.pickedRows(), 'BILLDWG-26-001');
+ok('the contact person becomes the salutation',
+   /^Dear Mr\. Chua,/.test(letter), letter.split('\n')[0]);
+ok('the billing number is quoted', letter.includes('BILLDWG-26-001'));
+ok('the vessel is named', letter.includes('MV SF Voyager'));
+ok('the period reads as the covered range',
+   letter.includes('01 Aug 2026 — 31 Aug 2026'), letter);
+ok('the total is the document total',
+   letter.includes(app.money(app.stmtFacts(app.pickedRows()).grand)) &&
+   /₱1,000\.00/.test(letter), letter);
+ok('no placeholder is left unresolved', !/\{(contact|billno|vessel|period|total|due)\}/.test(letter),
+   (letter.match(/\{[a-z]+\}/) || [''])[0]);
+
+console.log('\n--- the total cannot drift from the document ---');
+el('sVat').value = '12';
+app.renderStatement(app.pickedRows());
+const withVat = app.composeLetter(app.pickedRows(), 'BILLDWG-26-001');
+ok('VAT moves the letter total too',
+   withVat.includes('₱1,120.00') && el('printRoot').innerHTML.includes('₱1,120.00'),
+   (withVat.match(/₱[\d,.]+/) || [''])[0]);
+el('sVat').value = '0';
+
+console.log('\n--- a client with no contact person ---');
+// a second cliSave adds a record rather than replacing, and clientRec takes
+// the first match — so this needs its own app, not an overwrite
+const noContact = reset();
+await noContact.cliSave({ name:'Seaford', contact_person:'', address:'Cebu',
+                          billing_email:'ap@seaford.test' }, true);
+await make(noContact, ['Shell Expansion Plan']);
+openStmt(noContact);
+ok('falls back to Sir/Madam',
+   /^Dear Sir\/Madam,/.test(noContact.composeLetter(noContact.pickedRows(), 'X')),
+   noContact.composeLetter(noContact.pickedRows(), 'X').split('\n')[0]);
+app = reset();
+await app.cliSave({ name:'Seaford', contact_person:'Mr. Chua', address:'Cebu',
+                    billing_email:'ap@seaford.test' }, true);
+await make(app, ['Shell Expansion Plan']);
+openStmt(app);
+
+console.log('\n--- {due} follows the terms field ---');
+el('sTerms').value = '7';
+ok('7 days is reflected',
+   app.fillLetter('Due {due}', app.letterVars(app.stmtFacts(app.pickedRows()), 'X'))
+     === 'Due ' + app.fmtDate(app.stmtFacts(app.pickedRows()).due));
+
+console.log('\n--- an unknown token is left visible, not blanked ---');
+ok('a typo survives to the review step',
+   app.fillLetter('Hi {contct}', app.letterVars(app.stmtFacts(app.pickedRows()), 'X'))
+     === 'Hi {contct}');
+
+console.log('\n--- 3. the letter renders above the billing ---');
+app.renderStatement(app.pickedRows(), { email:true });
+const mail = app.statementEmailHtml('Dear Sir/Madam,\n\nOne\nTwo\n\nRespectfully yours,');
+ok('the letter block comes first',
+   mail.indexOf('class="ltr"') > -1 &&
+   mail.indexOf('class="ltr"') < mail.indexOf('class="stmt"'));
+ok('it carries the send date',
+   new RegExp('class="ltr-d">' + app.fmtDate(app.today())).test(mail));
+const block = app.letterHtml('Dear Sir/Madam,\n\nOne\nTwo\n\nRespectfully yours,');
+ok('blank lines become paragraphs',
+   (block.match(/<p>/g) || []).length === 3, block);
+ok('single newlines break within one', /One<br>Two/.test(mail));
+ok('the mail stylesheet covers the letter', /\.ltr\{/.test(html) && /\.ltr p\{/.test(html));
+ok('letter text is escaped',
+   app.letterHtml('a <b>bold</b> & co').includes('&lt;b&gt;'),
+   app.letterHtml('a <b>bold</b> & co'));
+ok('no letter block when there is no letter', !/class="ltr"/.test(app.statementEmailHtml()));
+
+console.log('\n--- 4. the subject line ---');
+ok('billing, vessel, company',
+   app.mailSubject(app.stmtFacts(app.pickedRows()), 'BILLDWG-26-001')
+     === 'Billing BILLDWG-26-001 — MV SF Voyager — RSR ENGINEERING SERVICES',
+   app.mailSubject(app.stmtFacts(app.pickedRows()), 'BILLDWG-26-001'));
+
+console.log('\n--- 5. the review step ---');
+ok('there is a letter sheet', /id="sheetLetter"/.test(html) && /id="lBody"/.test(html));
+app = online(reset());
+await app.cliSave({ name:'Seaford', contact_person:'Mr. Chua', address:'Cebu',
+                    billing_email:'ap@seaford.test' }, true);
+await make(app, ['Shell Expansion Plan']);
+openStmt(app);
+el('sEmail').value = 'ap@seaford.test';
+await el('sEmailBtn').onclick();
+ok('the Email button opens the review, it does not send',
+   el('sheetLetter').classList.contains('on') &&
+   !net.calls.some(c => String(c.url).includes('send-statement')),
+   JSON.stringify(net.calls.map(c => c.url).slice(-2)));
+ok('the composed letter is in the box', /^Dear Mr\. Chua,/.test(el('lBody').value));
+ok('the recipient is shown for checking', el('lTo').innerHTML.includes('ap@seaford.test'));
+ok('nothing is billed yet', app.allGroups()[0].status === 'DRAFT');
+ok('and no number was claimed',
+   !app.allGroups()[0].bill_no, String(app.allGroups()[0].bill_no));
+
+console.log('\n--- backing out claims nothing ---');
+el('lBack2').onclick();
+ok('the statement sheet comes back', el('sheetStmt').classList.contains('on'));
+ok('still no number burned', !app.allGroups()[0].bill_no);
+ok('still a draft', app.allGroups()[0].status === 'DRAFT');
+ok('and the send is disarmed', app.pendingSend === null);
+
+console.log('\n--- 6. a successful send marks it billed ---');
+await el('sEmailBtn').onclick();
+el('lBody').value = el('lBody').value.replace('Please find', 'Kindly find');
+let sent = null;
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url, opts={}) => {
+  if (String(url).includes('send-statement')) {
+    sent = JSON.parse(opts.body);
+    return { ok:true, status:200, json:async()=>({ ok:true }), text:async()=>'{}' };
+  }
+  return realFetch(url, opts);
+};
+await el('lSend').onclick();
+ok('the function was called', !!sent);
+ok('the per-send edit is what went out', sent.html.includes('Kindly find'), '');
+ok('and the Settings template is untouched',
+   app.letterTemplate() === app.LETTER_DEFAULT);
+ok('the subject names the billing and vessel',
+   /^Billing BILLDWG-26-\d+ — MV SF Voyager — /.test(sent.subject), sent.subject);
+ok('the billing is now BILLED', app.allGroups()[0].status === 'BILLED',
+   app.allGroups()[0].status);
+ok('with billed_date set to today',
+   app.allGroups()[0].lines.every(r => r.billed_date === app.today()),
+   JSON.stringify(app.allGroups()[0].lines.map(r => r.billed_date)));
+ok('every line moved, not just the first',
+   app.allGroups()[0].lines.every(r => r.status === 'BILLED'));
+
+console.log('\n--- re-sending an already BILLED billing changes nothing ---');
+const wasDate = app.allGroups()[0].lines[0].billed_date;
+app.allGroups()[0].lines.forEach(r => { r.billed_date = '2026-01-01'; });
+ok('markBilledNow leaves BILLED alone', app.markBilledNow(app.allGroups()) === 0);
+ok('and does not restamp the date',
+   app.allGroups()[0].lines[0].billed_date === '2026-01-01', wasDate);
+
+console.log('\n--- a PAID billing is never walked back ---');
+app.markGroup(app.allGroups()[0].id, 'PAID');
+ok('still PAID after a send would mark', app.markBilledNow(app.allGroups()) === 0);
+ok('status untouched', app.allGroups()[0].status === 'PAID');
+
+console.log('\n--- 7. a failed send leaves status alone ---');
+app = online(reset());
+await app.cliSave({ name:'Seaford', contact_person:'Mr. Chua', address:'Cebu',
+                    billing_email:'ap@seaford.test' }, true);
+await make(app, ['Midship Section']);
+openStmt(app);
+el('sEmail').value = 'ap@seaford.test';
+await el('sEmailBtn').onclick();
+globalThis.fetch = async (url, opts={}) => {
+  if (String(url).includes('send-statement'))
+    return { ok:false, status:500, json:async()=>({ ok:false, error:'Resend refused' }),
+             text:async()=>'' };
+  return realFetch(url, opts);
+};
+await el('lSend').onclick();
+ok('the billing is still a draft', app.allGroups()[0].status === 'DRAFT',
+   app.allGroups()[0].status);
+ok('no billed_date was stamped',
+   app.allGroups()[0].lines.every(r => !r.billed_date));
+ok('the letter is kept for another try', !!app.pendingSend);
+globalThis.fetch = realFetch;
+
+console.log('\n--- 8. print keeps its confirm, unless Settings says otherwise ---');
+ok('print still routes through offerMarkBilled',
+   /\$\('sPrint'\)\.onclick[\s\S]{0,700}offerMarkBilled\(list\)/.test(html));
+ok('the toggle exists and defaults off',
+   /id="cMarkPrint"/.test(html) && app.cfg.autoMarkPrint !== true);
+ok('and it is what skips the confirm',
+   /if\(!cfg\.autoMarkPrint\)\{offerMarkBilled\(list\);return;\}/.test(html));
+ok('offerMarkBilled no longer overwrites a PAID billing',
+   /const movable=\(list\|\|\[\]\)\.filter\(g=>g\.status==='DRAFT'\)/.test(html));
+
+console.log('\n' + '='.repeat(46));
+console.log(pass + ' passed, ' + fail + ' failed');
+process.exit(fail ? 1 : 0);

@@ -24,6 +24,39 @@ ok('pdf.js pinned to the verified hash',
    html.includes("sha512-q+4liFwdPC/bNdhUpZx6aXDx/h77yEQtn4I1slHydcbZK34nLaR3cAeYSJshoxIOq3mjEf7xJE8YWIUHMn+oCQ=="));
 ok('SRI needs crossOrigin to be enforced', /s\.crossOrigin\s*=\s*'anonymous'/.test(html));
 
+console.log('\n--- A2. installable as an app, not a shortcut ---');
+// Chrome dropped the service-worker requirement for the menu's "Install app"
+// in v108 on mobile, so the manifest is the whole contract. Miss a field and
+// Android silently falls back to a plain home-screen shortcut.
+ok('the manifest is linked', /<link rel="manifest" href="manifest\.webmanifest">/.test(html));
+const mf = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.webmanifest'), 'utf8'));
+ok('it is valid JSON with the app name', mf.name === 'RSR Billing', mf.name);
+ok('display is standalone', mf.display === 'standalone', mf.display);
+ok('theme colour matches the app chrome', mf.theme_color === '#101F2E', mf.theme_color);
+ok('a background colour for the splash', /^#[0-9A-Fa-f]{6}$/.test(mf.background_color || ''),
+   mf.background_color);
+const sizes = (mf.icons || []).map(i => i.sizes);
+ok('a 192px icon', sizes.includes('192x192'), sizes.join(','));
+ok('and a 512px icon — both are required', sizes.includes('512x512'), sizes.join(','));
+ok('plus a maskable one so Android does not letterbox it',
+   (mf.icons || []).some(i => String(i.purpose || '').split(/\s+/).includes('maskable')),
+   JSON.stringify((mf.icons || []).map(i => i.purpose)));
+// a project-page URL is a subpath, so nothing may be rooted at /
+ok('start_url and scope are relative',
+   !String(mf.start_url).startsWith('/') && !String(mf.scope).startsWith('/'),
+   mf.start_url + ' ' + mf.scope);
+ok('so are the icon paths',
+   (mf.icons || []).every(i => !String(i.src).startsWith('/') && !/^https?:/.test(i.src)),
+   (mf.icons || []).map(i => i.src).join(','));
+ok('every icon file is actually committed',
+   (mf.icons || []).every(i => fs.existsSync(path.join(ROOT, i.src))),
+   (mf.icons || []).map(i => i.src + '=' + fs.existsSync(path.join(ROOT, i.src))).join(' '));
+ok('iOS gets its own icon, which ignores the manifest',
+   /<link rel="apple-touch-icon" href="apple-touch-icon\.png">/.test(html) &&
+   fs.existsSync(path.join(ROOT, 'apple-touch-icon.png')));
+// the offline queue is the persistence story; a cache would only serve stale app code
+ok('no service worker is registered', !/serviceWorker\s*\.\s*register/.test(html));
+
 console.log('\n--- B. generated SQL makes the bucket private ---');
 clearLS();
 net.mode = 'offline';
@@ -127,10 +160,19 @@ ok('carries the statement body', mail.includes('Shell Expansion') &&
 console.log('\n--- I. the email is saved before the send, not after ---');
 const src = html.slice(html.indexOf("$('sEmailBtn').onclick"),
                        html.indexOf("$('sEmailBtn').onclick") + 1600);
+// The send now sits behind the letter-review step, so the ordering is
+// structural rather than sequential: the Email button saves the address and
+// only then sets pendingSend, and lSend refuses to run without it.
 const iSave = src.indexOf('setBillingEmail(client,to)');
-const iSend = src.indexOf("fnPost('send-statement'");
-ok('setBillingEmail runs first', iSave > -1 && iSend > -1 && iSave < iSend,
-   'save@' + iSave + ' send@' + iSend);
+const iPend = src.indexOf('pendingSend={');
+ok('setBillingEmail runs before the review opens',
+   iSave > -1 && iPend > -1 && iSave < iPend,
+   'save@' + iSave + ' pending@' + iPend);
+const snd = html.slice(html.indexOf("$('lSend').onclick"),
+                       html.indexOf("$('lSend').onclick") + 1400);
+ok('and the send itself is gated on that having happened',
+   /if\(!pendingSend\)\{[\s\S]{0,120}return;\}/.test(snd) &&
+   snd.indexOf("fnPost('send-statement'") > -1, snd.slice(0, 160));
 ok('the send is abandoned if the save did not sync',
    /if\(queue\.length\)\{[\s\S]{0,120}return;/.test(src));
 ok('the client name is sent so the function can verify the recipient',

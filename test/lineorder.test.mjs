@@ -135,7 +135,7 @@ ok('page rule is at the top level',
    html.indexOf('@page{') > -1 &&
    html.indexOf('@page{') < html.indexOf('@media print{'),
    '@page at ' + html.indexOf('@page{'));
-ok('one balanced margin on all four sides', /@page\{size:auto;margin:14mm\}/.test(html),
+ok('one balanced margin on all four sides', /@page\{size:auto;margin:12mm\}/.test(html),
    (html.match(/@page\{[^}]*\}/) || [''])[0]);
 ok('body is not width-constrained', /html,body\{[\s\S]{0,140}max-width:none/.test(pr));
 ok('the document takes the printable width', /\.stmt\{width:auto;max-width:none/.test(pr));

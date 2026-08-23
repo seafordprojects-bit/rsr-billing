@@ -146,7 +146,7 @@ console.log('\n--- D. A4 print layout ---');
 const pr = html.slice(html.indexOf('@media print{'), html.indexOf('@media print{') + 2200);
 // size:auto rather than a named paper, so a Letter tray is not scaled
 ok('page size left to the paper', /@page\{size:auto/.test(html));
-ok('a real page margin is declared', /@page\{size:auto;margin:1[2-8]mm\}/.test(html),
+ok('a real page margin is declared', /@page\{size:auto;margin:12mm\}/.test(html),
    (html.match(/@page\{[^}]*\}/) || [''])[0]);
 ok('plus a side inset that survives Margins: None',
    /\.stmt\{[^}]*padding:0 \dmm/.test(pr));

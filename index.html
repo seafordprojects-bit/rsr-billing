@@ -6,6 +6,19 @@
 <meta name="theme-color" content="#101F2E">
 <meta name="robots" content="noindex, nofollow">
 <title>RSR Billing</title>
+<!-- Installability. Chrome dropped the service-worker requirement for the
+     menu's "Install app" in v108 on mobile, so the manifest alone is what
+     makes this a real installed app rather than a home-screen shortcut.
+     Paths are relative so it works from a project subpath, a custom domain,
+     or a plain file:// copy. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- iOS reads none of the manifest: it needs its own icon and these two -->
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RSR Billing">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -369,7 +382,14 @@ header.top{
 .imp-h .nc input{width:15px;height:15px;flex:0 0 auto;accent-color:var(--slate);margin:0}
 .revchip{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--weld);border:1px solid currentColor;border-radius:4px;padding:1px 5px;white-space:nowrap}
 
-.ml-row .cmb{flex:1;min-width:0;position:relative}
+/* The wrapper is what .cmb-pop is positioned against. This has to stay
+   unscoped: while position:relative lived only on `.ml-row .cmb`, the three
+   client comboboxes resolved against `.sheet` instead, and top:calc(100% +
+   4px) put their list just below the sheet — off the bottom of the screen.
+   The list populated and unhid correctly the whole time; it was painted
+   where nobody could see it. */
+.cmb{position:relative}
+.ml-row .cmb{flex:1;min-width:0}
 .ml-row .cmb input{width:100%;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-size:13px}
 .ml-row .ml-rate{flex:0 0 108px;min-width:0;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-family:var(--mono);font-size:12px}
 .cmb-pop{
@@ -452,7 +472,14 @@ header.top{
 }
 .stmt-hd h1{margin:0;font-size:17px;font-weight:800;letter-spacing:-.01em}
 .stmt-hd p{margin:1px 0 0;font-size:10.5px;color:#333;line-height:1.4}
-.stmt-hd .rt{margin-left:auto;text-align:right}
+.stmt-hd .rt{margin-left:auto;text-align:right;flex:0 0 auto}
+/* Overflow does not clip at the page box — it spills into the @page margin
+   and eats the 1in sides. A flex item defaults to min-width:auto, so it
+   refuses to shrink below its longest word; the middle block is the one that
+   can, and it needs somewhere to break when a company name, an address or a
+   contact no. is typed as one long token. .m and .rt keep their size. */
+.stmt-hd>div{min-width:0}
+.stmt-hd h1,.stmt-hd p{overflow-wrap:break-word}
 .stmt-hd .rt .t{font-size:11px;letter-spacing:.18em;text-transform:uppercase;font-weight:700}
 .stmt-hd .rt .n{font-family:var(--mono);font-size:13px;font-weight:600;margin-top:3px}
 .stmt-hd .rt .d{font-family:var(--mono);font-size:10.5px;color:#444}
@@ -462,6 +489,7 @@ header.top{
 .bill-to .who{font-size:12px;font-weight:700;margin-top:3px}
 .bill-to .co{font-size:12px;font-weight:600}
 .bill-to .ad{font-size:10.5px;color:#333;margin-top:1px;line-height:1.4}
+.bill-to .who,.bill-to .co,.bill-to .ad{overflow-wrap:break-word}
 
 /* payment details, printed after the total */
 .pay{margin-top:14px;border:1px solid #000;padding:9px 11px}
@@ -473,13 +501,29 @@ table.pay-t .bk{font-weight:700;white-space:nowrap;width:34%}
 table.pay-t .ac{font-family:var(--mono);white-space:nowrap;text-align:right}
 .pay .ds{font-size:10px;color:#333;margin-top:7px;line-height:1.45}
 
-/* title-block style meta strip */
-.stmt-meta{display:flex;border:1px solid #000;border-top:0;margin-top:0}
-.stmt-meta div{flex:1;min-width:0;padding:7px 10px;border-right:1px solid #000}
-.stmt-meta div:last-child{border-right:0}
+/* Title-block meta: one shared box, two inner dividers, no gaps.
+   Every cell rule here MUST use the child combinator. `.stmt-meta div` also
+   matches the .k and .v divs nested inside each cell, which is how each
+   label ended up with its own stray rule at its right edge — the tick that
+   survived two fixes. Same trap for `div:last-child` / `div:first-child`,
+   which match the inner divs just as happily. */
+.stmt-meta{display:flex;border:1px solid #000;margin-top:3mm}
+.stmt-meta>div{flex:1;min-width:0;padding:7px 10px;border-left:1px solid #000}
+.stmt-meta>div:first-child{border-left:0}
+/* the date range reads as one span or not at all, so it gets the slack:
+   an even third leaves it ~12px short at 1in margins and it wraps */
+.stmt-meta>div.wide{flex:1.35}
 .stmt-meta .k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:700}
 .stmt-meta .v{font-size:11.5px;font-weight:600;margin-top:2px;overflow-wrap:break-word}
 .stmt-meta .v.mono{font-family:var(--mono)}
+
+/* The vessel is named once, on its own full-width line. A fourth box in the
+   meta row would leave ~112px of content width at 1in margins, and a
+   40-character vessel name needs ~262px — it would wrap to three lines. */
+.ves-box{margin-top:3mm;border:1px solid #000;padding:6px 10px;
+  display:flex;align-items:baseline;gap:10px}
+.ves-box .k{flex:0 0 auto;font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:700}
+.ves-box .v{min-width:0;font-size:11.5px;font-weight:600;font-family:var(--mono);overflow-wrap:break-word}
 
 table.stmt-t{width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px}
 table.stmt-t th{
@@ -504,13 +548,11 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-close{margin-top:16px}
 .stmt-close .ty{font-size:11.5px;font-weight:600}
 .stmt-close .pb{font-size:10.5px;color:#333;margin-top:5px}
-.stmt-ft{margin-top:22px;padding-top:8px;border-top:1px solid #ccc;font-size:9px;color:#666;display:flex}
-.stmt-ft span:last-child{margin-left:auto;font-family:var(--mono)}
 
 /* Top level on purpose: nested inside @media print this is honoured less
    reliably, and naming a paper size fights a tray loaded with another one —
    size:auto keeps A4 and Letter both unscaled. */
-@page{size:auto;margin:14mm}
+@page{size:auto;margin:12mm}
 
 @media print{
   html,body{
@@ -541,9 +583,8 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   /* the totals must not float away from the last line, and the closing
      block travels with them */
   .stmt-tot{break-inside:avoid;page-break-inside:avoid;break-before:avoid;page-break-before:avoid}
-  .words,.pay,.stmt-close,.bill-to,.stmt-meta{break-inside:avoid;page-break-inside:avoid}
+  .words,.pay,.stmt-close,.bill-to,.stmt-meta,.ves-box{break-inside:avoid;page-break-inside:avoid}
   .words,.pay{break-before:avoid;page-break-before:avoid}
-  .stmt-ft{break-inside:avoid;page-break-inside:avoid}
   /* nothing is left alone at the top or bottom of a page */
   p,div{orphans:3;widows:3}
 }
@@ -830,7 +871,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       </div>
       <div class="hint" id="sNoHint" hidden></div>
     </div>
-    <div class="f"><label for="sTerms">Terms (days)</label><input id="sTerms" type="number" inputmode="numeric" min="0" step="1" value="30"></div>
+    <div class="f"><label for="sTerms">Terms (days)</label><input id="sTerms" type="number" inputmode="numeric" min="0" step="1" value="7"></div>
     <div class="f"><label for="sVat">Add-on</label>
       <select id="sVat"><option value="0">None</option><option value="12">Plus 12% VAT</option><option value="-2">Less 2% withholding tax</option></select>
     </div>
@@ -848,6 +889,24 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <button class="btn-ghost" id="sPreview">Preview</button>
     <button class="btn-ghost" id="sEmailBtn">Email</button>
     <button class="btn-fill" id="sPrint">Print</button>
+  </div>
+</div>
+
+<!-- Covering letter review, shown before every send -->
+<div class="sheet" id="sheetLetter" role="dialog" aria-modal="true" aria-labelledby="ltrTitle">
+  <div class="sheet-head">
+    <div><div class="eyebrow">Before sending</div><h2 id="ltrTitle">Covering letter</h2></div>
+    <button class="icon-btn" style="margin-left:auto;color:var(--slate);border-color:var(--line)" id="lBack" aria-label="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div class="hint" id="lTo" style="margin-bottom:10px"></div>
+    <div class="f"><label for="lBody">Letter</label><textarea id="lBody" style="min-height:230px;line-height:1.55"></textarea><div class="hint">Edit for this send only — the Settings template is not changed. The date and the billing itself are added underneath.</div></div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn-ghost" id="lBack2">Back</button>
+    <button class="btn-fill" id="lSend">Send billing</button>
   </div>
 </div>
 
@@ -888,6 +947,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 
     <div class="sect-t">Billing defaults</div>
     <div class="f"><label for="cRate">Standard rate per item (₱)</label><input id="cRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
+    <div class="f"><label for="cTerms">Payment terms (days)</label><input id="cTerms" type="number" inputmode="numeric" min="0" step="1" class="mono-in"><div class="hint">Every billing opens with this and prints it under <b>Terms</b>, with <b>Due on</b> counted forward from today. Change it on a billing without changing this default.</div></div>
     <div class="f"><label for="cPrefix">Code root</label><input id="cPrefix" class="mono-in"><div class="hint">Codes come out as <span id="codeSample" style="font-family:var(--mono)"></span> — root, document type, month — and each type restarts at 001 every month.</div></div>
 
     <div class="sect-t" style="display:flex;align-items:center">Client records<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCliCount"></span></div>
@@ -902,10 +962,16 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cBankAdd" type="button">Add bank account</button></div>
     <div class="f" style="margin-top:13px"><label for="cRemit">Email deposit slips to</label><input id="cRemit" type="email" inputmode="email" autocomplete="off" spellcheck="false" placeholder="billing@yourdomain.com"><div class="hint">Printed as the deposit-slip instruction line.</div></div>
 
+    <div class="sect-t">Covering letter</div>
+    <div class="hint" style="margin:-4px 0 9px">Opens every emailed billing, above the document, and is shown for review before each send. Placeholders: <span style="font-family:var(--mono)">{contact} {billno} {vessel} {period} {total} {due}</span> — <b>{contact}</b> is the client's contact person, or "Sir/Madam" when that is blank. Clear the box to go back to the standard wording.</div>
+    <div class="f"><textarea id="cLetter" style="min-height:190px;line-height:1.55"></textarea></div>
+    <label class="chk"><input type="checkbox" id="cMarkPrint"><span>Auto-mark billed on print<span class="s">A successful email always marks the billing BILLED. Printing asks first unless this is on.</span></span></label>
+
     <div class="sect-t">Company details on statements</div>
     <div class="f"><label for="cCo">Company name</label><input id="cCo"></div>
     <div class="f"><label for="cAddr">Address</label><textarea id="cAddr" style="min-height:52px"></textarea></div>
     <div class="f"><label for="cContact">Contact line</label><input id="cContact" placeholder="Tel / email / TIN"></div>
+    <div class="f"><label for="cContactNo">Contact no.</label><input id="cContactNo" placeholder="+63 917 000 0000 / +63 32 000 0000"></div>
     <div class="f-row">
       <div class="f"><label for="cSigner">Prepared by</label><input id="cSigner"></div>
       <div class="f"><label for="cRole">Position</label><input id="cRole"></div>
@@ -966,16 +1032,31 @@ function toast(msg,bad){const t=$('toast');t.textContent=msg;t.className='toast 
 /* ================= config ================= */
 const DEFAULT_CFG={
   url:'',key:'',table:'drawing_billing',bucket:'',
-  rate:0,prefix:'RSR-DWG',
+  rate:0,prefix:'RSR-DWG',terms:7,
   company:'RSR ENGINEERING SERVICES',
   address:'Carmen & Mandaue Yard Facilities, Cebu, Philippines',
-  contact:'',
+  contact:'',contactNo:'',
   signer:'',role:'Naval Architect & Marine Engineer',
   // billing document
   billPrefix:'BILLDWG',billYear:'',billSeq:0,
   payee:'',remitEmail:'',showPrepared:false,hideNoCharge:false,
+  letter:'',autoMarkPrint:false,
   banks:[]
 };
+// The covering letter that opens an emailed billing. Held empty in cfg and
+// resolved through letterTemplate(), so clearing the Settings box returns to
+// this wording rather than sending an empty letter.
+const LETTER_DEFAULT=
+  'Dear {contact},\n\n'+
+  'Please find our billing {billno} for {vessel} covering {period}, amounting to '+
+  '{total}. Payment details are indicated below. We would appreciate settlement '+
+  'within the agreed terms.\n\n'+
+  'Respectfully yours,\n\n'+
+  'Raffy J. Ramirez\n'+
+  'Naval Architect & Marine Engineer\n'+
+  'RSR Engineering Services';
+const LETTER_KEYS=['contact','billno','vessel','period','total','due'];
+const letterTemplate=()=>String(cfg.letter||'').trim()?cfg.letter:LETTER_DEFAULT;
 let cfg=Object.assign({},DEFAULT_CFG);
 try{Object.assign(cfg,JSON.parse(localStorage.getItem(LS_CFG)||'{}'));}catch(e){}
 
@@ -1714,10 +1795,19 @@ function canonClient(name){
   const hit=known.find(n=>String(n||'').trim().replace(/\s+/g,' ').toLowerCase()===lc);
   return hit?String(hit).trim().replace(/\s+/g,' '):t;
 }
+// A saved 0 means due on issue and must survive; only a missing or broken
+// value falls back. Kept in one place so Settings and the sheet agree.
+function termsDefault(){
+  const n=parseInt(cfg.terms,10);
+  return (isNaN(n)||n<0)?DEFAULT_CFG.terms:n;
+}
 const clientRec=name=>{
   const t=String(name||'').trim().replace(/\s+/g,' ').toLowerCase();
   return clients.find(c=>String(c.name||'').trim().replace(/\s+/g,' ').toLowerCase()===t);
 };
+// "MV SF Voyager" and "MV SF VOYAGER " are one vessel, not two. Only for
+// comparing; what gets printed is the spelling the first line used.
+const canonVessel=v=>String(v||'').trim().replace(/\s+/g,' ').toLowerCase();
 const billingEmail=name=>{const c=clientRec(name);return c?(c.billing_email||''):'';};
 const cliSorted=()=>clients.slice().sort((a,b)=>
   String(a.name||'').localeCompare(String(b.name||'')));
@@ -3025,6 +3115,8 @@ function openStmt(){
   $('sFrom').value=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);
   $('sTo').value=today();
   sNoAuto='';sNoMode='auto';
+  // each billing opens on the configured default and stays editable from there
+  $('sTerms').value=termsDefault();
   $('sType').innerHTML=typeOptions(filters.type,'All types');
   $('sEmail').value=billingEmail($('sClient').value);
   buildPick();refreshBillNo(true);show('sheetStmt');
@@ -3203,12 +3295,23 @@ function confirmMultiGroup(groups){
     'a number for each billing that does not have one.'+br+
     'Continue anyway?');
 }
-function offerMarkBilled(list){
-  if(!confirm('Mark these '+list.length+' billing(s) as BILLED?'))return;
-  list.forEach(g=>{
+// Only a DRAFT moves. A billing already BILLED keeps its original
+// billed_date, and one already PAID is never walked backwards — re-sending
+// or reprinting either of them changes nothing. Returns how many moved.
+function markBilledNow(list){
+  let n=0;
+  (list||[]).forEach(g=>{
+    if(g.status!=='DRAFT')return;
     g.lines.forEach(r=>{r.status='BILLED';if(!r.billed_date)r.billed_date=today();saveRow(r,false);});
+    n++;
   });
-  toast(list.length+' marked billed');
+  return n;
+}
+function offerMarkBilled(list){
+  const movable=(list||[]).filter(g=>g.status==='DRAFT');
+  if(!movable.length)return;
+  if(!confirm('Mark these '+movable.length+' billing(s) as BILLED?'))return;
+  toast(markBilledNow(movable)+' marked billed');
 }
 
 // Preview prints the document without claiming a number or marking anything.
@@ -3231,7 +3334,13 @@ $('sPrint').onclick=async()=>{
   hide();
   setTimeout(()=>{
     window.print();
-    setTimeout(()=>offerMarkBilled(list),400);
+    // print cannot report success, so this stays a confirm unless Settings
+    // says otherwise — nothing here knows whether paper actually came out
+    setTimeout(()=>{
+      if(!cfg.autoMarkPrint){offerMarkBilled(list);return;}
+      const n=markBilledNow(list);
+      if(n)toast(n+' marked billed');
+    },400);
   },220);
 };
 
@@ -3246,7 +3355,9 @@ body{margin:0;padding:18px;background:#fff;color:#000;font-family:Arial,Helvetic
 .stmt-hd .m{width:46px;height:46px;background:#C81E23;color:#fff;text-align:center;line-height:46px;font-weight:bold;font-size:16px;border-radius:8px}
 .stmt-hd h1{margin:0;font-size:17px;font-weight:bold}
 .stmt-hd p{margin:1px 0 0;font-size:10.5px;color:#333;line-height:1.4}
-.stmt-hd .rt{margin-left:auto;text-align:right}
+.stmt-hd .rt{margin-left:auto;text-align:right;flex:0 0 auto}
+.stmt-hd>div{min-width:0}
+.stmt-hd h1,.stmt-hd p{overflow-wrap:break-word}
 .stmt-hd .rt .t{font-size:11px;letter-spacing:.18em;text-transform:uppercase;font-weight:bold}
 .stmt-hd .rt .n{font-family:Consolas,monospace;font-size:13px;font-weight:bold;margin-top:3px}
 .stmt-hd .rt .d{font-family:Consolas,monospace;font-size:10.5px;color:#444}
@@ -3255,6 +3366,7 @@ body{margin:0;padding:18px;background:#fff;color:#000;font-family:Arial,Helvetic
 .bill-to .who{font-size:12px;font-weight:bold;margin-top:3px}
 .bill-to .co{font-size:12px;font-weight:bold}
 .bill-to .ad{font-size:10.5px;color:#333;margin-top:1px;line-height:1.4}
+.bill-to .who,.bill-to .co,.bill-to .ad{overflow-wrap:break-word}
 .pay{margin-top:14px;border:1px solid #000;padding:9px 11px}
 .pay .k{font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:bold}
 .pay .to{font-size:11px;margin-top:5px}
@@ -3265,12 +3377,16 @@ table.pay-t .ac{font-family:Consolas,monospace;white-space:nowrap;text-align:rig
 .pay .ds{font-size:10px;color:#333;margin-top:7px;line-height:1.45}
 table.stmt-t .sub{display:block;font-family:Consolas,monospace;font-size:9px;color:#555;margin-top:2px}
 table.stmt-t .nc{font-family:Arial,Helvetica,sans-serif;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#555;font-style:italic}
-.stmt-meta{display:flex;border:1px solid #000;border-top:0}
-.stmt-meta div{flex:1;min-width:0;padding:7px 10px;border-right:1px solid #000}
-.stmt-meta div:last-child{border-right:0}
+.stmt-meta{display:flex;border:1px solid #000;margin-top:3mm}
+.stmt-meta>div{flex:1;min-width:0;padding:7px 10px;border-left:1px solid #000}
+.stmt-meta>div:first-child{border-left:0}
+.stmt-meta>div.wide{flex:1.35}
 .stmt-meta .k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:bold}
 .stmt-meta .v{font-size:11.5px;font-weight:bold;margin-top:2px}
 .stmt-meta .v.mono{font-family:Consolas,monospace}
+.ves-box{margin-top:3mm;border:1px solid #000;padding:6px 10px;display:flex;align-items:baseline;gap:10px}
+.ves-box .k{flex:0 0 auto;font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:#555;font-weight:bold}
+.ves-box .v{min-width:0;font-size:11.5px;font-weight:bold;font-family:Consolas,monospace;overflow-wrap:break-word}
 table.stmt-t{width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px}
 table.stmt-t th{background:#101F2E;color:#fff;text-align:left;padding:7px 8px;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase}
 table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
@@ -3289,14 +3405,56 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-close{margin-top:16px}
 .stmt-close .ty{font-size:11.5px;font-weight:bold}
 .stmt-close .pb{font-size:10.5px;color:#333;margin-top:5px}
-.stmt-ft{margin-top:22px;padding-top:8px;border-top:1px solid #ccc;font-size:9px;color:#666;display:flex}
-.stmt-ft span:last-child{margin-left:auto;font-family:Consolas,monospace}`;
+.ltr{max-width:760px;margin:0 auto 22px;font-size:12.5px;line-height:1.55;color:#000}
+.ltr-d{font-family:Consolas,monospace;font-size:11px;color:#444;margin-bottom:14px}
+.ltr p{margin:0 0 11px}`;
 
-function statementEmailHtml(){
+/* ---- the covering letter ---- */
+// {contact} is the client's contact person verbatim. There is no honorific
+// or gender anywhere in the data, so "Ashford Chua" cannot be turned into
+// "Mr. Chua" — store the form you want to be addressed by in the client's
+// Contact person field, or edit the line at the review step.
+function letterVars(f,no){
+  return {
+    contact:(f.rec&&String(f.rec.contact_person||'').trim())||'Sir/Madam',
+    billno:String(no||'').trim(),
+    vessel:f.vessels.length?f.vessels.join(', '):'your vessel',
+    period:fmtDate(f.from)+' — '+fmtDate(f.to),
+    total:money(f.grand),
+    due:fmtDate(f.due)
+  };
+}
+// An unknown {token} is left standing rather than blanked, so a typo in the
+// template shows up at the review step instead of leaving a hole.
+function fillLetter(tpl,vars){
+  return String(tpl==null?'':tpl).replace(/\{([a-z]+)\}/g,
+    (m,k)=>LETTER_KEYS.indexOf(k)<0?m:String(vars[k]==null?'':vars[k]));
+}
+function composeLetter(picked,no){
+  return fillLetter(letterTemplate(),letterVars(stmtFacts(picked),no));
+}
+// Blank lines separate paragraphs; single newlines break within one. The
+// date is rendered here rather than kept in the template — it is the date
+// the mail goes out, not something to be edited.
+function letterHtml(text){
+  const t=String(text==null?'':text).replace(/\r\n?/g,'\n').trim();
+  if(!t)return '';
+  return '<div class="ltr"><div class="ltr-d">'+esc(fmtDate(today()))+'</div>'+
+    t.split(/\n{2,}/).map(p=>'<p>'+esc(p).replace(/\n/g,'<br>')+'</p>').join('')+
+    '</div>';
+}
+
+function statementEmailHtml(letterText){
   return '<!doctype html><html><head><meta charset="utf-8">'+
          '<meta name="viewport" content="width=device-width,initial-scale=1">'+
          '<style>'+STMT_MAIL_CSS+'</style></head><body>'+
+         letterHtml(letterText)+
          $('printRoot').innerHTML+'</body></html>';
+}
+function mailSubject(f,no){
+  return ['Billing '+String(no||'').trim(),
+          f.vessels.length?f.vessels.join(', '):'',
+          cfg.company||'RSR Engineering Services'].filter(Boolean).join(' — ');
 }
 
 $('sEmailBtn').onclick=async()=>{
@@ -3314,9 +3472,9 @@ $('sEmailBtn').onclick=async()=>{
   if(!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(to)){
     toast('Add a valid billing email first',true);$('sEmail').focus();return;
   }
-  const client=$('sClient').value,no=$('sNo').value.trim();
+  const client=$('sClient').value;
   const btn=$('sEmailBtn');
-  btn.disabled=true;btn.textContent='Sending…';
+  btn.disabled=true;btn.textContent='Preparing…';
   try{
     // Saved first, and confirmed to have reached the server: the function
     // checks the recipient against this client's row, so on a first send
@@ -3326,21 +3484,58 @@ $('sEmailBtn').onclick=async()=>{
       toast('Could not save the billing email — try again once synced',true);
       return;
     }
+    // Composed against the number that WILL be issued, not one claimed now:
+    // backing out of the review must not burn a billing number. The claim
+    // happens on Send, and the letter is corrected then if it moved.
+    pendingSend={list:list,to:to,client:client,shownNo:$('sNo').value.trim()};
+    $('lTo').innerHTML='To <b>'+esc(to)+'</b> · '+esc(client)+
+      (list.length>1?' · '+list.length+' billings':'');
+    $('lBody').value=composeLetter(list,pendingSend.shownNo);
+    show('sheetLetter');
+  }catch(e){
+    toast(e.message||'Could not prepare the email',true);
+  }finally{btn.disabled=false;btn.textContent='Email';}
+};
+
+/* ---- the review step ---- */
+let pendingSend=null;
+const backToStatement=()=>{pendingSend=null;show('sheetStmt');};
+$('lBack').onclick=backToStatement;
+$('lBack2').onclick=backToStatement;
+
+$('lSend').onclick=async()=>{
+  if(!pendingSend){toast('Start from the billing sheet',true);return;}
+  const p=pendingSend,btn=$('lSend');
+  const body=$('lBody').value;
+  if(!body.trim()){toast('The letter is empty',true);$('lBody').focus();return;}
+  btn.disabled=true;btn.textContent='Sending…';
+  try{
     const issued=await issueBillNos();
-    renderStatement(list,{email:true});
+    // another device may have taken the number this letter quotes; the
+    // document is authoritative, so the letter is brought into line
+    let letter=body;
+    if(issued&&p.shownNo&&issued!==p.shownNo&&letter.indexOf(p.shownNo)>-1){
+      letter=letter.split(p.shownNo).join(issued);
+      toast('Billing number moved to '+issued,true);
+    }
+    renderStatement(p.list,{email:true});
     await fnPost('send-statement',{
-      to:to,
-      client:client,
-      subject:'Billing '+issued+' — '+(cfg.company||'RSR Engineering Services'),
-      html:statementEmailHtml(),
+      to:p.to,
+      client:p.client,
+      subject:mailSubject(stmtFacts(p.list),issued),
+      html:statementEmailHtml(letter),
       statement_no:issued
     });
+    // only now, with the function's own confirmation in hand
+    const n=markBilledNow(p.list);
+    pendingSend=null;
     hide();
-    toast('Billing emailed to '+to);
-    setTimeout(()=>offerMarkBilled(list),300);
+    toast('Sent to '+p.to+(n?' — marked billed':''));
   }catch(e){
+    // the send failed, so nothing is marked and the letter is kept for
+    // another try
     toast(e.message||'Could not send the statement',true);
-  }finally{btn.disabled=false;btn.textContent='Email';}
+  }finally{btn.disabled=false;btn.textContent='Send billing';}
 };
 
 // The printed mark: black, transparent field, drawn as an <img> rather than
@@ -3364,25 +3559,49 @@ function payBlock(){
     </div>`;
 }
 
-function renderStatement(picked,opts){
-  const rec=clientRec($('sClient').value);
+// Everything the document and its covering letter both need, read once from
+// the sheet. The letter quotes the total it sits above, so the two must come
+// from the same arithmetic and not from two copies of it.
+function stmtFacts(picked){
   // accept a bare row as a group of one, so a caller holding a single line
   // does not have to build the wrapper itself
-  const o=opts||{};
   const groups=(picked||[]).filter(Boolean).map(g=>g.lines?g:groupOf([g]));
   // no-charge lines still show, keeping their place in the numbering, unless
   // Settings says to leave them off the document entirely
   const all=groups.reduce((a,g)=>a.concat(g.lines),[]);
   const list=cfg.hideNoCharge?all.filter(r=>!noCharge(r)):all;
-  // tracking codes stay in Monitoring; the client's copy carries only the
-  // billing number
+  // The vessel is a group field, so a billing normally names just one — print
+  // it once under Bill to and keep it off every line. A PDF import can set a
+  // different vessel per file, and a statement can cover more than one group;
+  // when that happens the vessel goes back onto the lines, where it is the
+  // only place it can stay unambiguous.
+  const vessels=[];
+  list.forEach(r=>{
+    const v=String(r.vessel||'').trim().replace(/\s+/g,' ');
+    if(v&&!vessels.some(x=>canonVessel(x)===canonVessel(v)))vessels.push(v);
+  });
   const sub=list.reduce((s,r)=>s+amountOf(r),0);
   const vat=Number($('sVat').value)||0;
   const adj=sub*vat/100;
-  const grand=sub+adj;
   const terms=parseInt($('sTerms').value,10)||0;
-  const due=new Date(Date.now()+terms*864e5).toISOString().slice(0,10);
-  const client=$('sClient').value;
+  return {groups:groups,list:list,vessels:vessels,
+    oneVessel:vessels.length===1?vessels[0]:'',
+    sub:sub,vat:vat,adj:adj,grand:sub+adj,terms:terms,
+    due:new Date(Date.now()+terms*864e5).toISOString().slice(0,10),
+    client:$('sClient').value,rec:clientRec($('sClient').value),
+    from:$('sFrom').value,to:$('sTo').value};
+}
+
+function renderStatement(picked,opts){
+  const f=stmtFacts(picked);
+  const o=opts||{};
+  const rec=f.rec,list=f.list,oneVessel=f.oneVessel;
+  const lineSub=r=>(oneVessel?[r.drawing_no]:[r.vessel,r.drawing_no])
+    .filter(Boolean).map(esc).join(' · ');
+  // tracking codes stay in Monitoring; the client's copy carries only the
+  // billing number
+  const sub=f.sub,vat=f.vat,adj=f.adj,grand=f.grand,terms=f.terms,due=f.due;
+  const client=f.client;
   const adjLabel=vat>0?'Add: VAT 12%':vat<0?'Less: Withholding tax 2%':'';
 
   $('printRoot').innerHTML=`
@@ -3391,7 +3610,8 @@ function renderStatement(picked,opts){
       <div class="m">${o.email?'RSR':`<img src="${MARK_INK}" alt="RSR" width="50" height="36">`}</div>
       <div>
         <h1>${esc(cfg.company||'RSR ENGINEERING SERVICES')}</h1>
-        <p>${esc(cfg.address||'').replace(/\n/g,'<br>')}${cfg.contact?'<br>'+esc(cfg.contact):''}</p>
+        <p>${esc(cfg.address||'').replace(/\n/g,'<br>')}${cfg.contact?'<br>'+esc(cfg.contact):''}${
+          cfg.contactNo?'<br>contact no.: '+esc(cfg.contactNo):''}</p>
       </div>
       <div class="rt">
         <div class="t">Billing</div>
@@ -3406,8 +3626,9 @@ function renderStatement(picked,opts){
       <div class="co">${esc(client)}</div>
       ${rec&&rec.address?`<div class="ad">${esc(rec.address).replace(/\n/g,'<br>')}</div>`:''}
     </div>
+    ${oneVessel?`<div class="ves-box"><span class="k">Vessel name</span><span class="v">${esc(oneVessel)}</span></div>`:''}
     <div class="stmt-meta">
-      <div><div class="k">Period covered</div><div class="v mono">${fmtDate($('sFrom').value)} — ${fmtDate($('sTo').value)}</div></div>
+      <div class="wide"><div class="k">Period covered</div><div class="v mono">${fmtDate($('sFrom').value)} — ${fmtDate($('sTo').value)}</div></div>
       <div><div class="k">Terms</div><div class="v mono">${terms} days</div></div>
       <div><div class="k">Due on</div><div class="v mono">${fmtDate(due)}</div></div>
     </div>
@@ -3419,8 +3640,8 @@ function renderStatement(picked,opts){
       </tr></thead>
       <tbody>${list.map((r,i)=>`<tr>
         <td class="c">${i+1}.0</td>
-        <td class="d">${esc(r.drawing_title)}${[r.vessel,r.drawing_no].filter(Boolean).length
-            ?`<span class="sub">${[r.vessel,r.drawing_no].filter(Boolean).map(esc).join(' · ')}</span>`:''}</td>
+        <td class="d">${esc(r.drawing_title)}${lineSub(r)
+            ?`<span class="sub">${lineSub(r)}</span>`:''}</td>
         <td class="c">${esc(r.qty)}</td>
         <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(r.rate).replace('₱','')}</td>
         <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(amountOf(r)).replace('₱','')}</td>
@@ -3438,7 +3659,6 @@ function renderStatement(picked,opts){
       <div class="ty">Thank you for your business.</div>
       ${cfg.showPrepared&&cfg.signer?`<div class="pb">Prepared by: ${esc(cfg.signer)}${cfg.role?', '+esc(cfg.role):''}</div>`:''}
     </div>
-    <div class="stmt-ft"><span>Please reference billing no. ${esc($('sNo').value)} on payment advice.</span><span>${fmtDate(today())}</span></div>
   </div>`;
 }
 
@@ -3659,7 +3879,11 @@ create policy rsr_dwg_storage_authed on storage.objects
 function openCfg(){
   $('cUrl').value=cfg.url;$('cKey').value=cfg.key;$('cTable').value=cfg.table;$('cBucket').value=cfg.bucket||'';
   $('cRate').value=cfg.rate||'';$('cPrefix').value=cfg.root;
+  $('cTerms').value=termsDefault();
+  $('cLetter').value=letterTemplate();
+  $('cMarkPrint').checked=!!cfg.autoMarkPrint;
   $('cCo').value=cfg.company;$('cAddr').value=cfg.address;$('cContact').value=cfg.contact;
+  $('cContactNo').value=cfg.contactNo||'';
   $('cSigner').value=cfg.signer;$('cRole').value=cfg.role;
   $('cPrepared').checked=!!cfg.showPrepared;
   $('cHideFree').checked=!!cfg.hideNoCharge;
@@ -3705,14 +3929,22 @@ $('cSave').onclick=async()=>{
   cfg.bucket=$('cBucket').value.trim().replace(/[^\w\-]/g,'');
   cfg.rate=Number($('cRate').value)||0;
   cfg.root=$('cPrefix').value.trim().replace(/-+$/,'')||'RSR';
+  // 0 is a real answer here — due on issue — so an empty or negative box
+  // falls back to the default rather than to zero
+  const tD=parseInt($('cTerms').value,10);
+  cfg.terms=(isNaN(tD)||tD<0)?DEFAULT_CFG.terms:tD;
   cfg.payee=$('cPayee').value.trim();
   cfg.remitEmail=$('cRemit').value.trim();
   // drop any type rows left blank in the editor
   cfg.types=typeList();
   if(!cfg.types.length)cfg.types=[{code:DEF_TYPE,label:'Drawing'}];
   cfg.company=$('cCo').value.trim();cfg.address=$('cAddr').value.trim();cfg.contact=$('cContact').value.trim();
+  cfg.contactNo=$('cContactNo').value.trim();
   cfg.signer=$('cSigner').value.trim();cfg.role=$('cRole').value.trim();
   cfg.showPrepared=$('cPrepared').checked;
+  // an emptied box means the standard wording, not an empty letter
+  cfg.letter=$('cLetter').value.trim()===LETTER_DEFAULT.trim()?'':$('cLetter').value;
+  cfg.autoMarkPrint=$('cMarkPrint').checked;
   cfg.hideNoCharge=$('cHideFree').checked;
   saveCfg();pushSharedSettings();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
   hide();toast('Settings saved');

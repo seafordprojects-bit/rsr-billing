@@ -4,7 +4,7 @@ Everything here is something the automated suites **cannot** verify: real
 layout, real printing, real focus, real touch. Ordered by risk — if you only
 have twenty minutes, do section 1.
 
-The suites cover logic, data and wiring — `node test/run.mjs`, 25 suites, 908
+The suites cover logic, data and wiring — `node test/run.mjs`, 28 suites, 1108
 assertions. They do **not** render, paginate, or lay anything out. Every bug you
 hit that the tests missed was in this category.
 
@@ -14,10 +14,19 @@ hit that the tests missed was in this category.
 
 Print to PDF first, then to paper. Chrome desktop, margins **Default**.
 
-- [ ] **Margins hold.** Content sits centred with even space on all four sides
-      and does not touch the paper edges. Check with the Margins dropdown on
-      **Default**, then on **None** — on None the page margin is gone and only
-      the 4mm side inset remains, which is expected but should still not touch.
+- [ ] **Margins hold.** With the Margins dropdown on **Default** the content
+      sits inside a 12mm margin on all four sides — measure it, or check the
+      PDF at 100%. The sides come out ~4mm wider (16mm) because the `.stmt`
+      inset adds to the page margin; that is expected. Then switch to **None**:
+      the page margin is gone and only the 4mm side inset remains, which should
+      still keep the text off the paper edge. **Chrome remembers this dropdown
+      between prints** — if the sides look narrow, check it is back on Default
+      before suspecting the CSS.
+- [ ] **Nothing spills into the margin.** Overflow is painted into the @page
+      margin instead of being clipped, so a too-wide element eats the inch.
+      Print a billing with a ~60-character client name, a ~40-character vessel
+      and a contact no. typed as one unbroken token: each must wrap inside its
+      box, and the side margins must measure the same as on a short billing.
 - [ ] **Both papers.** Try A4 and Letter. Nothing should be scaled or clipped;
       `@page` declares no paper size on purpose.
 - [ ] **The mark prints as black ink**, not a red box, and survives with
@@ -30,6 +39,26 @@ Print to PDF first, then to paper. Chrome desktop, margins **Default**.
       the print dialog.
 - [ ] **No tracking codes anywhere.** The client's copy shows the `BILLDWG`
       number only — no `RSR-DW-…` on any line or in the meta strip.
+- [ ] **Header block.** Company name, address, the contact line, then
+      `contact no.: …` beneath it. Clear the Contact no. field in Settings and
+      reprint — the line disappears rather than leaving a gap.
+- [ ] **Vessel once, in its own box.** A normal billing shows a full-width
+      `VESSEL NAME` box between Bill to and the meta row, and **no** vessel
+      under any line item — only the drawing no. Then import a PDF batch with
+      two different vessels: that billing drops the box and puts the vessel
+      back on each line. Check both shapes on paper. Casing and spacing do not
+      count as a difference — `MV SF Voyager` and `MV SF VOYAGER` stay one
+      vessel, printed the way the first line spells it.
+- [ ] **Bill to holds only the client.** Contact person (when set) above the
+      company name, then the address — no vessel. With no contact person the
+      company name sits alone with no empty line above it.
+- [ ] **Meta strip.** Period covered / Terms / Due on sit in **one** box with
+      a single outer border and exactly **two** inner vertical dividers — no
+      gaps between cells. Count the verticals: four total across the strip.
+      Any fifth is the old artifact — look for a short rule hanging off the
+      right of a label, and for a doubled (thicker) line on a divider. Period
+      covered's date range must sit on **one** line; it is the cell that runs
+      closest to its width.
 - [ ] **Long values.** Bill a drawing with a ~90-character title, a client name
       of ~60 characters, a vessel of ~40, and a rate of 1,000,000. Nothing
       overflows the page or truncates mid-number.
@@ -40,6 +69,12 @@ Print to PDF first, then to paper. Chrome desktop, margins **Default**.
       number in the sequence, and add nothing to the total.
 - [ ] **Settings → "Leave no-charge lines off the billing"** removes them and
       renumbers 1.0, 2.0 with no gap.
+- [ ] **Terms and Due on.** A new billing opens at **7 days** and prints
+      `7 days` with **Due on** seven days out. Type over it on one billing —
+      the printed Terms and Due on follow — then open a fresh billing and
+      confirm it is back to 7. Settings -> Billing defaults -> Payment terms
+      changes what new billings open on; **0** is a real setting (due on
+      issue) and must stay 0, while clearing the box returns it to 7.
 - [ ] **Preview** prints with "Preview — not yet issued" and does **not**
       consume a number: check Settings afterwards, the counter has not moved.
 - [ ] **No signature block.** No "Prepared by" line unless the Settings toggle
@@ -63,6 +98,14 @@ Chrome on the phone, or DevTools at **380 × 780**.
 - [ ] **Typeahead popups.** Type in a line title. The list appears below the
       field, is reachable by scrolling, and is not clipped by the sheet edge.
       Tapping a suggestion picks it — it does not just dismiss.
+- [ ] **Client typeahead, all three entry points.** Focus the Client field in
+      Add manually, in the PDF import sheet, and in the From catalog sheet.
+      Each drops a list directly under **its own field** — not full-sheet
+      width, not at the bottom of the screen, not missing. Type "sea" and it
+      filters. This broke once because the popup is `position:absolute` and
+      its wrapper was not positioned, so it painted below the sheet: the list
+      was built correctly and simply could not be seen. Automated tests
+      cannot catch that; only this check can.
 - [ ] **Revision hint.** Type a title billed before. The history list (up to six
       prior billings) fits and scrolls rather than covering the whole sheet.
 - [ ] **Multi-line editor.** Add six lines. The list scrolls, the running total
@@ -76,6 +119,20 @@ Chrome on the phone, or DevTools at **380 × 780**.
       stays visible and the sheet does not jump.
 - [ ] **Print from mobile Chrome.** Share → Print. Confirm it produces the same
       A4 layout as desktop; mobile print is a different renderer.
+- [ ] **Installs as an app, not a shortcut.** On Android Chrome, open the
+      Pages URL and check the ⋮ menu says **"Install app"** — if it says
+      "Add to Home screen" the manifest is not being accepted. Install it,
+      then confirm: the RSR mark on the home screen is a **full red tile**
+      (not a white circle with a shrunken logo — that means the maskable icon
+      is missing), it opens with **no browser address bar**, the task
+      switcher shows "RSR Billing", and the splash is dark. There is no
+      install *banner* by design; the menu is the way in.
+- [ ] **Installed app still signs in and syncs.** The session lives in
+      localStorage per origin — an installed PWA shares it with the browser
+      on Android, so you should already be signed in. Create a billing from
+      the installed app and confirm it reaches Supabase.
+- [ ] **iOS**, if you use it: Share → Add to Home Screen shows the RSR icon
+      and the name "RSR Billing". iOS has no install prompt at all.
 
 ## 3. Focus and caret
 
@@ -150,6 +207,32 @@ Needs two browsers signed into the same project.
       totals, payment details, thank-you. No tracking codes.
 - [ ] Sending as a user **not** in `billing_senders` is refused with a clear
       message.
+- [ ] **The covering letter.** Email opens a review sheet, not a send. The
+      letter is filled in: salutation from the client's contact person,
+      billing no., vessel, period, total. Read it in a real inbox — the
+      letter sits above the billing, paragraphs are separated, and the date
+      is today's.
+- [ ] **Salutation.** {contact} prints the Contact person field **verbatim**.
+      For "Dear Mr. Chua," the field must say `Mr. Chua`, not `Ashford Chua`
+      — nothing can derive the honorific. Blank field reads "Dear Sir/Madam,".
+- [ ] **Editing at review** changes that send only. Reopen Settings after —
+      the template is unchanged.
+- [ ] **Back claims nothing.** Open the review on an unnumbered draft, press
+      Back, and check Settings: the counter has **not** moved and the billing
+      is still DRAFT. The number is claimed on Send, not on review.
+- [ ] **Subject line** reads `Billing BILLDWG-26-00N — MV … — RSR Engineering
+      Services` in the inbox.
+- [ ] **Auto-mark on send.** A successful send flips the billing to BILLED
+      with today's billed_date, no prompt, and toasts "Sent to … — marked
+      billed". Check Monitoring.
+- [ ] **A failed send marks nothing.** Turn the network off at the review
+      step and press Send: an error toast, and the billing is still DRAFT
+      with no billed_date. The letter is still there to retry.
+- [ ] **Re-sending a BILLED billing** leaves its original billed_date alone,
+      and re-sending a **PAID** one does not walk it back to BILLED.
+- [ ] **Print still asks.** With Settings → "Auto-mark billed on print" off,
+      printing confirms first. Turn it on and print — it marks without
+      asking. Print cannot detect a cancelled print dialog either way.
 
 ---
 

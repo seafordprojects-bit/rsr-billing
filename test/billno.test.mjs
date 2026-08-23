@@ -113,8 +113,12 @@ ok('DC untouched', app.nextBillNo('DC') === `BILLDC-${YY}-001`);
 // both issue paths go through issueBillNos, which claims once per billing
 ok('print path issues through issueBillNos',
    /\$\('sPrint'\)\.onclick[\s\S]{0,400}await issueBillNos\(\)/.test(html));
+// the email path claims at the Send step, not when the letter is composed:
+// backing out of the review must not burn a number
 ok('email path issues through issueBillNos',
-   /\$\('sEmailBtn'\)\.onclick[\s\S]{0,1800}await issueBillNos\(\)/.test(html));
+   /\$\('lSend'\)\.onclick[\s\S]{0,400}await issueBillNos\(\)/.test(html));
+ok('and not before the letter is reviewed',
+   !/\$\('sEmailBtn'\)\.onclick[\s\S]{0,1400}await issueBillNos\(\)/.test(html));
 ok('issueBillNos resolves the type per billing',
    /async function issueBillNos\(\)[\s\S]{0,900}typeOf\(g\)/.test(html));
 ok('and never re-claims an issued one',

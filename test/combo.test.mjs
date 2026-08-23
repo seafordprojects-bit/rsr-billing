@@ -163,6 +163,72 @@ const before = app.clients.length;
 await app.rememberClient('Brand New Yard');
 ok('remembering twice does not duplicate', app.clients.length === before);
 
+console.log('\n--- K. the popup can actually be seen ---');
+// The popup is position:absolute, so it lands on its nearest POSITIONED
+// ancestor. `.ml-row .cmb` was the only rule declaring position:relative,
+// so the three client comboboxes resolved against `.sheet` instead: with
+// left:0;right:0 they spanned the sheet, and top:calc(100% + 4px) put them
+// just below the sheet's bottom edge — which is the bottom of the screen.
+// The list populated and unhid correctly; it was painted off-screen.
+// comments stripped first, or the prose above a rule is read as part of its
+// selector and `.cmb{` never matches at the start
+const css = html.slice(0, html.indexOf('</style>')).replace(/\/\*[\s\S]*?\*\//g, '');
+const cmbRules = (css.match(/(^|\})([^{}]*\.cmb[^{}]*)\{([^}]*)\}/gm) || [])
+  .map(r => r.replace(/^\}/, '').trim());
+const popRule = (html.match(/\.cmb-pop\{[^}]*\}/) || [''])[0];
+ok('the popup is absolutely positioned', /position:absolute/.test(popRule), popRule);
+ok('so it is offset from its container, not the page',
+   /top:calc\(100% \+ \d+px\)/.test(popRule), popRule);
+// the fix: an unscoped rule, so every .cmb wrapper is a containing block
+const bare = cmbRules.filter(r => /^\.cmb\{/.test(r));
+ok('a bare .cmb rule exists', bare.length === 1, cmbRules.join(' | '));
+ok('and it makes the wrapper positioned',
+   bare.length === 1 && /position:relative/.test(bare[0]), bare[0] || '');
+// every wrapper in the markup must be covered by it, not just the ml-row one
+const wrappers = (html.match(/<div class="cmb">/g) || []).length;
+ok('all four wrappers share that one class', wrappers === 4, String(wrappers));
+ok('the ml-row rule no longer has to carry positioning on its own',
+   /\.ml-row \.cmb\{/.test(html));
+
+console.log('\n--- every client entry point opens a visible list ---');
+app = reset();
+await app.cliSave({ name:'Seaford Shipping Lines', contact_person:'Mr. Chua',
+                    address:'Cebu', billing_email:'ap@sea.test' }, true);
+app.openEntry(null, 'DW');
+app.openImport();
+app.openCat();
+for (const id of ['eClient', 'iClient', 'kClient']) {
+  const inp = el(id), pop = el(id + 'Pop');
+  ok(id + ' is wired for input and focus',
+     Object.keys(inp._on || {}).includes('input') &&
+     Object.keys(inp._on || {}).includes('focus'),
+     Object.keys(inp._on || {}).join(','));
+  // focus alone offers the whole list
+  inp.value = '';
+  inp.fire('focus', { target: inp });
+  ok(id + ' offers every client on focus',
+     pop.hidden === false && pop.innerHTML.includes('Seaford Shipping Lines'),
+     'hidden=' + pop.hidden);
+  // typing filters it
+  inp.value = 'sea';
+  inp.fire('input', { target: inp });
+  ok(id + ' filters as you type "sea"',
+     pop.hidden === false && pop.innerHTML.includes('Seaford Shipping Lines'),
+     'hidden=' + pop.hidden + ' html=' + String(pop.innerHTML).slice(0, 60));
+  ok(id + ' shows the client detail line',
+     pop.innerHTML.includes('ap@sea.test'), String(pop.innerHTML).slice(0, 120));
+  // a miss closes it rather than showing an empty box
+  inp.value = 'zzzz';
+  inp.fire('input', { target: inp });
+  ok(id + ' hides again when nothing matches', pop.hidden === true);
+  // and picking one fills the field
+  inp.value = 'sea';
+  inp.fire('input', { target: inp });
+  app.cmbTake(0);
+  ok(id + ' takes the pick into the field',
+     inp.value === 'Seaford Shipping Lines' && pop.hidden === true, inp.value);
+}
+
 console.log('\n--- J. the printed billing is untouched by this change ---');
 ok('numbered 1.0 list kept', html.includes('${i+1}.0'));
 ok('Description column kept', /<th[^>]*>Description<\/th>/.test(html));

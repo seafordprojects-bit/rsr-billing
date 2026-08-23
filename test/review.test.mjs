@@ -66,8 +66,9 @@ ok('no panel rebuilds itself while being typed into',
 console.log('\n--- 1c. long values cannot break their box ---');
 ok('a large amount on a card stays on one line',
    /\.row-amt\{[^}]*white-space:nowrap/.test(html));
-ok('the printed meta strip can shrink instead of overflowing',
-   /\.stmt-meta div\{flex:1;min-width:0/.test(html));
+ok('the printed meta boxes can shrink instead of overflowing',
+   /\.stmt-meta>div\{flex:1;min-width:0/.test(html));
+ok('the vessel box can too', /\.ves-box \.v\{min-width:0/.test(html));
 ok('and its values wrap rather than push the page wide',
    /\.stmt-meta \.v\{[^}]*overflow-wrap:break-word/.test(html));
 ok('totals cells already ellipsis', /\.tcell \.val\{[^}]*text-overflow:ellipsis/.test(html));
