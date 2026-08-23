@@ -28,7 +28,7 @@ globalThis.__t={
   setTab, setMakeType, renderMake, get tab(){return tab}, get makeType(){return makeType},
   refLabel, builtIn, TAB_TYPES, BUILT_IN, openEntry, openImport,
   nextBillNo, commitBillNo, payBlock, cliSave, cliDelete, cliSorted, clientRec,
-  renderCliMgr, renderBanks, openCfg,
+  renderCliMgr, renderBanks, openCfg, renderDeadJobs, lossSummary,
   get mlines(){return mlines}, set mlines(v){mlines=v}, renderML, promoteToCatalog,
   get multiMode(){return multiMode}, mlBlank, mlRate,
   billPrefixOf, billTypeFor, refreshBillNo, billSampleFor, renderTypes,

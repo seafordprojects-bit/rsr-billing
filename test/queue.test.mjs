@@ -153,6 +153,32 @@ await app.flushQueue();
 ok('it drains once the server recovers', app.queue.length - app.deadJobs().length === 0,
    'live=' + (app.queue.length - app.deadJobs().length));
 
+console.log('\n--- N+2. a discard names what it would destroy ---');
+net.mode = 'online';
+net.script.length = 0;
+app = globalThis.__loadApp();
+configure(app);
+app.setSession({ access_token:'tok-1', refresh_token:'ref-1', expires_in:3600,
+                 user:{ email:'raffy@rsr.test' } });
+net.script.push({ match:'/rest/v1/clients', method:'POST', status:409, keep:true,
+  body:{ code:'23505',
+         message:'duplicate key value violates unique constraint "clients_name_key"' } });
+await app.cliSave({ name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+  contact_person:'Ashford Chua', address:'BREDCO 3, Reclamation Area, Bacolod City',
+  billing_email:'raffyramirez00@gmail.com' }, true);
+
+// section 8's "Lines Plan" job is dead by design and still sits in the queue
+// (the suite never clears localStorage between sections), so pick this
+// section's own dead job by store rather than assuming index 0.
+const dead = app.deadJobs().find(j => j.store === 'clients');
+const loss = app.lossSummary(dead);
+ok('the summary names the client', /Seaford Shipping Lines/.test(loss), loss);
+ok('the summary names the contact person', /Ashford Chua/.test(loss), loss);
+ok('the summary names the address', /BREDCO 3/.test(loss), loss);
+ok('the summary names the billing email', /raffyramirez00@gmail.com/.test(loss), loss);
+ok('the summary says the server copy is untouched', /server/i.test(loss), loss);
+ok('an empty field is not listed as a loss', !/salutation:\s*,/.test(loss), loss);
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
