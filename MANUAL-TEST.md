@@ -67,6 +67,9 @@ Chrome on the phone, or DevTools at **380 × 780**.
       prior billings) fits and scrolls rather than covering the whole sheet.
 - [ ] **Multi-line editor.** Add six lines. The list scrolls, the running total
       stays visible, and the Add button label tracks the count.
+- [ ] **After creating**, one confirmation line appears naming the billing, its
+      item count and total. It carries no status badge. Switch tabs and back —
+      it is gone. "View in Monitoring" lands on that billing, expanded.
 - [ ] **Settings rows.** The type editor's code / label / prefix / counter all
       reachable and tappable without zooming.
 - [ ] **Keyboard.** With the on-screen keyboard up, the field being typed into
