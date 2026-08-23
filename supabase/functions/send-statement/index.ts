@@ -159,6 +159,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!html.trim()) return json({ ok: false, error: "The statement body is empty" }, 400);
   if (html.length > 750_000) return json({ ok: false, error: "The statement is too large to email" }, 413);
 
+  // One attachment, a PDF, small. Everything here fails closed, matching the
+  // rest of this function: a malformed attachment refuses the send rather
+  // than quietly mailing a billing without its document.
+  const att = (body.attachment ?? null) as Record<string, unknown> | null;
+  let attachment: { filename: string; content: string } | null = null;
+  if (att) {
+    const filename = cleanHeader(att.filename, 80);
+    const content = typeof att.content === "string" ? att.content : "";
+    if (!/^[A-Za-z0-9._-]{1,80}\.pdf$/.test(filename)) {
+      return json({ ok: false, error: "The attachment filename is not acceptable" }, 400);
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(content) || content.length % 4 !== 0) {
+      return json({ ok: false, error: "The attachment is not valid base64" }, 400);
+    }
+    // 2 MB decoded; a vector billing is tens of kilobytes, so anything near
+    // this is a bug rather than a big document
+    if ((content.length * 3) / 4 > 2_000_000) {
+      return json({ ok: false, error: "The attachment is too large to email" }, 413);
+    }
+    attachment = { filename, content };
+  }
+
   // (3) the recipient must be this client's on-file billing address, so the
   // endpoint can only ever mail addresses already recorded in the app — and
   // cannot send one client's statement to another client's address.
@@ -202,6 +224,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         // the company mailbox, not the person who pressed Send — see SENDER
         // IDENTITY. The sender is still recorded in the log line below.
         reply_to: REPLY_TO,
+        ...(attachment ? { attachments: [attachment] } : {}),
       }),
     });
   } catch (e) {

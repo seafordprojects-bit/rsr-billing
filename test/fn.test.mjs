@@ -219,6 +219,42 @@ ok('a malformed secret falls back to the constant',
    netState.sentPayload.reply_to);
 delete ENV.STATEMENT_REPLY_TO;
 
+console.log('\n--- N. the pdf attachment, validated server-side ---');
+const goodAtt = Buffer.from('%PDF-1.4 fake billing').toString('base64');
+r = await call({ ...good, attachment: { filename: 'BILLDWG-26-001.pdf', content: goodAtt } });
+j = await r.json();
+ok('a well-formed attachment is accepted', r.status === 200, JSON.stringify(j));
+ok('it reaches Resend as attachments:[{filename, content}]',
+   Array.isArray(netState.sentPayload.attachments) &&
+   netState.sentPayload.attachments.length === 1 &&
+   netState.sentPayload.attachments[0].filename === 'BILLDWG-26-001.pdf' &&
+   netState.sentPayload.attachments[0].content === goodAtt,
+   JSON.stringify(netState.sentPayload.attachments));
+
+r = await call({ ...good, attachment: { filename: '../etc/passwd.pdf', content: goodAtt } });
+ok('a filename with path characters is refused', r.status === 400, String(r.status));
+r = await call({ ...good, attachment: { filename: 'billing', content: goodAtt } });
+ok('a filename with no .pdf extension is refused', r.status === 400, String(r.status));
+r = await call({ ...good, attachment: { filename: 'x'.repeat(90) + '.pdf', content: goodAtt } });
+ok('a filename over 80 chars is refused', r.status === 400, String(r.status));
+
+r = await call({ ...good, attachment: { filename: 'BILLDWG-26-001.pdf', content: 'not base64!!' } });
+ok('content that is not valid base64 is refused', r.status === 400, String(r.status));
+r = await call({ ...good, attachment: { filename: 'BILLDWG-26-001.pdf', content: 'YQ' } }); // not a multiple of 4
+ok('base64 with a bad length is refused', r.status === 400, String(r.status));
+
+// 2 MB decoded cap: 'A'.repeat(2_700_000) decodes to ~2,025,000 bytes
+const oversized = 'A'.repeat(2_700_000);
+r = await call({ ...good, attachment: { filename: 'BILLDWG-26-001.pdf', content: oversized } });
+ok('an attachment over the 2 MB decoded cap is refused', r.status === 413, String(r.status));
+
+netState.sentPayload = null;
+r = await call(good); // the shared `good` fixture carries no attachment
+j = await r.json();
+ok('a send with no attachment at all still works', r.status === 200, JSON.stringify(j));
+ok('and no attachments key is sent to Resend',
+   !('attachments' in netState.sentPayload), JSON.stringify(netState.sentPayload));
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

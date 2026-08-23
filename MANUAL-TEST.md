@@ -305,6 +305,31 @@ Needs two browsers signed into the same project.
 
 ---
 
+## 9. The PDF attachment
+
+The harness has no layout and no painting. It can prove the numbers on the
+PDF come from `stmtFacts`; it cannot see the page. This section is the only
+check that anyone can read the document.
+
+- [ ] Open a billing with at least two lines, one of them a revision, and one
+      no-charge line. Tap **Download PDF**.
+- [ ] Put the PDF beside the printed page — Print, same billing — and
+      compare: the mark, Bill To (company, contact person, address), vessel,
+      period, every line with its drawing number, subtotal, the VAT or
+      withholding line, the total, the amount in words, terms and due date,
+      payment details.
+- [ ] Confirm the billing number matches the printed copy and that no
+      `RSR-` code appears anywhere on the PDF.
+- [ ] Print the PDF. The mark must read as solid black on a mono printer.
+- [ ] Email the billing to your own address. Open it on a phone: the body
+      keeps the letter and the inline billing, and the attachment opens as
+      `BILLDWG-26-0NN.pdf`.
+- [ ] Break it on purpose once: turn off the network after the letter opens
+      and press Send. The send must fail with a visible message, nothing is
+      marked billed, and the letter is still there to retry.
+
+---
+
 ## Open items — your call, not fixed
 
 1. **Offline numbers are not reconciled.** A billing numbered while offline

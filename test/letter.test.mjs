@@ -46,6 +46,19 @@ const online = (app) => {
   return app;
 };
 
+// lSend now builds a PDF before posting. pdfRender loads jsPDF from a CDN
+// <script> tag; the harness's appendChild is a no-op so that would hang
+// forever. loadJsPdf's own fast path — a jsPDF already on window — is the
+// seam this suite uses instead, set up once for every send driven below.
+globalThis.window.jspdf = {
+  jsPDF: class {
+    constructor(){}
+    setFont(){} setFontSize(){} setLineWidth(){}
+    text(){} line(){} addImage(){}
+    output(){ return 'data:application/pdf;base64,' + Buffer.from('fake-pdf').toString('base64'); }
+  },
+};
+
 net.mode = 'offline';
 let app = reset();
 
@@ -303,6 +316,34 @@ ok('and it is what skips the confirm',
    /if\(!cfg\.autoMarkPrint\)\{offerMarkBilled\(list\);return;\}/.test(html));
 ok('offerMarkBilled no longer overwrites a PAID billing',
    /const movable=\(list\|\|\[\]\)\.filter\(g=>g\.status==='DRAFT'\)/.test(html));
+
+console.log('\n--- 9. the send carries a pdf attachment and no tracking code ---');
+app = online(reset());
+await app.cliSave({ name:'Seaford', contact_person:'Mr. Chua', address:'Cebu',
+                    billing_email:'ap@seaford.test' }, true);
+await make(app, ['Shell Expansion Plan']);
+openStmt(app);
+el('sEmail').value = 'ap@seaford.test';
+await el('sEmailBtn').onclick();
+let posted = null;
+globalThis.fetch = async (url, opts={}) => {
+  if (String(url).includes('send-statement')) {
+    posted = JSON.parse(opts.body);
+    return { ok:true, status:200, json:async()=>({ ok:true }), text:async()=>'{}' };
+  }
+  return realFetch(url, opts);
+};
+await el('lSend').onclick();
+ok('the body carries an attachment', !!posted && !!posted.attachment,
+   JSON.stringify(posted || {}));
+ok('the filename is the billing number',
+   !!posted && /^BILLDWG-\d\d-\d\d\d\.pdf$/.test(posted.attachment.filename),
+   posted && posted.attachment.filename);
+ok('the content is base64', !!posted && /^[A-Za-z0-9+/]+=*$/.test(posted.attachment.content),
+   posted && posted.attachment.content);
+ok('no tracking code anywhere in the posted body',
+   JSON.stringify(posted).indexOf('RSR-') === -1);
+globalThis.fetch = realFetch;
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');

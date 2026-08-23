@@ -3697,12 +3697,20 @@ $('lSend').onclick=async()=>{
       toast('Billing number moved to '+issued,true);
     }
     renderStatement(p.list,{email:true});
+    // A billing that arrives without its attachment, unnoticed, is the exact
+    // silent failure this work exists to prevent — so a PDF that will not
+    // build aborts the send. Nothing is posted and nothing is marked.
+    const attachment={
+      filename:pdfFilename(issued),
+      content:await pdfRender(pdfPlan(stmtFacts(p.list),issued))
+    };
     await fnPost('send-statement',{
       to:p.to,
       client:p.client,
       subject:mailSubject(stmtFacts(p.list),issued),
       html:statementEmailHtml(letter),
-      statement_no:issued
+      statement_no:issued,
+      attachment:attachment
     });
     // only now, with the function's own confirmation in hand
     const n=markBilledNow(p.list);
