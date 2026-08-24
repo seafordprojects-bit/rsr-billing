@@ -166,6 +166,20 @@ netState.senders = ['raffy@rsr.test'];
 r = await call(good);
 ok('an allowlisted sender passes', r.status === 200, String(r.status));
 
+console.log('\n--- I2. the client name matches the way the app matches it ---');
+// A billing carries the client name as text from when it was created. Rename
+// or retype the client and the app still finds the record -- clientRec is
+// case- and spacing-insensitive -- so this must be too, or the send is
+// refused with a message about the billing email that explains nothing.
+r = await call({ ...good, client: '  seaford  ' });
+ok('spacing and case do not matter', r.status === 200, String(r.status));
+r = await call({ ...good, client: 'SEAFORD' });
+ok('nor does capitalisation', r.status === 200, String(r.status));
+r = await call({ ...good, client: 'Sea  ford' });
+ok('but a genuinely different name is still refused', r.status === 403, String(r.status));
+r = await call({ ...good, client: 'Seaford Shipping Lines' });
+ok('and so is a different client with the same address', r.status === 403, String(r.status));
+
 console.log('\n--- J. authorisation failures fail closed ---');
 netState.sendersOk = false;
 r = await call(good);

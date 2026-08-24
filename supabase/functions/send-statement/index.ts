@@ -44,6 +44,15 @@ function cleanEmail(v: unknown): string {
 const cleanHeader = (v: unknown, max: number) =>
   String(v ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, max);
 
+// A billing stores the client name as text when it is created, and everything
+// else about that client is looked up live by that name. The app matches it
+// case- and spacing-insensitively (clientRec in index.html); this compared
+// exactly, so "Seaford Shipping lines" matched happily in the app and was then
+// refused here -- with a message about the billing email, which is not what
+// had gone wrong. Both sides now canonicalise the same way.
+const canonName = (v: unknown) =>
+  String(v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
 // ===========================================================================
 // SENDER IDENTITY — THIS IS WHAT CHANGES WHEN A DOMAIN IS VERIFIED IN RESEND
 // ===========================================================================
@@ -202,7 +211,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json({ ok: false, error: "Could not verify the recipient" }, 500);
     }
     const found = await cl.json();
-    const match = Array.isArray(found) && found.some((c: { name?: string }) => c?.name === client);
+    const match = Array.isArray(found) &&
+      found.some((c: { name?: string }) => canonName(c?.name) === canonName(client));
     if (!match) {
       console.warn(`blocked send to ${to} for client "${client}" by ${senderEmail}`);
       return json({

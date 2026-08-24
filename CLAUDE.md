@@ -633,8 +633,21 @@ in the browser as a real 401 rather than an opaque CORS error.
   not. Fixing it means marking such numbers provisional and re-claiming.
 - A deliberate counter reset can still hand out a number already in use. The
   confirm names the clash; proceeding is allowed.
-- Revisions match on exact client **and** vessel. Names are canonicalised for
-  case and spacing, but a genuine client rename breaks the link.
+- **A billing stores the client name; everything else about the client is
+  looked up live by that name.** `client` is a text column on every line
+  (`FIELDS`, `GROUP_FIELDS`), written when the billing is created and never
+  re-read — deliberate, and the reason `canonClient` keeps the first spelling:
+  a record of what was issued should not rewrite itself later. The cost is that
+  renaming a client **orphans its old billings from their own details**. Reopen
+  one and `clientRec` finds nothing, so Bill To loses the contact person and
+  address, the letter falls back to "Sir/Madam", and the billing email has to be
+  typed again. Revision matching breaks the same way — it matches on client and
+  vessel.
+  Both sides now canonicalise names identically (trim, collapse whitespace,
+  lowercase). They did not: `send-statement` compared exactly while the app
+  compared canonically, so `Seaford Shipping lines` matched in the app and was
+  refused by the function — with a message about the billing email, which was
+  not what had gone wrong. `fn.test.mjs` section I2 pins this.
 - The project URL, key and session are per-device by design. A new device needs
   them entered once before anything syncs.
 - pdf.js and jsPDF both load from cdnjs, pinned with SRI hashes. pdf.js's **worker** is loaded via
