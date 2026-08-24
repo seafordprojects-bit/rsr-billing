@@ -91,6 +91,28 @@ ok('pushed payload carries only types, payment and the letter',
    !/cfg\.url/.test(shared) && !/cfg\.key/.test(shared) && !/access_token/.test(shared));
 ok('settings cache is its own storage key', /rsr_dwg_shared_v1/.test(html));
 
+console.log('\n--- B2. the long settings sheet collapses into panels ---');
+// <details> owns open/closed, so there is no JS state to disagree with the DOM.
+// These are markup contracts: the harness cannot see layout, only the source.
+const PANELS = { types:'cTypeList', catalog:'cCatList', clients:'cCliList',
+                 payment:'cBankList', company:'cCo' };
+for (const [name, id] of Object.entries(PANELS)) {
+  const i = html.indexOf('data-sect="' + name + '"');
+  ok('panel ' + name + ' exists', i > -1);
+  const end = html.indexOf('</details>', i);
+  ok('and still contains #' + id,
+     i > -1 && end > -1 && html.slice(i, end).includes('id="' + id + '"'));
+}
+ok('every panel header is a summary', (html.match(/<summary>/g) || []).length >= 5,
+   String((html.match(/<summary>/g) || []).length));
+ok('the header meets the 44px touch target',
+   /\.sect>summary\{[^}]*min-height:44px/.test(html));
+ok('the native marker is hidden, so the chevron is ours',
+   /list-style:none/.test(html) && /details-marker\{display:none/.test(html));
+ok('which panel was open is remembered in one key', /rsr_dwg_sect_v1/.test(html));
+ok('and only one is open at a time',
+   /details\.sect[\s\S]{0,200}o\.open=false/.test(html));
+
 console.log('\n--- C. local values migrate up on first sync ---');
 server.rows.clear();
 installServer();

@@ -321,6 +321,18 @@ header.top{
 .note code{font-family:var(--mono);font-size:11.5px;background:rgba(255,255,255,.6);padding:1px 4px;border-radius:3px}
 .sect-t{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--slate);font-weight:700;margin:20px 0 9px;padding-bottom:6px;border-bottom:1px solid var(--line)}
 .sect-t:first-child{margin-top:0}
+/* Collapsible settings panels. <details> does the open/close natively, so
+   there is no state to keep in JS and no way for the two to disagree; the
+   only script involved remembers which one was open. */
+.sect>summary{list-style:none;cursor:pointer;min-height:44px;display:flex;align-items:center}
+.sect>summary::-webkit-details-marker{display:none}
+.sect>summary>.sect-h{flex:1;margin-bottom:0;padding-right:22px;position:relative}
+/* the chevron is drawn on the header, and turns when the panel opens */
+.sect>summary>.sect-h::after{content:'';position:absolute;right:4px;top:50%;width:7px;height:7px;
+  border-right:2px solid var(--slate);border-bottom:2px solid var(--slate);
+  transform:translateY(-70%) rotate(45deg);transition:transform .15s}
+.sect[open]>summary>.sect-h::after{transform:translateY(-20%) rotate(225deg)}
+.sect>summary:focus-visible{outline:2px solid var(--accent,#C81E23);outline-offset:2px}
 
 .toast{
   position:fixed;left:50%;bottom:calc(96px + var(--safe-b));transform:translate(-50%,14px);z-index:70;
@@ -936,43 +948,48 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="sect-t">PDF attachments</div>
     <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. The SQL below creates this bucket <b>private</b> — attachments open through a link that is signed for one hour when you tap them, so the files are never public.</div></div>
 
-    <div class="sect-t">Document types</div>
+    <details class="sect" data-sect="types">
+      <summary><div class="sect-t sect-h">Document types</div></summary>
     <div class="hint" style="margin:-4px 0 9px">The code goes into every tracking number — <span style="font-family:var(--mono)" id="typeSample"></span> — and each type counts on its own each month, with its own billing-number series each year. Changing a code here does not touch records already saved.</div>
     <div class="pick" id="cTypeList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cTypeAdd" type="button">Add type</button></div>
-
-    <div class="sect-t" style="display:flex;align-items:center">Catalog<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCatCount"></span></div>
+    </details>
+    <details class="sect" data-sect="catalog">
+      <summary><div class="sect-t sect-h" style="display:flex;align-items:center">Catalog<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCatCount"></span></div></summary>
     <div class="hint" style="margin:-4px 0 9px">Your standard items, offered under <b>From catalog</b>. Unticking keeps past billing intact and only hides the item from the picker.</div>
     <div class="pick" id="cCatList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cCatAdd" type="button">Add item</button></div>
-
+    </details>
     <div class="sect-t">Billing defaults</div>
     <div class="f"><label for="cRate">Standard rate per item (₱)</label><input id="cRate" type="number" inputmode="decimal" min="0" step="0.01" class="mono-in"></div>
     <div class="f"><label for="cTerms">Payment terms (days)</label><input id="cTerms" type="number" inputmode="numeric" min="0" step="1" class="mono-in"><div class="hint">Every billing opens with this and prints it under <b>Terms</b>, with <b>Due on</b> counted forward from today. Change it on a billing without changing this default.</div></div>
     <div class="f"><label for="cPrefix">Code root</label><input id="cPrefix" class="mono-in"><div class="hint">Codes come out as <span id="codeSample" style="font-family:var(--mono)"></span> — root, document type, month — and each type restarts at 001 every month.</div></div>
 
-    <div class="sect-t" style="display:flex;align-items:center">Client records<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCliCount"></span></div>
+    <details class="sect" data-sect="clients">
+      <summary><div class="sect-t sect-h" style="display:flex;align-items:center">Client records<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCliCount"></span></div></summary>
     <div class="hint" style="margin:-4px 0 9px">Printed under <b>Bill To</b> on every billing. Contact person and address are optional.</div>
     <div class="pick" id="cCliList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cCliAdd" type="button">Add client</button></div>
-
+    </details>
     <div class="sect-t" style="display:flex;align-items:center">Pending writes<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cDeadCount"></span></div>
     <div class="hint" style="margin:-4px 0 9px">Writes the server refused. They are not retried until you say so.</div>
     <div class="pick" id="cDeadList"></div>
 
-    <div class="sect-t">Payment details</div>
+    <details class="sect" data-sect="payment">
+      <summary><div class="sect-t sect-h">Payment details</div></summary>
     <div class="hint" style="margin:-4px 0 9px">Printed after the total on every billing.</div>
     <div class="f"><label for="cPayee">Please issue payment to</label><input id="cPayee" placeholder="Payee name as it appears on the account"></div>
     <div class="pick" id="cBankList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cBankAdd" type="button">Add bank account</button></div>
     <div class="f" style="margin-top:13px"><label for="cRemit">Email deposit slips to</label><input id="cRemit" type="email" inputmode="email" autocomplete="off" spellcheck="false" placeholder="billing@yourdomain.com"><div class="hint">Printed as the deposit-slip instruction line.</div></div>
-
+    </details>
     <div class="sect-t">Covering letter</div>
     <div class="hint" style="margin:-4px 0 9px">Opens every emailed billing, above the document, and is shown for review before each send. Placeholders: <span style="font-family:var(--mono)">{contact} {billno} {vessel} {period} {total} {due}</span> — <b>{contact}</b> is the client's Salutation, or their contact person when that is blank, or "Sir/Madam" when both are. Clear the box to go back to the standard wording.</div>
     <div class="f"><textarea id="cLetter" style="min-height:190px;line-height:1.55"></textarea></div>
     <label class="chk"><input type="checkbox" id="cMarkPrint"><span>Auto-mark billed on print<span class="s">A successful email always marks the billing BILLED. Printing asks first unless this is on.</span></span></label>
 
-    <div class="sect-t">Company details on statements</div>
+    <details class="sect" data-sect="company">
+      <summary><div class="sect-t sect-h">Company details on statements</div></summary>
     <div class="f"><label for="cCo">Company name</label><input id="cCo"></div>
     <div class="f"><label for="cAddr">Address</label><textarea id="cAddr" style="min-height:52px"></textarea></div>
     <div class="f"><label for="cContact">Contact line</label><input id="cContact" placeholder="Tel / email / TIN"></div>
@@ -983,7 +1000,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     </div>
     <label class="chk"><input type="checkbox" id="cPrepared"><span>Print "Prepared by" on the billing<span class="s">A plain text line under the closing note. Billings carry no signature block.</span></span></label>
     <label class="chk"><input type="checkbox" id="cHideFree"><span>Leave no-charge lines off the billing<span class="s">Off by default, so the client sees revisions were delivered without being charged.</span></span></label>
-
+    </details>
     <div class="sect-t">Backup</div>
     <div style="display:flex;gap:8px"><button class="act" id="cExport">Export JSON</button><button class="act" id="cCsv">Export CSV</button></div>
   </div>
@@ -4593,7 +4610,26 @@ create policy rsr_dwg_storage_authed on storage.objects
 --  where schemaname = 'storage' and tablename = 'objects';`;
 }
 
+// Which settings panel was last open. One localStorage key, no dependency:
+// <details> owns the open/closed state, this only restores it. A name that is
+// no longer in the markup simply matches nothing, so a removed panel cannot
+// leave the sheet in a broken state.
+const LS_SECT='rsr_dwg_sect_v1';
+function restoreSect(){
+  let want='';
+  try{want=localStorage.getItem(LS_SECT)||'';}catch(e){}
+  document.querySelectorAll('details.sect').forEach(d=>{
+    d.open=(d.dataset.sect===want);
+    d.addEventListener('toggle',()=>{
+      if(!d.open)return;
+      // one at a time, so the sheet never becomes a wall again
+      document.querySelectorAll('details.sect').forEach(o=>{if(o!==d)o.open=false;});
+      try{localStorage.setItem(LS_SECT,d.dataset.sect);}catch(e){}
+    });
+  });
+}
 function openCfg(){
+  restoreSect();
   $('cUrl').value=cfg.url;$('cKey').value=cfg.key;$('cTable').value=cfg.table;$('cBucket').value=cfg.bucket||'';
   $('cRate').value=cfg.rate||'';$('cPrefix').value=cfg.root;
   $('cTerms').value=termsDefault();
