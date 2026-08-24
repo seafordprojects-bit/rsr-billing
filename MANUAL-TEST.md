@@ -5,7 +5,7 @@ layout, real printing, real focus, real touch. Ordered by risk — if you only
 have twenty minutes, do section 1. If you are setting the app up on a phone
 for the first time, start at section 0.
 
-The suites cover logic, data and wiring — `node test/run.mjs`, 28 suites, 1113
+The suites cover logic, data and wiring — `node test/run.mjs`, 30 suites, 1336
 assertions. They do **not** render, paginate, or lay anything out. Every bug you
 hit that the tests missed was in this category.
 
@@ -365,6 +365,87 @@ check that anyone can read the document.
 - [ ] Break it on purpose once: turn off the network after the letter opens
       and press Send. The send must fail with a visible message, nothing is
       marked billed, and the letter is still there to retry.
+
+---
+
+## 10. Client edits from two devices at once
+
+The suites can prove the merge rule field by field, but they run one fake
+server against one fake device. Nothing automated can stage two real writers
+disagreeing, which is the whole point of this mechanism — so it is here.
+
+**Both writers must be running this build.** Pages serves `main`, so until
+this is merged a phone loading the live URL is the *old* app and will not
+reconcile anything. Either serve the branch to the phone over your LAN
+(`python -m http.server 8000` on the laptop, then `http://<laptop-ip>:8000`
+on the phone, same Wi-Fi), or walk this section again after the merge.
+
+**If you only have one device**, the Supabase SQL editor is a perfectly good
+second writer — to the app it is indistinguishable from a phone. Use:
+
+```sql
+update clients set billing_email = 'someone@example.test'
+where name = 'Seaford Shipping Lines';
+```
+
+That fires the `rsr_clients_touch` trigger and moves `updated_at`, exactly as
+another device would.
+
+### A. Different fields — merges silently, nothing to decide
+
+- [ ] On the **phone**, go offline (airplane mode, or DevTools → Network →
+      Offline). Edit the client's **address** and tap out of the field so it
+      saves. The badge should read `1 queued`.
+- [ ] On the **PC** (or in the SQL editor), change that client's **billing
+      email** to something new. Let it sync.
+- [ ] Bring the phone back online and let it flush.
+- [ ] The phone now shows **your new address and the PC's new email**. No
+      toast asking anything, nothing in Pending writes, badge back to
+      `Synced`. Both edits survived because they touched different fields.
+
+### B. The same field — surfaced, never guessed
+
+- [ ] Phone offline again. Edit the client's **billing email** to one value.
+- [ ] PC (or SQL editor): set that same **billing email** to a *different*
+      value. Let it sync.
+- [ ] Bring the phone online.
+- [ ] A toast fires naming the conflict, and **Settings → Pending writes**
+      lists the job with a reason naming the field and **both values** —
+      yours and the server's. Read it: if it does not show both, the message
+      is not doing its job.
+- [ ] The client list on the phone shows the **server's** value, not yours.
+      Your value is not lost — it is held in the pending job.
+- [ ] Confirm nothing was written: re-read the row in the SQL editor. It must
+      still hold the PC's value.
+
+### C. All-or-nothing, and Discard leaves the row alone
+
+- [ ] Repeat B, but on the phone edit **both** the billing email (conflicting)
+      **and** the contact person (which the PC did not touch).
+- [ ] After the flush, check the SQL editor: **neither** field changed. The
+      clean edit is deliberately *not* applied when any part of the write
+      conflicts — a half-applied write is harder to reason about than one to
+      redo.
+- [ ] Tap **Discard** on the pending job and confirm the prompt names the
+      fields it is about to destroy. After discarding, the server row is
+      **unchanged** and the phone shows the server's values.
+
+### D. Retry, after the disagreement is settled
+
+- [ ] Repeat B to get a conflicting job in Pending writes.
+- [ ] Decide the PC was right: tap **Discard**, then re-enter nothing. The
+      phone should already show the server's value.
+- [ ] Now decide *you* were right: edit the field again on the phone, online
+      this time. It saves normally — the version it swaps against is the one
+      it just read, so there is nothing to conflict with.
+
+### E. The guard against silent overwrites
+
+- [ ] Sanity check that the version is actually moving. In the SQL editor:
+      `select name, updated_at from clients;` — note the value, change any
+      field on that client from the app, and re-read. **`updated_at` must
+      change.** If it does not, the trigger is missing and every write will
+      silently win, with the suite still green.
 
 ---
 
