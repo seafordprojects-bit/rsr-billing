@@ -86,8 +86,8 @@ ok('counter columns are plain, for compare-and-swap',
 console.log('\n--- B. url, key and session never leave the device ---');
 const shared = html.slice(html.indexOf('function pushSharedSettings'),
                           html.indexOf('function pushSharedSettings') + 600);
-ok('pushed payload carries only types and payment',
-   /types/.test(shared) && /payment/.test(shared) &&
+ok('pushed payload carries only types, payment and the letter',
+   /types/.test(shared) && /payment/.test(shared) && /letter/.test(shared) &&
    !/cfg\.url/.test(shared) && !/cfg\.key/.test(shared) && !/access_token/.test(shared));
 ok('settings cache is its own storage key', /rsr_dwg_shared_v1/.test(html));
 
@@ -113,6 +113,30 @@ ok('per-type prefixes travel inside the type list',
 ok('existing counter carried up',
    server.rows.get('billseq:DW').seq_n === 7, JSON.stringify(server.rows.get('billseq:DW')));
 ok('migration marked done', app.cfg.settingsMigrated === true);
+
+console.log('\n--- C2. the covering letter is the firm\'s, not the device\'s ---');
+// it used to be per-device, so two phones could send different wording
+const CUSTOM = 'Dear {contact}, our billing {billno} is attached. — RSR';
+const appL = boot({ letter: CUSTOM });
+await new Promise(r => setTimeout(r, 40));
+appL.cfg.letter = CUSTOM;
+await appL.pushSharedSettings();
+await new Promise(r => setTimeout(r, 40));
+ok('the letter is published', server.rows.has('letter'));
+// guarded: a missing row must report as a failure, not crash the suite
+ok('with its text',
+   !!server.rows.get('letter') && server.rows.get('letter').value.text === CUSTOM,
+   JSON.stringify(server.rows.get('letter') && server.rows.get('letter').value));
+
+const appM = boot();                    // a device that never typed a letter
+await new Promise(r => setTimeout(r, 40));
+ok('a second device picks it up', appM.cfg.letter === CUSTOM, appM.cfg.letter);
+ok('and composes with it', appM.letterTemplate() === CUSTOM);
+ok('an empty shared letter still means the standard wording', (() => {
+  appM.settings['letter'] = { key:'letter', value:{ text:'' } };
+  appM.applySettings();
+  return appM.letterTemplate() === appM.LETTER_DEFAULT;
+})(), appM.letterTemplate().slice(0, 40));
 
 console.log('\n--- D. a second device reads them instead of re-entering ---');
 const app2 = boot();                    // fresh device, empty local settings

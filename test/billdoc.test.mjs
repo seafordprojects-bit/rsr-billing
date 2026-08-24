@@ -190,7 +190,6 @@ ok('no signature-image feature anywhere',
 
 console.log('\n--- E2. the emailed copy matches ---');
 const mail = app.statementEmailHtml();
-ok('email closes the same way', /Thank you for your business\./.test(mail));
 ok('email has no signature block', !/stmt-sig/.test(mail));
 ok('email styles the closing block', /\.stmt-close/.test(mail));
 

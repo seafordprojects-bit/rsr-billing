@@ -1054,7 +1054,7 @@ const DEFAULT_CFG={
 const LETTER_DEFAULT=
   'Dear {contact},\n\n'+
   'Please find our billing {billno} for {vessel} covering {period}, amounting to '+
-  '{total}. Payment details are indicated below. We would appreciate settlement '+
+  '{total}. The full billing and payment details are in the attached PDF. We would appreciate settlement '+
   'within the agreed terms.\n\n'+
   'Respectfully yours,\n\n'+
   'Raffy J. Ramirez\n'+
@@ -1845,6 +1845,8 @@ function applySettings(){
     if(Array.isArray(p.value.banks))cfg.banks=p.value.banks.map(b=>Object.assign({},b));
     while(cfg.banks.length<2)cfg.banks.push({bank:'',name:'',acct:''});
   }
+  const l=settings['letter'];
+  if(l&&l.value&&typeof l.value.text==='string')cfg.letter=l.value.text;
   Object.keys(settings).forEach(k=>{
     if(k.indexOf('billseq:')!==0)return;
     const r=settings[k];
@@ -1864,6 +1866,11 @@ async function pushSharedSettings(){
   queueSetting('types',{value:{list:cfg.types}});
   queueSetting('payment',{value:{payee:cfg.payee||'',remitEmail:cfg.remitEmail||'',
                                  banks:cfg.banks||[]}});
+  // The covering letter is the firm's wording, not a per-device preference:
+  // every device should send the same letter. Empty is a real value here and
+  // means LETTER_DEFAULT, so saving Settings on a device that never customised
+  // it will replace a custom letter written elsewhere.
+  queueSetting('letter',{value:{text:cfg.letter||''}});
   if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
 }
 // First sync on a device that already had settings locally: push whatever the
@@ -1875,6 +1882,12 @@ async function migrateSettings(){
   if(!settings['payment']){
     queueSetting('payment',{value:{payee:cfg.payee||'',remitEmail:cfg.remitEmail||'',
                                    banks:cfg.banks||[]}});
+    pushed++;
+  }
+  // only when the table has none: a device still on the default must not
+  // publish an empty letter over one another device already wrote
+  if(!settings['letter']&&String(cfg.letter||'').trim()){
+    queueSetting('letter',{value:{text:cfg.letter}});
     pushed++;
   }
   Object.keys(cfg.billSeries||{}).forEach(code=>{
@@ -3763,12 +3776,14 @@ function letterHtml(text){
     '</div>';
 }
 
+// The body is the covering letter and nothing else. The billing itself rides
+// as the attached PDF, so repeating it inline gave the reader two copies to
+// reconcile. Payment details live on the attachment now.
 function statementEmailHtml(letterText){
   return '<!doctype html><html><head><meta charset="utf-8">'+
          '<meta name="viewport" content="width=device-width,initial-scale=1">'+
          '<style>'+STMT_MAIL_CSS+'</style></head><body>'+
-         letterHtml(letterText)+
-         $('printRoot').innerHTML+'</body></html>';
+         letterHtml(letterText)+'</body></html>';
 }
 function mailSubject(f,no){
   return ['Billing '+String(no||'').trim(),

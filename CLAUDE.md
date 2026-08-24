@@ -220,9 +220,31 @@ and keeps the letter for a retry. Print still confirms unless
 `cfg.autoMarkPrint` is on, because `window.print()` cannot report whether
 anything was actually printed.
 
-`cfg.letter`, `cfg.autoMarkPrint`, `cfg.terms`, `cfg.rate` and the company
-details are **per-device** — they are not in `pushSharedSettings`, which
-carries only types, payment and the billing counters.
+`cfg.autoMarkPrint`, `cfg.terms`, `cfg.rate` and the company details are
+**per-device** — they are not in `pushSharedSettings`, which carries types,
+payment, the billing counters and the letter.
+
+**`cfg.letter` is shared.** It was per-device, which meant two phones could
+send different wording over the same firm's name. It now travels as the
+`letter` key in `app_settings`, so a change in Settings on one device reaches
+the rest.
+
+Two consequences of that, both deliberate:
+
+- **Empty is a real value**, meaning `LETTER_DEFAULT`. So saving Settings on a
+  device that never customised the letter *replaces* a custom one written
+  elsewhere. There is no fill-only defence here as there is for a client row —
+  clearing the box is how you go back to the standard wording, and that
+  intent cannot be told apart from never having set it.
+- **`migrateSettings` only publishes a letter it actually has.** A first sync
+  from a device still on the default must not push an empty letter over one
+  another device already wrote, so the migration skips a blank.
+
+The emailed body is the covering letter **and nothing else** — the billing
+itself rides as the attached PDF. Repeating it inline gave the reader two
+copies to reconcile, and the payment details now live on the attachment. One
+consequence worth knowing: the body carries no brand mark, because the mark
+lived in the statement header; the sign-off is the only branding.
 
 ---
 

@@ -200,9 +200,8 @@ ok('a typo survives to the review step',
 console.log('\n--- 3. the letter renders above the billing ---');
 app.renderStatement(app.pickedRows(), { email:true });
 const mail = app.statementEmailHtml('Dear Sir/Madam,\n\nOne\nTwo\n\nRespectfully yours,');
-ok('the letter block comes first',
-   mail.indexOf('class="ltr"') > -1 &&
-   mail.indexOf('class="ltr"') < mail.indexOf('class="stmt"'));
+ok('the body is the letter, and nothing follows it',
+   mail.indexOf('class="ltr"') > -1 && !/class="stmt"/.test(mail));
 ok('it carries the send date',
    new RegExp('class="ltr-d">' + app.fmtDate(app.today())).test(mail));
 const block = app.letterHtml('Dear Sir/Madam,\n\nOne\nTwo\n\nRespectfully yours,');

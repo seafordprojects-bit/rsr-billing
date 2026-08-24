@@ -93,7 +93,9 @@ app.renderStatement(app.pickedRows(), { email: true });
 const mail = app.statementEmailHtml();
 ok('the emailed copy embeds no image at all', !/data:image/.test(mail));
 ok('so nothing for Gmail to strip', !/base64/.test(mail));
-ok('the mark still reads RSR in the email', /<div class="m">RSR<\/div>/.test(mail));
+// the mark lived in the statement header, which the body no longer carries.
+// The sign-off is the only branding in an emailed billing now.
+ok('the emailed body carries no mark at all', !/<div class="m">/.test(mail));
 ok('and it is styled as the red box', /\.stmt-hd \.m\{[^}]*background:#C81E23/.test(mail));
 
 console.log('\n--- the source artwork is not committed ---');

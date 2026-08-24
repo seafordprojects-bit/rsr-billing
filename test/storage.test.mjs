@@ -154,8 +154,11 @@ const mail = app.statementEmailHtml();
 ok('is a full document', mail.startsWith('<!doctype html>'));
 ok('embeds a stylesheet', mail.includes('<style>') && mail.includes('.stmt-hd'));
 ok('no unresolved CSS variables', !/var\(--/.test(mail));
-ok('carries the statement body', mail.includes('Shell Expansion') &&
-   mail.includes('RSR-SOA-082026-001'));
+// the billing itself is the attachment; the body is the covering letter
+ok('carries the letter it was given',
+   app.statementEmailHtml('Dear Sir/Madam, Billing BILLDWG-26-001 attached.')
+     .includes('Billing BILLDWG-26-001 attached.'));
+ok('and no billing table', !/class="stmt"/.test(mail));
 
 console.log('\n--- I. the email is saved before the send, not after ---');
 const src = html.slice(html.indexOf("$('sEmailBtn').onclick"),

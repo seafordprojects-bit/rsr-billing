@@ -202,7 +202,12 @@ ok('the footer strip went with it', !/stmt-ft/.test(doc));
 console.log('\n--- the emailed copy matches ---');
 const mail = app.statementEmailHtml();
 ok('email carries no tracking code', !mail.includes(g.code));
-ok('email carries the billing number', mail.includes('BILLDWG-26-001'));
+// the body is the covering letter, so the number reaches the client through
+// {billno} rather than through the statement header
+const mailLtr = app.statementEmailHtml(app.composeLetter(app.pickedRows(), 'BILLDWG-26-001'));
+ok('the billing number reaches the client through the letter',
+   mailLtr.includes('BILLDWG-26-001'), mailLtr.slice(0, 200));
+ok('and the tracking code still does not', !mailLtr.includes(g.code), g.code);
 ok('email drops the footer too',
    !/payment advice/.test(mail) && !/stmt-ft/.test(mail));
 

@@ -110,9 +110,8 @@ Object.assign(app.cfg, { payee: saved.p, banks: saved.b, remitEmail: saved.r });
 console.log('\n--- H. the emailed copy is the same layout ---');
 app.renderStatement(app.rows.slice(0, 2));
 const mail = app.statementEmailHtml();
-ok('email carries the Bill To block', /class="bill-to"/.test(mail));
-ok('email carries the payment block', /class="pay"/.test(mail));
-ok('email carries the numbered items', mail.includes('>1.0<'));
+// the body is the covering letter now; the billing rides as the attached PDF
+ok('the emailed body carries no billing table', !/class="stmt"/.test(mail));
 ok('email styles the new blocks', /\.bill-to\s*\{/.test(mail) && /\.pay\s*\{/.test(mail));
 ok('no unresolved CSS variables in the email', !/var\(--/.test(mail));
 
