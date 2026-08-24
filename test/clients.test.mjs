@@ -1,3 +1,7 @@
+// Client writes reconcile against a server-stamped updated_at rather than
+// overwriting. The rule, in one line: a field only this device changed is
+// applied, a field only the server changed is kept, and a field both changed
+// is never guessed at -- it goes to Pending writes with both values named.
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -9,50 +13,162 @@ const ok = (name, cond, extra='') => {
   if (cond) { pass++; console.log('  PASS  ' + name); }
   else { fail++; console.log('  FAIL  ' + name + (extra ? '  -> ' + extra : '')); }
 };
-const configure = (app) => {
-  app.cfg.url = 'https://proj.supabase.co';
-  app.cfg.key = 'anon-key';
-  globalThis.localStorage.setItem('rsr_dwg_cfg_v1', JSON.stringify(app.cfg));
-};
-
-console.log('\n--- 1. a duplicate client insert heals into a fill-only update ---');
-net.mode = 'online';
-net.script.length = 0;
-net.calls.length = 0;
-const app = globalThis.__loadApp();
-configure(app);
-app.setSession({ access_token:'tok-1', refresh_token:'ref-1', expires_in:3600,
+const boot = async () => {
+  net.mode = 'online';
+  net.script.length = 0;
+  net.calls.length = 0;
+  // localStorage survives __loadApp(), so without this each section inherits
+  // the last one's clients and queue -- six Seaford rows by section 5
+  globalThis.localStorage.removeItem('rsr_dwg_clients_v1');
+  globalThis.localStorage.removeItem('rsr_dwg_queue_v1');
+  globalThis.localStorage.removeItem('rsr_dwg_rows_v1');
+  // the app's own boot fires an async pull(); left online it races the test
+  // and consumes the scripted replies below. Boot offline, then come online.
+  net.mode = 'offline';
+  const a = globalThis.__loadApp();
+  // the app's boot fires an async pull(); let it finish failing while still
+  // offline, or it lands mid-test and replaces clients with the stub's empty
+  // GET result -- and consumes the scripted replies on its way
+  await new Promise(r => setTimeout(r, 0));
+  net.mode = 'online';
+  net.calls.length = 0;
+  a.cfg.url = 'https://proj.supabase.co';
+  a.cfg.key = 'anon-key';
+  globalThis.localStorage.setItem('rsr_dwg_cfg_v1', JSON.stringify(a.cfg));
+  a.setSession({ access_token:'tok-1', refresh_token:'ref-1', expires_in:3600,
                  user:{ email:'raffy@rsr.test' } });
+  return a;
+};
+const seaford = (a) => a.clients.find(c => c.name === 'Seaford Shipping Lines');
+const patches = () => net.calls.filter(c => c.method === 'PATCH');
 
-// the server already holds the row, with the corrected email and no contact
+const BASE = '2026-08-24T00:13:27.973208+00:00';
+const MOVED = '2026-08-24T00:14:56.011412+00:00';
+
+console.log('\n--- 1. an edit nobody raced carries its base and is applied ---');
+let app = await boot();
+app.clients.push(app.cliFromServer({ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+  contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+  billing_email:'ap@seaford.test', updated_at:BASE }));
+const mine = Object.assign({}, seaford(app), { billing_email:'billing@seaford.test' });
+await app.cliSave(mine, false);
+
+const cas = patches()[0];
+ok('the write went out as a compare-and-swap', !!cas &&
+   String(cas.url).indexOf('updated_at=eq.') > -1, cas && cas.url);
+ok('it swapped against the row it was based on', !!cas &&
+   String(cas.url).indexOf(encodeURIComponent(BASE)) > -1, cas && cas.url);
+ok('the queue cleared', app.queue.length === 0, 'queue=' + app.queue.length);
+ok('nothing needs attention', app.deadJobs().length === 0);
+
+console.log('\n--- 2. the server moved in a field I did not touch: merged, silently ---');
+app = await boot();
+app.clients.push(app.cliFromServer({ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+  contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+  billing_email:'ap@seaford.test', updated_at:BASE }));
+// my edit: the address. meanwhile the PC corrected the email.
+net.script.push({ match:'updated_at=eq.', method:'PATCH', status:200, body:[] });
+net.script.push({ match:'/rest/v1/clients?select=*&id=eq.', method:'GET', status:200,
+  body:[{ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+          contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+          billing_email:'rsrengineering.services2025@gmail.com', updated_at:MOVED }] });
+
+await app.cliSave(Object.assign({}, seaford(app),
+  { address:'BREDCO 3, Reclamation Area, Bacolod City' }), false);
+
+ok('it re-read the row after the miss',
+   net.calls.some(c => c.method === 'GET' && String(c.url).indexOf('id=eq.') > -1),
+   JSON.stringify(net.calls.map(c => c.method + ' ' + c.url)));
+ok('it retried against the moved version',
+   patches().some(p => String(p.url).indexOf(encodeURIComponent(MOVED)) > -1),
+   JSON.stringify(patches().map(p => p.url)));
+ok('exactly one client row survives', app.clients.length === 1,
+   JSON.stringify(app.clients.map(c => c.id)));
+// the row must be the reconciled one, not the local copy cliSave already
+// wrote -- checking the address alone would pass either way
+ok('the local row was replaced by the reconciled one',
+   seaford(app).id === 'srv-9' && seaford(app).updated_at === MOVED,
+   seaford(app).id + ' @ ' + seaford(app).updated_at);
+ok('my address was applied', seaford(app).address === 'BREDCO 3, Reclamation Area, Bacolod City',
+   seaford(app).address);
+ok("the PC's corrected email survived",
+   seaford(app).billing_email === 'rsrengineering.services2025@gmail.com',
+   seaford(app).billing_email);
+ok('the queue cleared without asking', app.queue.length === 0, 'queue=' + app.queue.length);
+ok('nothing needs attention', app.deadJobs().length === 0);
+
+console.log('\n--- 3. both changed the same field: surfaced, never guessed ---');
+app = await boot();
+app.clients.push(app.cliFromServer({ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+  contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+  billing_email:'ap@seaford.test', updated_at:BASE }));
+net.script.push({ match:'updated_at=eq.', method:'PATCH', status:200, body:[], keep:true });
+net.script.push({ match:'/rest/v1/clients?select=*&id=eq.', method:'GET', status:200,
+  body:[{ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+          contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+          billing_email:'rsrengineering.services2025@gmail.com', updated_at:MOVED }] });
+
+// this device also edited the email, to something else
+await app.cliSave(Object.assign({}, seaford(app),
+  { billing_email:'raffyramirez00@gmail.com' }), false);
+
+const stuck = app.deadJobs()[0];
+ok('the job is put in front of a person', !!stuck, JSON.stringify(app.queue));
+ok('the message names the field', !!stuck && /billing_email/.test(stuck.err), stuck && stuck.err);
+ok('it names my value', !!stuck && /raffyramirez00@gmail\.com/.test(stuck.err), stuck && stuck.err);
+ok("it names the server's value",
+   !!stuck && /rsrengineering\.services2025@gmail\.com/.test(stuck.err), stuck && stuck.err);
+ok('nothing was written', !patches().some(p =>
+   String(p.url).indexOf(encodeURIComponent(MOVED)) > -1),
+   JSON.stringify(patches().map(p => p.url)));
+ok("the list shows the server's value, not mine",
+   seaford(app).billing_email === 'rsrengineering.services2025@gmail.com',
+   seaford(app).billing_email);
+
+console.log('\n--- 4. a job queued before this shipped has no base, so it asks ---');
+app = await boot();
+app.clients.push(app.cliFromServer({ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+  contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+  billing_email:'ap@seaford.test', updated_at:BASE }));
+// hand-roll the old shape: an update job with no `base` field at all
+app.queue.push({ op:'update', store:'clients', table:'clients', id:'srv-9',
+  data:{ name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+         contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+         billing_email:'raffyramirez00@gmail.com' } });
+await app.flushQueue();
+ok('it is not applied blind', app.deadJobs().length === 1, JSON.stringify(app.queue));
+ok('and the reason says why',
+   app.deadJobs().length === 1 && /version|base|older/i.test(app.deadJobs()[0].err),
+   app.deadJobs()[0] && app.deadJobs()[0].err);
+
+console.log('\n--- 5. an insert whose name already exists ---');
+app = await boot();
 net.script.push({ match:'/rest/v1/clients', method:'POST', status:409,
   body:{ code:'23505',
          message:'duplicate key value violates unique constraint "clients_name_key"' } });
 net.script.push({ match:'/rest/v1/clients?select=*&name=eq.', method:'GET', status:200,
   body:[{ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
           contact_person:null, address:null,
-          billing_email:'rsrengineering.services2025@gmail.com' }] });
+          billing_email:'rsrengineering.services2025@gmail.com', updated_at:BASE }] });
 
 await app.cliSave({ name:'Seaford Shipping Lines', salutation:'Mr. Chua',
   contact_person:'Ashford Chua', address:'BREDCO 3, Reclamation Area, Bacolod City',
   billing_email:'raffyramirez00@gmail.com' }, true);
 
-const patch = net.calls.find(c => c.method === 'PATCH');
-ok('a PATCH was sent', !!patch, JSON.stringify(net.calls));
-ok('the queue is empty', app.queue.length === 0, 'queue=' + app.queue.length);
-ok('nothing was marked dead', app.deadJobs().length === 0);
-ok('exactly one Seaford record locally',
-   app.clients.filter(c => c.name === 'Seaford Shipping Lines').length === 1,
-   JSON.stringify(app.clients));
-ok('the local row adopted the server id',
-   app.clients.find(c => c.name === 'Seaford Shipping Lines').id === 'srv-9');
+ok('the local duplicate is gone', app.clients.filter(
+   c => c.name === 'Seaford Shipping Lines').length === 1, JSON.stringify(app.clients));
 ok('no loc- row survives', !app.clients.some(c => String(c.id).startsWith('loc-')));
-ok("the server's corrected email won",
-   app.clients.find(c => c.name === 'Seaford Shipping Lines').billing_email
-     === 'rsrengineering.services2025@gmail.com');
-ok('the locally typed contact filled the gap',
-   app.clients.find(c => c.name === 'Seaford Shipping Lines').contact_person
-     === 'Ashford Chua');
+ok('the list shows the server row', seaford(app).id === 'srv-9');
+ok("the server's corrected email is what is shown",
+   seaford(app).billing_email === 'rsrengineering.services2025@gmail.com',
+   seaford(app).billing_email);
+// contact_person and address were empty on the server, so they are gaps to
+// fill, not a disagreement -- only billing_email is contested
+const dup = app.deadJobs()[0];
+ok('the contested field is surfaced', !!dup && /billing_email/.test(dup.err),
+   dup && dup.err);
+ok('the gaps are not treated as a conflict',
+   !!dup && !/contact_person|address/.test(dup.err), dup && dup.err);
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');

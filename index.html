@@ -1389,32 +1389,115 @@ const deadJobs=()=>queue.filter(j=>j.dead);
 // server's row and contribute only what the server is missing. Fill-only,
 // never overwrite — a stale local copy must not clobber a corrected
 // server value, which is exactly what happened on 2026-08-23.
+/* ---- client writes reconcile; they never overwrite ----------------------
+   clients.updated_at is stamped by a trigger on every update, so it is a
+   version. A write swaps against the version it was based on. A miss means
+   someone else wrote, and the two edits are merged field by field against the
+   last version THIS device saw: a field only this device moved is applied, a
+   field only the server moved is kept, and a field both moved is never
+   guessed at -- the whole write is abandoned and put in front of a person.
+   All-or-nothing on purpose: a half-applied write is harder to reason about
+   in Pending writes than one to redo.                                      */
+const cliNorm=v=>String(v==null?'':v).trim();
+// What the row looked like when the server last handed it over. It rides in
+// localStorage with the row and is never sent back -- cliPayload picks only
+// CLI_FIELDS -- so this device's edit can be told from the server's changes.
+function cliFromServer(row){
+  if(!row)return row;
+  const snap={};CLI_FIELDS.forEach(k=>{snap[k]=row[k];});
+  row._srv=snap;
+  return row;
+}
+const cliErr=(msg,status)=>{const e=new Error(msg);e.status=status||409;return e;};
+function cliAdopt(srv,localId){
+  cliFromServer(srv);
+  // pull() keeps every loc- row forever, so replacing the local row is what
+  // stops a duplicate reappearing after the next sync
+  const i=clients.findIndex(c=>c.id===localId||c.id===srv.id);
+  if(i>-1)clients[i]=srv;else clients.push(srv);
+  return srv;
+}
+// Three-way merge for an edit to a row that already has a server id.
+async function reconcileClient(job){
+  const q=CLI_TABLE+'?id=eq.'+encodeURIComponent(job.id);
+  const swap=v=>q+'&updated_at=eq.'+encodeURIComponent(v);
+  if(!job.base_at){
+    throw cliErr('This edit was queued before version checks; applying it blind '+
+      'is the overwrite they exist to prevent. Open the client and re-enter it.',400);
+  }
+  const out=await sb(swap(job.base_at),{method:'PATCH',body:JSON.stringify(job.data)});
+  if(out&&out.length){cliAdopt(out[0],job.id);return;}
+  // somebody wrote since this edit was made
+  if(!job.base){
+    throw cliErr('This edit was queued before version checks, so there is no way '+
+      'to tell which fields it changed. Open the client and re-enter it.',400);
+  }
+  const got=await sb(CLI_TABLE+'?select=*&id=eq.'+encodeURIComponent(job.id));
+  const srv=got&&got[0];
+  if(!srv)throw cliErr('That client no longer exists on the server.',404);
+  const patch={},clash=[];
+  CLI_FIELDS.forEach(k=>{
+    const base=cliNorm(job.base[k]),mine=cliNorm(job.data[k]),theirs=cliNorm(srv[k]);
+    if(mine===base||mine===theirs)return;            // untouched, or already agreed
+    if(theirs===base){patch[k]=job.data[k];return;}  // only this device moved it
+    clash.push(k+' — yours "'+job.data[k]+'", server "'+srv[k]+'"');
+  });
+  if(clash.length){
+    cliAdopt(srv,job.id);
+    throw cliErr('Both changed '+clash.join('; ')+'. Nothing was written.',409);
+  }
+  if(!Object.keys(patch).length){cliAdopt(srv,job.id);return;}
+  const out2=await sb(swap(srv.updated_at),{method:'PATCH',body:JSON.stringify(patch)});
+  if(!(out2&&out2.length))throw cliErr('The client changed again while merging.',503);
+  // the merged row is what was just read plus what was just written -- built
+  // here rather than taken from the response, so a server that echoes only
+  // the patched columns cannot blank the rest of the record
+  const merged=Object.assign({},srv,patch);
+  if(out2[0]&&out2[0].updated_at)merged.updated_at=out2[0].updated_at;
+  cliAdopt(merged,job.id);
+}
+// An insert whose name is already taken. There is no base -- this device
+// believed it was creating the row -- so a field the server left empty is a
+// gap to fill, and a field both filled differently is a disagreement.
 async function healClientDup(job){
-  const name=String((job.data&&job.data.name)||'').trim();
+  const name=cliNorm(job.data&&job.data.name);
   if(!name)return false;
   const found=await sb(CLI_TABLE+'?select=*&name=eq.'+encodeURIComponent(name));
   const srv=found&&found[0];
   if(!srv)return false;
-  const patch={};
+  const patch={},clash=[];
   CLI_FIELDS.forEach(k=>{
-    const mine=job.data[k],theirs=srv[k];
-    if(String(mine==null?'':mine).trim()&&!String(theirs==null?'':theirs).trim())patch[k]=mine;
+    const mine=cliNorm(job.data[k]),theirs=cliNorm(srv[k]);
+    if(!mine||mine===theirs)return;
+    if(!theirs){patch[k]=job.data[k];return;}
+    clash.push(k+' — yours "'+job.data[k]+'", server "'+srv[k]+'"');
   });
-  if(Object.keys(patch).length){
-    await sb(CLI_TABLE+'?id=eq.'+encodeURIComponent(srv.id),
-      {method:'PATCH',body:JSON.stringify(patch)});
-    Object.assign(srv,patch);
+  if(clash.length){
+    cliAdopt(srv,job.localId);
+    throw cliErr('"'+name+'" already exists and both changed '+clash.join('; ')+
+      '. Nothing was written.',409);
   }
-  // pull() keeps every loc- row forever, so replacing the local row is
-  // what stops the duplicate reappearing after the next sync
-  const i=clients.findIndex(c=>c.id===job.localId);
-  if(i>-1)clients[i]=srv;else clients.push(srv);
+  if(Object.keys(patch).length){
+    const out=await sb(CLI_TABLE+'?id=eq.'+encodeURIComponent(srv.id)+
+      '&updated_at=eq.'+encodeURIComponent(srv.updated_at),
+      {method:'PATCH',body:JSON.stringify(patch)});
+    if(!(out&&out.length))throw cliErr('The client changed again while merging.',503);
+    cliAdopt(out[0],job.localId);
+  }else cliAdopt(srv,job.localId);
   toast('"'+name+'" already existed — merged with the saved record');
   return true;
 }
 
+// Two overlapping flushes send every job twice -- a save and the startup
+// pull() can land together -- and for a compare-and-swap that means the
+// second pass races the first and adopts whatever the echo happens to hold.
+let flushing=false;
 async function flushQueue(){
-  if(!online()||!queue.length)return;
+  if(!online()||!queue.length||flushing)return;
+  flushing=true;
+  try{ await flushPass(); }finally{ flushing=false; }
+}
+async function flushPass(){
   const still=[];
   for(const job of queue){
     // a job the server has already refused is not retried; it waits in
@@ -1425,24 +1508,19 @@ async function flushQueue(){
     const store=job.store==='catalog'?catalog:job.store==='clients'?clients:rows;
     try{
       if(job.op==='insert'){
-        // clients.name is the table's only unique column, so it is the only
-        // usable conflict target -- id is a server-defaulted uuid and a row
-        // this device invented carries a loc- id no server row will match.
-        // merge-duplicates resolves a duplicate into an update server-side, so
-        // the job clears instead of sticking on a 409 that can never succeed.
-        //
-        // The cost is deliberate and was chosen: an upsert sends the local row
-        // WHOLESALE, so a stale local field overwrites a corrected server one.
-        // On 2026-08-23 the local Seaford row held an out-of-date billing email
-        // while the server held the fixed one; this path would now lose the fix.
-        const cli=job.store==='clients';
-        const out=await sb(cli?tbl+'?on_conflict=name':tbl,{method:'POST',
-          headers:cli?{'Prefer':'resolution=merge-duplicates,return=representation'}:undefined,
-          body:JSON.stringify(job.data)});
+        // A plain insert, deliberately not an upsert: on_conflict with
+        // merge-duplicates sends the local row wholesale, so a stale field
+        // would overwrite a corrected server one. A duplicate name comes back
+        // as a 409 and is reconciled by healClientDup instead.
+        const out=await sb(tbl,{method:'POST',body:JSON.stringify(job.data)});
         const srv=out&&out[0];
-        if(srv){const i=store.findIndex(r=>r.id===job.localId);if(i>-1)store[i]=srv;}
+        if(srv){
+          if(job.store==='clients')cliFromServer(srv);
+          const i=store.findIndex(r=>r.id===job.localId);if(i>-1)store[i]=srv;
+        }
       }else if(job.op==='update'){
-        await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'PATCH',body:JSON.stringify(job.data)});
+        if(job.store==='clients')await reconcileClient(job);
+        else await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'PATCH',body:JSON.stringify(job.data)});
       }else if(job.op==='upsert'){
         await sb(tbl,{method:'POST',
           headers:{'Prefer':'resolution=merge-duplicates,return=representation'},
@@ -1457,15 +1535,24 @@ async function flushQueue(){
         catch(e){ err=e; }
       }
       // Jobs queued before this shipped carry neither field, so both default.
-      job.attempts=(job.attempts||0)+1;
+      // Only a failure the SERVER produced counts against the cap. A dropped
+      // connection carries no status at all -- surviving that is the whole
+      // point of the queue -- and a 401/403 is cleared by signing in, not by
+      // giving up on the write. Counting either would delete a user's work for
+      // being in a shipyard or for letting a token lapse.
+      const counted=!!(err&&err.status&&err.status!==401&&err.status!==403);
+      if(counted)job.attempts=(job.attempts||0)+1;
       job.last_error=(err&&err.status?err.status+': ':'')+
                      ((err&&err.message)||'Rejected by the server');
       console.error('queue job failed',{id:job.id||job.localId||null,op:job.op,
-        store:job.store||'billing',table:tbl,attempts:job.attempts},err);
+        store:job.store||'billing',table:tbl,attempts:job.attempts||0,
+        counted:counted},err);
       // A permanent rejection stops at once -- retrying a constraint violation
       // can never succeed. A transient one gets MAX_ATTEMPTS before it is put
       // in front of a person rather than looping forever.
-      if(transient(err)&&job.attempts<MAX_ATTEMPTS){still.push(job);continue;}
+      // (job.attempts||0), not job.attempts: an uncounted failure leaves it
+      // undefined, and undefined<3 is false, which would kill the job outright
+      if(transient(err)&&(job.attempts||0)<MAX_ATTEMPTS){still.push(job);continue;}
       job.dead=true;
       job.err=job.last_error;
       still.push(job);
@@ -1497,7 +1584,8 @@ async function pull(quiet){
     try{
       const cl=await sb(CLI_TABLE+'?select=*&order=name.asc');
       const cliPending=clients.filter(c=>String(c.id).startsWith('loc-'));
-      clients=(cl||[]).concat(cliPending);
+      // stamp what the server said, so a later edit can be merged against it
+      clients=(cl||[]).map(cliFromServer).concat(cliPending);
     }catch(e){/* clients table not created yet */}
     try{
       const st=await sb(SET_TABLE+'?select=*');
@@ -1931,7 +2019,12 @@ async function cliSave(item,isNew){
       else queue.push({op:'insert',store:'clients',table:CLI_TABLE,localId:item.id,data:cliPayload(item)});
     }else{
       queue=queue.filter(q=>!(q.op==='update'&&q.id===item.id));
-      queue.push({op:'update',store:'clients',table:CLI_TABLE,id:item.id,data:cliPayload(item)});
+      // base_at is the version this edit was made against; base is what the
+      // server last said the row held, so the merge can tell which fields
+      // this device actually moved. Both absent on a row never seen from the
+      // server, and a job carrying neither asks rather than guessing.
+      queue.push({op:'update',store:'clients',table:CLI_TABLE,id:item.id,
+        data:cliPayload(item),base:item._srv||null,base_at:item.updated_at||null});
     }
   }
   persist();
@@ -4356,6 +4449,24 @@ alter table clients add column if not exists address        text;
 -- how the covering letter opens ("Dear Mr. Chua,"). Left blank, the letter
 -- falls back to contact_person and then to Sir/Madam.
 alter table clients add column if not exists salutation     text;
+
+-- A version, not a timestamp for reading. Client edits swap against it, so a
+-- second device cannot overwrite a correction it never saw. The default only
+-- fires on insert, so without the trigger it would never move and every swap
+-- would match -- which is silently the same as having no version at all.
+alter table clients add column if not exists updated_at timestamptz default now();
+
+create or replace function rsr_touch_updated_at() returns trigger as $BODY$
+begin
+  new.updated_at = now();
+  return new;
+end
+$BODY$ language plpgsql;
+
+drop trigger if exists rsr_clients_touch on clients;
+create trigger rsr_clients_touch
+  before update on clients
+  for each row execute function rsr_touch_updated_at();
 
 alter table clients enable row level security;
 

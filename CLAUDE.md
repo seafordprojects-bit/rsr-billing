@@ -138,13 +138,44 @@ This exists because a duplicate-client insert once jammed the queue for a
 morning: the app's only symptom was a badge reading "1 queued", and the reason
 had been thrown away by `catch(err){still.push(job);}`.
 
-A `clients` insert that 409s now **heals fill-only** — it reads the server row
-and contributes only fields the server is missing, never overwriting a
-non-empty value, then replaces the local `loc-` row with the server one. A
-merge-duplicates upsert was rejected deliberately: it would let a stale local
-copy clobber a corrected server value, which is exactly what happened by hand
-the first time. Note `pull()` keeps every `loc-` row forever, so a healed row
-must be *replaced* in `clients`, not merely dropped from the queue.
+### Client writes reconcile; they never overwrite
+
+`clients.updated_at` is stamped by a trigger on **every** update, so it is a
+version, not a timestamp anyone reads. An edit swaps against the version it was
+based on — the same compare-and-swap the billing counter uses. A miss means
+another device wrote first, and the two edits are merged field by field against
+`_srv`, the snapshot of what the server last handed this device:
+
+| | |
+|---|---|
+| only this device moved the field | apply it |
+| only the server moved it | keep theirs |
+| both moved it, differently | **write nothing**, surface it |
+
+A genuine conflict abandons the **whole** write, including the parts that would
+have merged cleanly, and puts it in Settings → Pending writes naming the field
+and both values. All-or-nothing on purpose: a half-applied write is harder to
+reason about there than one to redo, and Discard then leaves the row untouched.
+
+A job carrying no `base`/`base_at` — queued before this shipped — **asks rather
+than guessing**. Applying it blind is the overwrite the whole mechanism exists
+to prevent.
+
+An **insert** whose name is already taken has no base at all: the device
+believed it was creating the row. There a field the server left empty is a gap
+to fill, and a field both filled differently is a disagreement. Note `pull()`
+keeps every `loc-` row forever, so a reconciled row must be *replaced* in
+`clients`, not merely dropped from the queue.
+
+**A merge-duplicates upsert on `name` was tried and reverted.** It resolves the
+duplicate server-side in one call, which is tempting, but it sends the local row
+wholesale — so a stale field silently overwrites a corrected one. That is the
+2026-08-23 incident exactly, and no test caught it because the suite forced a
+409 and never exercised the accepting path.
+
+`flushQueue` is guarded against re-entry. Two overlapping passes — a save and
+the startup `pull()` landing together — otherwise send every job twice, and a
+compare-and-swap then races itself.
 
 ### Storage
 

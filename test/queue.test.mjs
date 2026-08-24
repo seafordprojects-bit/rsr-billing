@@ -179,6 +179,67 @@ ok('the summary names the billing email', /raffyramirez00@gmail.com/.test(loss),
 ok('the summary says the server copy is untouched', /server/i.test(loss), loss);
 ok('an empty field is not listed as a loss', !/salutation:\s*,/.test(loss), loss);
 
+console.log('\n--- 11. three server failures stop a job; an outage never does ---');
+net.mode = 'online';
+net.script.length = 0;
+app = globalThis.__loadApp();
+configure(app);
+app.setSession({ access_token:'tok-1', refresh_token:'ref-1', expires_in:3600,
+                 user:{ email:'raffy@rsr.test' } });
+
+// a server that keeps answering 503: the write may be valid, but three
+// refusals is enough to put it in front of a person
+// sections 8 and 10 leave dead jobs in the shared localStorage, so this
+// section finds its own job rather than indexing into the queue
+const mine = (title) => app.queue.find(j => j.data && j.data.drawing_title === title);
+
+net.script.push({ match:'/rest/v1/drawing_billing', method:'POST', status:503,
+  keep:true, body:{ message:'service unavailable' } });
+await app.saveRow(newRow('Struggling Server'), true);
+// saveRow flushes more than once -- it also remembers the client, which
+// flushes again -- so count flushes rather than assuming one per save
+ok('a server failure counts', mine('Struggling Server').attempts >= 1,
+   String(mine('Struggling Server').attempts));
+ok('and is recorded on the job',
+   /503/.test(mine('Struggling Server').last_error || ''),
+   mine('Struggling Server').last_error);
+let spins = 0;
+while (!mine('Struggling Server').dead && spins < 10) { await app.flushQueue(); spins++; }
+ok('it stops after exactly MAX_ATTEMPTS server refusals',
+   mine('Struggling Server').attempts === 3,
+   'attempts=' + mine('Struggling Server').attempts);
+ok('and is marked as needing attention', mine('Struggling Server').dead === true);
+ok('it did not take unbounded flushes to get there', spins < 10, 'spins=' + spins);
+// other live jobs still flush, so count only posts to the billing table
+const posts = () => net.calls.filter(c =>
+  c.method === 'POST' && String(c.url).indexOf('/rest/v1/drawing_billing') > -1).length;
+const beforeRetry = posts();
+await app.flushQueue();
+ok('and it is not retried again', posts() === beforeRetry,
+   'posts=' + (posts() - beforeRetry));
+
+// the outage case: the queue exists to survive this, so it must never count
+net.script.length = 0;
+app = globalThis.__loadApp();
+configure(app);
+app.setSession({ access_token:'tok-1', refresh_token:'ref-1', expires_in:3600,
+                 user:{ email:'raffy@rsr.test' } });
+net.mode = 'offline';
+await app.saveRow(newRow('Out At The Yard'), true);
+const yard = () => app.queue.find(j => j.data && j.data.drawing_title === 'Out At The Yard');
+await app.flushQueue();
+await app.flushQueue();
+await app.flushQueue();
+await app.flushQueue();
+ok('five offline failures still have not counted',
+   !yard().attempts, String(yard().attempts));
+ok('nothing was given up on', yard().dead !== true);
+ok('the reason is still recorded', /fetch/i.test(yard().last_error || ''),
+   yard().last_error);
+net.mode = 'online';
+await app.flushQueue();
+ok('and it syncs when the signal comes back', !yard(), 'still queued');
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
