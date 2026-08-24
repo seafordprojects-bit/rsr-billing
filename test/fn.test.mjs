@@ -180,6 +180,32 @@ ok('but a genuinely different name is still refused', r.status === 403, String(r
 r = await call({ ...good, client: 'Seaford Shipping Lines' });
 ok('and so is a different client with the same address', r.status === 403, String(r.status));
 
+console.log('\n--- I3. the optional CC ---');
+r = await call(good);
+ok('no cc field at all when none is given', !('cc' in netState.sentPayload),
+   JSON.stringify(Object.keys(netState.sentPayload)));
+r = await call({ ...good, cc: '' });
+ok('a blank cc is treated as absent, not an empty array',
+   !('cc' in netState.sentPayload), JSON.stringify(netState.sentPayload.cc));
+r = await call({ ...good, cc: 'accounts@seaford.test' });
+ok('a valid cc is forwarded as an array',
+   Array.isArray(netState.sentPayload.cc) && netState.sentPayload.cc.length === 1 &&
+   netState.sentPayload.cc[0] === 'accounts@seaford.test',
+   JSON.stringify(netState.sentPayload.cc));
+ok('and the primary recipient is untouched',
+   netState.sentPayload.to[0] === 'billing@seaford.test');
+// silently dropping a bad cc would leave the sender believing someone was copied
+netState.sentPayload = null;
+r = await call({ ...good, cc: 'not-an-address' });
+j = await r.json();
+ok('a malformed cc is refused', r.status === 400, String(r.status));
+ok('and the reason names the CC', /cc/i.test(j.error), JSON.stringify(j));
+ok('nothing reaches Resend', netState.sentPayload === null);
+netState.sentPayload = null;
+r = await call({ ...good, cc: 'a@b.test, c@d.test' });
+ok('a cc list is refused too — one address, one message', r.status === 400, String(r.status));
+ok('still nothing sent', netState.sentPayload === null);
+
 console.log('\n--- J. authorisation failures fail closed ---');
 netState.sendersOk = false;
 r = await call(good);

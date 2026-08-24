@@ -162,7 +162,7 @@ ok('and no billing table', !/class="stmt"/.test(mail));
 
 console.log('\n--- I. the email is saved before the send, not after ---');
 const src = html.slice(html.indexOf("$('sEmailBtn').onclick"),
-                       html.indexOf("$('sEmailBtn').onclick") + 1600);
+                       html.indexOf("$('sEmailBtn').onclick") + 2400);   // room for the cc lookup
 // The send now sits behind the letter-review step, so the ordering is
 // structural rather than sequential: the Email button saves the address and
 // only then sets pendingSend, and lSend refuses to run without it.
@@ -172,7 +172,7 @@ ok('setBillingEmail runs before the review opens',
    iSave > -1 && iPend > -1 && iSave < iPend,
    'save@' + iSave + ' pending@' + iPend);
 const snd = html.slice(html.indexOf("$('lSend').onclick"),
-                       html.indexOf("$('lSend').onclick") + 1400);
+                       html.indexOf("$('lSend').onclick") + 2400);   // room for the payload object
 ok('and the send itself is gated on that having happened',
    /if\(!pendingSend\)\{[\s\S]{0,120}return;\}/.test(snd) &&
    snd.indexOf("fnPost('send-statement'") > -1, snd.slice(0, 160));

@@ -1986,7 +1986,7 @@ async function maybeSeedCatalog(){
 // salutation is how the covering letter addresses this client ("Mr. Chua");
 // contact_person is the full name printed under Bill To. One field cannot
 // serve both, which is why there are two.
-const CLI_FIELDS=['name','salutation','contact_person','address','billing_email'];
+const CLI_FIELDS=['name','salutation','contact_person','address','billing_email','email_cc'];
 function cliPayload(c){
   const o={};CLI_FIELDS.forEach(k=>{o[k]=c[k]===''?null:c[k];});
   o.name=String(c.name||'').trim();
@@ -3051,6 +3051,7 @@ function renderCliMgr(){
         <input data-clf="salutation" data-cli="${esc(c.id)}" value="${esc(c.salutation||'')}" placeholder="Salutation, e.g. Mr. Chua (optional)" autocomplete="off">
         <input data-clf="address" data-cli="${esc(c.id)}" value="${esc(c.address||'')}" placeholder="Address (optional)" autocomplete="off">
         <input data-clf="billing_email" data-cli="${esc(c.id)}" value="${esc(c.billing_email||'')}" placeholder="Billing email" type="email" autocomplete="off" spellcheck="false">
+        <input data-clf="email_cc" data-cli="${esc(c.id)}" value="${esc(c.email_cc||'')}" placeholder="CC email (optional)" type="email" autocomplete="off" spellcheck="false">
       </div>
     </div>`).join('')
     : `<div style="padding:16px;text-align:center;color:var(--slate);font-size:13px">No clients yet — one is added automatically the first time you email a billing.</div>`,
@@ -3821,8 +3822,11 @@ $('sEmailBtn').onclick=async()=>{
     // Composed against the number that WILL be issued, not one claimed now:
     // backing out of the review must not burn a billing number. The claim
     // happens on Send, and the letter is corrected then if it moved.
-    pendingSend={list:list,to:to,client:client,shownNo:$('sNo').value.trim()};
-    $('lTo').innerHTML='To <b>'+esc(to)+'</b> · '+esc(client)+
+    // the CC rides on the client record, not the sheet: it is a standing
+    // instruction for that client rather than a per-send choice
+    const cc=String((clientRec(client)||{}).email_cc||'').trim();
+    pendingSend={list:list,to:to,cc:cc,client:client,shownNo:$('sNo').value.trim()};
+    $('lTo').innerHTML='To <b>'+esc(to)+'</b>'+(cc?' · cc <b>'+esc(cc)+'</b>':'')+' · '+esc(client)+
       (list.length>1?' · '+list.length+' billings':'');
     $('lBody').value=composeLetter(list,pendingSend.shownNo);
     show('sheetLetter');
@@ -3863,19 +3867,25 @@ $('lSend').onclick=async()=>{
       filename:pdfFilename(issued),
       content:await pdfRender(pdfPlan(stmtFacts(p.list),issued))
     };
-    await fnPost('send-statement',{
+    // named payload, not body: lSend already has `const body` for the letter
+    // text, and shadowing it inside this try put that earlier reference in the
+    // temporal dead zone -- which broke every send, syntax-check clean.
+    const payload={
       to:p.to,
       client:p.client,
       subject:mailSubject(stmtFacts(p.list),issued),
       html:statementEmailHtml(letter),
       statement_no:issued,
       attachment:attachment
-    });
+    };
+    // omitted entirely when blank, so the function never sees an empty cc
+    if(p.cc)payload.cc=p.cc;
+    await fnPost('send-statement',payload);
     // only now, with the function's own confirmation in hand
     const n=markBilledNow(p.list);
     pendingSend=null;
     hide();
-    toast('Sent to '+p.to+(n?' — marked billed':''));
+    toast('Sent to '+p.to+(p.cc?' (cc '+p.cc+')':'')+(n?' — marked billed':''));
   }catch(e){
     // the send failed, so nothing is marked and the letter is kept for
     // another try
@@ -4464,6 +4474,10 @@ alter table clients add column if not exists address        text;
 -- how the covering letter opens ("Dear Mr. Chua,"). Left blank, the letter
 -- falls back to contact_person and then to Sir/Madam.
 alter table clients add column if not exists salutation     text;
+
+-- a second address copied on every billing to this client. Optional: blank
+-- means the billing goes to billing_email alone.
+alter table clients add column if not exists email_cc      text;
 
 -- A version, not a timestamp for reading. Client edits swap against it, so a
 -- second device cannot overwrite a correction it never saw. The default only

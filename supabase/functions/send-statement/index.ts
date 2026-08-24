@@ -163,6 +163,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const statementNo = cleanHeader(body.statement_no, 60);
   const html = typeof body.html === "string" ? body.html : "";
 
+  // The CC is optional, but a malformed one must not be dropped in silence --
+  // the sender would believe a second party was copied when nobody was. Absent
+  // and blank are fine; present-and-unparseable is a refusal.
+  const ccRaw = String(body.cc ?? "").trim();
+  const cc = ccRaw ? cleanEmail(ccRaw) : "";
+  if (ccRaw && !cc) {
+    return json({ ok: false, error: "The CC address is not a single valid email address" }, 400);
+  }
+
   if (!to) return json({ ok: false, error: "A single valid recipient address is required" }, 400);
   if (!client) return json({ ok: false, error: "The client is required" }, 400);
   if (!html.trim()) return json({ ok: false, error: "The statement body is empty" }, 400);
@@ -237,6 +246,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
       body: JSON.stringify({
         from: FROM,
         to: [to],
+        // omitted entirely when blank -- Resend is given no empty array
+        ...(cc ? { cc: [cc] } : {}),
         subject: subject || (statementNo ? `Statement of Account ${statementNo}` : "Statement of Account"),
         html,
         // the company mailbox, not the person who pressed Send — see SENDER
@@ -260,6 +271,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ ok: false, error: msg }, sent.status === 422 ? 400 : 502);
   }
 
-  console.log(`statement ${statementNo || "(no number)"} sent to ${to} by ${senderEmail}`);
+  console.log(`statement ${statementNo || "(no number)"} sent to ${to}${cc ? ` cc ${cc}` : ""} by ${senderEmail}`);
   return json({ ok: true, id: parsed?.id ?? null, to, statement_no: statementNo || null });
 });
