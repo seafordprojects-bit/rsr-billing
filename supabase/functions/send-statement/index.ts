@@ -54,29 +54,31 @@ const canonName = (v: unknown) =>
   String(v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 
 // ===========================================================================
-// SENDER IDENTITY — THIS IS WHAT CHANGES WHEN A DOMAIN IS VERIFIED IN RESEND
+// SENDER IDENTITY — the From and Reply-To on every billing
 // ===========================================================================
-// RSR has no verified sending domain yet, so mail leaves through Resend's
-// shared sandbox address. That address has one hard limitation, and it is not
-// an error you will see: Resend accepts the send, returns an id, and then
-// DELIVERS ONLY TO THE MAILBOX THAT OWNS THE RESEND ACCOUNT
-// (rsrengineering.services2025@gmail.com). Mail addressed to a real client is
-// dropped silently. Until a domain is verified, this function can only usefully
-// mail RSR itself — treat any other recipient as a test that did not arrive.
+// Billings now leave from the firm's own domain rather than Resend's shared
+// sandbox address, which delivered only to the mailbox owning the Resend
+// account and dropped everything else in silence.
 //
-// Replies to the sandbox address go nowhere, which is why REPLY_TO carries a
-// real mailbox: a client answering the billing lands in RSR's inbox, not
-// Resend's void.
+// PREREQUISITE, and it fails loudly if unmet: billing@rsrengg.com must sit on
+// a domain VERIFIED in Resend. An unverified domain is refused with a 403 and
+// the message "domain is not verified", which this function passes straight
+// back to the sender -- so a mis-set domain shows up as a failed send, not as
+// mail that vanishes.
 //
-// ---- once <yourdomain> is verified in Resend, do this and nothing else -----
-//   supabase secrets set STATEMENT_FROM="RSR Engineering <billing@yourdomain>"
-//   supabase secrets set STATEMENT_REPLY_TO="billing@yourdomain"
-// Both are read at invocation, so NO redeploy is needed. Once they are set the
-// two constants below are dead and can be deleted along with this comment.
-// Leave STATEMENT_FROM unset and every billing keeps going only to RSR.
+// Reply-To is a different mailbox on purpose: replies to a billing should land
+// where they are read, which is the Gmail account, not an alias on the sending
+// domain that nobody watches.
+//
+// ---- to change either without a redeploy --------------------------------
+//   supabase secrets set STATEMENT_FROM="RSR Engineering Services <billing@rsrengg.com>"
+//   supabase secrets set STATEMENT_REPLY_TO="someone@example.com"
+// Both are read at invocation, so the secret wins over the constant below and
+// no deploy is needed. The constants are the default a fresh deploy starts
+// from; the secrets are how you move either address in a hurry.
 // ---------------------------------------------------------------------------
-const SANDBOX_FROM = "RSR Engineering <onboarding@resend.dev>";
-const SANDBOX_REPLY_TO = "rsrengineering.services2025@gmail.com";
+const DEFAULT_FROM = "RSR Engineering Services <billing@rsrengg.com>";
+const DEFAULT_REPLY_TO = "rsrengineering.services2025@gmail.com";
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -88,8 +90,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
   // see SENDER IDENTITY above. A malformed STATEMENT_REPLY_TO falls back to the
   // constant rather than shipping a broken header.
-  const FROM = Deno.env.get("STATEMENT_FROM") || SANDBOX_FROM;
-  const REPLY_TO = cleanEmail(Deno.env.get("STATEMENT_REPLY_TO")) || SANDBOX_REPLY_TO;
+  const FROM = Deno.env.get("STATEMENT_FROM") || DEFAULT_FROM;
+  const REPLY_TO = cleanEmail(Deno.env.get("STATEMENT_REPLY_TO")) || DEFAULT_REPLY_TO;
 
   if (!RESEND_API_KEY) {
     return json({ ok: false, error: "RESEND_API_KEY is not set on the function" }, 500);

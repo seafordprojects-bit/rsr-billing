@@ -22,7 +22,7 @@ globalThis.__t={
   get catalog(){return catalog}, catSave, catDelete, catReorder, catSorted, catActive,
   effRate, openCat, renderCat, catShown, renderCatMgr, get kPicked(){return kPicked}, nextCode,
   codePrefix, typeOf, typeList, typeLabel, renderTypes, render, visible,
-  get filters(){return filters}, set filters(v){filters=v}, openStmt, buildPick, stmtCandidates, saveCfg,
+  get filters(){return filters}, set filters(v){filters=v}, openStmt, openStmtFor, buildPick, stmtCandidates, saveCfg,
   objectPath, signedUrl, openPdf, fnPost, statementEmailHtml, renderStatement, pickedRows,
   get clients(){return clients}, billingEmail, setBillingEmail, offerMarkBilled,
   setTab, setMakeType, renderMake, get tab(){return tab}, get makeType(){return makeType},

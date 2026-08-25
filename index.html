@@ -1723,8 +1723,14 @@ function render(){
     meta.push(`<span class="m">${fmtDate(g.bill_date)}</span>`);
     if(g.invoice_no)meta.push(`<span class="m">SI ${esc(g.invoice_no)}</span>`);
     let acts='';
-    if(g.status==='DRAFT')acts=`<button class="act primary" data-mark="BILLED" data-gid="${esc(g.id)}">Mark billed</button>`;
-    else if(g.status==='BILLED')acts=`<button class="act paid" data-mark="PAID" data-gid="${esc(g.id)}">Mark paid</button><button class="act" data-mark="DRAFT" data-gid="${esc(g.id)}">Unbill</button>`;
+    // The send dialog was reachable only from the FAB, which opens on the
+    // current month -- so an older billing was simply not in its picker, which
+    // read as "a BILLED billing cannot be sent". It always could; there was no
+    // way in. Sending never changes status, so Re-send is safe on a BILLED one.
+    const sendBtn=(g.status==='DRAFT'||g.status==='BILLED')
+      ? `<button class="act" data-send="${esc(g.id)}">${g.status==='BILLED'?'Re-send':'Send'}</button>` : '';
+    if(g.status==='DRAFT')acts=sendBtn+`<button class="act primary" data-mark="BILLED" data-gid="${esc(g.id)}">Mark billed</button>`;
+    else if(g.status==='BILLED')acts=sendBtn+`<button class="act paid" data-mark="PAID" data-gid="${esc(g.id)}">Mark paid</button><button class="act" data-mark="DRAFT" data-gid="${esc(g.id)}">Unbill</button>`;
     else acts=`<button class="act" data-mark="BILLED" data-gid="${esc(g.id)}">Reopen</button>`;
     const lines=g.lines.map((r,i)=>{
       const bits=[];
@@ -3433,6 +3439,31 @@ function openStmt(){
   $('sEmail').value=billingEmail($('sClient').value);
   buildPick();refreshBillNo(true);show('sheetStmt');
 }
+// Open the send sheet scoped to ONE billing, rather than to this month and
+// whatever client filter happens to be set. The status is not touched: a
+// BILLED billing re-sends under the number it already has, because
+// refreshBillNo reuses a stored bill_no and issueBillNos never re-claims one.
+function openStmtFor(gid){
+  const g=groupById(gid);
+  if(!g){toast('That billing is no longer here',true);return;}
+  if(g.status==='PAID'){toast('That billing is paid — reopen it first',true);return;}
+  openStmt();
+  $('sClient').value=g.client||'';
+  const ty=typeOf(g);
+  if(ty&&Array.from($('sType').options).some(o=>o.value===ty))$('sType').value=ty;
+  // the billing's own date at both ends: a wider range would pull in siblings
+  const d=String(g.bill_date||'').slice(0,10);
+  if(d){$('sFrom').value=d;$('sTo').value=d;}
+  $('sEmail').value=billingEmail($('sClient').value);
+  buildPick();
+  let found=false;
+  $('sPick').querySelectorAll('input').forEach(i=>{
+    const on=String(i.value)===String(gid);
+    i.checked=on;if(on)found=true;
+  });
+  if(!found)toast('Opened the send sheet, but that billing is not in range',true);
+  pickTotal();refreshBillNo(true);
+}
 function stmtCandidates(){
   const c=$('sClient').value,f=$('sFrom').value,t=$('sTo').value,ty=$('sType').value;
   return allGroups().filter(g=>g.client===c&&g.status!=='PAID'
@@ -4854,6 +4885,7 @@ $('list').addEventListener('click',e=>{
   const ex=e.target.closest('[data-exp]');
   if(ex){expanded[ex.dataset.exp]=!expanded[ex.dataset.exp];render();return;}
   const ed=e.target.closest('[data-edit]');if(ed){openEntry(ed.dataset.edit);return;}
+  const sd=e.target.closest('[data-send]');if(sd){openStmtFor(sd.dataset.send);return;}
   const mk=e.target.closest('[data-mark]');if(mk){markGroup(mk.dataset.gid,mk.dataset.mark);return;}
 });
 window.addEventListener('online',()=>pull(true));

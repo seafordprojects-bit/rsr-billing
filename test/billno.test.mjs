@@ -128,6 +128,50 @@ ok('issueBillNos resolves the type per billing',
 ok('and never re-claims an issued one',
    /if\(g\.bill_no\)continue;/.test(html));
 
+console.log('\n--- G2. a BILLED billing can be re-sent under its own number ---');
+// The send dialog was never gated on DRAFT -- stmtCandidates filters on PAID.
+// What was missing was a way in: the FAB opens on the current month, so an
+// older billing simply was not in the picker.
+app = reset();
+app.rows.push(
+ { id:'s1', group_id:'g9', line_no:1, code:'RSR-DW-072026-004', doc_type:'DW',
+   bill_no:'BILLDWG-' + YY + '-041', bill_date:'2026-07-14', client:'Seaford',
+   drawing_title:'Shell Expansion', qty:1, rate:2500, status:'BILLED',
+   billed_date:'2026-07-14' },
+ { id:'s2', group_id:'g8', line_no:1, code:'RSR-DW-082026-009', doc_type:'DW',
+   bill_date:'2026-08-02', client:'Seaford',
+   drawing_title:'Midship', qty:1, rate:1000, status:'DRAFT' });
+
+const beforeNo = app.nextBillNo('DW');
+app.openStmtFor('g9');
+
+ok('the sheet opened', el('sheetStmt').classList.contains('on'));
+ok('scoped to that client', el('sClient').value === 'Seaford', el('sClient').value);
+ok('and to its own date, not this month',
+   el('sFrom').value === '2026-07-14' && el('sTo').value === '2026-07-14',
+   el('sFrom').value + '..' + el('sTo').value);
+const pickedIds = app.pickedRows().map(g => g.id);
+ok('only that billing is ticked', pickedIds.length === 1 && pickedIds[0] === 'g9',
+   JSON.stringify(pickedIds));
+ok('the number shown is the one already issued',
+   el('sNo').value === 'BILLDWG-' + YY + '-041', el('sNo').value);
+ok('in issued mode, so a print reuses it', app.sNoMode === 'issued', app.sNoMode);
+ok('the counter did not move', app.nextBillNo('DW') === beforeNo,
+   beforeNo + ' -> ' + app.nextBillNo('DW'));
+ok('and it is still BILLED — opening the sheet changes no status',
+   app.groupById('g9').status === 'BILLED', app.groupById('g9').status);
+
+console.log('\n--- G3. a paid billing is refused, not silently opened ---');
+app.rows[0].status = 'PAID';
+app.openStmtFor('g9');
+ok('the toast says why', /paid/i.test(el('toast').textContent), el('toast').textContent);
+
+console.log('\n--- G4. the card offers the way in ---');
+ok('cards carry a data-send action', /data-send=/.test(html));
+ok('BILLED says Re-send, DRAFT says Send',
+   /'Re-send':'Send'/.test(html));
+ok('PAID gets neither', /status==='DRAFT'\|\|g\.status==='BILLED'/.test(html));
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
