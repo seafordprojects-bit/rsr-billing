@@ -118,6 +118,24 @@ app.openUnbill('gb');           // it is DRAFT now
 ok('refused', !el('sheetUnbill').classList.contains('on'));
 ok('with a reason', /billed/i.test(el('toast').textContent), el('toast').textContent);
 
+console.log('\n--- 9. a billed billing cannot be deleted either ---');
+// rsr_dwg_delete_guard raises on DELETE of a BILLED row, so queueing one buys
+// a dead write and a row that disappears locally while still on the server.
+app = await boot();
+const gone = await app.deleteRow('u1');
+ok('the delete is refused', gone === false, String(gone));
+ok('the row is still here', app.rows.some(r => r.id === 'u1'));
+ok('and nothing was queued', !app.queue.some(j => j.op === 'delete'),
+   JSON.stringify(app.queue));
+ok('the message says what to do instead',
+   /unbill it first/i.test(el('toast').textContent), el('toast').textContent);
+
+// PAID is deliberately NOT blocked -- the guard allows it, so neither do we
+app.rows.forEach(r => { if (r.group_id === 'gb') r.status = 'PAID'; });
+const paidGone = await app.deleteRow('u1');
+ok('a paid line still deletes, as the guard allows', paidGone === true, String(paidGone));
+ok('and it is gone locally', !app.rows.some(r => r.id === 'u1'));
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

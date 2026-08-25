@@ -2138,11 +2138,21 @@ async function fnPost(name,body,retried){
 }
 
 async function deleteRow(id){
+  // rsr_dwg_delete_guard refuses a DELETE on a BILLED row, so queueing one
+  // only buys a dead write in Pending writes and a row that vanishes locally
+  // while still existing on the server. Refuse here, where it can be
+  // explained. PAID is deliberately not blocked -- the guard allows it.
+  const doomed=rows.find(r=>String(r.id)===String(id));
+  if(doomed&&doomed.status==='BILLED'){
+    toast('A billed billing cannot be deleted — unbill it first',true);
+    return false;
+  }
   rows=rows.filter(r=>r.id!==id);
   if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
   else{queue=queue.filter(q=>q.id!==id);queue.push({op:'delete',id:id});}
   persist();render();
   if(online()){await flushQueue();persist();setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');}
+  return true;
 }
 // status belongs to the billing, so every line of the group moves together
 /* ---- unbill: the server does it, not us -------------------------------
@@ -2685,6 +2695,11 @@ $('eSave').onclick=async()=>{
 $('eDelete').onclick=async()=>{
   if(!editingId)return;
   const g=groupById(editingId);if(!g)return;
+  // asked before the confirm, so nobody is invited to agree to something the
+  // server will refuse a moment later
+  if(g.status==='BILLED'){
+    toast('A billed billing cannot be deleted — unbill it first',true);return;
+  }
   if(!confirm('Delete billing '+(g.code||'')+' and all '+g.count+' of its lines?'))return;
   hide();
   for(const r of g.lines)await deleteRow(r.id);
