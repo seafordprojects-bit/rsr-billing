@@ -923,6 +923,33 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
   </div>
 </div>
 
+<!-- Unbill sheet: the passcode is checked server-side by unbill_group, which
+     also does the update. rsr_dwg_unbill_guard refuses BILLED->DRAFT from any
+     other path, so there is no client-side route back to draft to protect. -->
+<div class="sheet" id="sheetUnbill" role="dialog" aria-modal="true" aria-labelledby="ubTitle">
+  <div class="sheet-head">
+    <div><div class="eyebrow">Return to draft</div><h2 id="ubTitle">Unbill</h2></div>
+    <button class="icon-btn" style="margin-left:auto;color:var(--slate);border-color:var(--line)" id="ubX" aria-label="Cancel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div class="hint" id="ubWhich" style="margin-bottom:10px"></div>
+    <div class="f"><label for="ubCode">Passcode</label>
+      <input id="ubCode" type="password" inputmode="numeric" maxlength="6" autocomplete="off"
+             spellcheck="false" placeholder="6 digits">
+      <div class="hint">Checked on the server, and recorded against whoever it belongs to.</div></div>
+    <div class="f"><label for="ubReason">Reason</label>
+      <input id="ubReason" autocomplete="off" placeholder="Why is this going back to draft?">
+      <div class="hint">Written to the unbill log. A record of who without why is worth little later.</div></div>
+    <div class="hint" id="ubErr" hidden style="color:var(--rsr);font-weight:600"></div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn-ghost" id="ubCancel">Cancel</button>
+    <button class="btn-fill" id="ubGo">Unbill</button>
+  </div>
+</div>
+
 <!-- Settings sheet -->
 <div class="sheet" id="sheetCfg" role="dialog" aria-modal="true" aria-labelledby="cfgTitle">
   <div class="sheet-head">
@@ -1730,7 +1757,7 @@ function render(){
     const sendBtn=(g.status==='DRAFT'||g.status==='BILLED')
       ? `<button class="act" data-send="${esc(g.id)}">${g.status==='BILLED'?'Re-send':'Send'}</button>` : '';
     if(g.status==='DRAFT')acts=sendBtn+`<button class="act primary" data-mark="BILLED" data-gid="${esc(g.id)}">Mark billed</button>`;
-    else if(g.status==='BILLED')acts=sendBtn+`<button class="act paid" data-mark="PAID" data-gid="${esc(g.id)}">Mark paid</button><button class="act" data-mark="DRAFT" data-gid="${esc(g.id)}">Unbill</button>`;
+    else if(g.status==='BILLED')acts=sendBtn+`<button class="act paid" data-mark="PAID" data-gid="${esc(g.id)}">Mark paid</button><button class="act" data-unbill="${esc(g.id)}">Unbill</button>`;
     else acts=`<button class="act" data-mark="BILLED" data-gid="${esc(g.id)}">Reopen</button>`;
     const lines=g.lines.map((r,i)=>{
       const bits=[];
@@ -2118,6 +2145,67 @@ async function deleteRow(id){
   if(online()){await flushQueue();persist();setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');}
 }
 // status belongs to the billing, so every line of the group moves together
+/* ---- unbill: the server does it, not us -------------------------------
+   rsr_dwg_unbill_guard refuses BILLED->DRAFT unless unbill_group set its
+   transaction-local flag, so the old path -- flip the rows locally and queue a
+   PATCH each -- can no longer work. A queued PATCH is refused and lands in
+   Pending writes; that is what produced three dead writes earlier today.
+   Nothing here is queued: the RPC is the write. */
+let unbillGid='';
+function openUnbill(gid){
+  const g=groupById(gid);
+  if(!g){toast('That billing is no longer here',true);return;}
+  if(g.status!=='BILLED'){toast('Only a billed billing can be unbilled',true);return;}
+  unbillGid=gid;
+  $('ubWhich').innerHTML='<b>'+esc(g.bill_no||g.code)+'</b> · '+esc(g.client||'')+
+    ' · '+money(g.total)+' · '+g.count+' line'+(g.count===1?'':'s');
+  $('ubCode').value='';$('ubReason').value='';
+  $('ubErr').hidden=true;$('ubErr').textContent='';
+  show('sheetUnbill');
+  setTimeout(()=>{try{$('ubCode').focus();}catch(e){}},120);
+}
+function ubFail(msg){
+  const e=$('ubErr');e.textContent=msg;e.hidden=false;
+  $('ubCode').value='';                     // the reason survives a retry
+  try{$('ubCode').focus();}catch(err){}
+}
+async function doUnbill(){
+  const g=groupById(unbillGid);
+  if(!g){ubFail('That billing is no longer here');return;}
+  const code=$('ubCode').value.trim(),reason=$('ubReason').value.trim();
+  if(!reason){ubFail('Give a reason — it goes in the unbill log');$('ubReason').focus();return;}
+  if(!/^[0-9]{6}$/.test(code)){ubFail('The passcode is six digits');return;}
+  // the write happens on the server, so this one genuinely cannot be queued
+  if(!online()||!authed()){ubFail('Unbilling needs a connection — the server records it');return;}
+  const btn=$('ubGo');btn.disabled=true;btn.textContent='Unbilling…';
+  try{
+    const out=await sb('rpc/unbill_group',{method:'POST',
+      body:JSON.stringify({p_gid:unbillGid,p_passcode:code,p_reason:reason})});
+    // the server's wording is the authority -- it knows a wrong passcode from
+    // a throttle lock, and rewording it here would only drift
+    if(!out||out.ok!==true){ubFail((out&&out.reason)||'Not unbilled');return;}
+    // the rows are already DRAFT on the server; mirror that without queueing
+    rows.forEach(r=>{
+      if(groupIdOf(r)!==String(unbillGid))return;
+      r.status='DRAFT';r.billed_date=null;r.paid_date=null;
+    });
+    persist();render();hide();
+    const n=Number(out.lines)||0,mine=rows.filter(r=>groupIdOf(r)===String(unbillGid)).length;
+    toast('Unbilled by '+(out.by||'—')+' — '+n+' line'+(n===1?'':'s')+
+      (n!==mine?' (server changed '+n+' of '+mine+' — syncing)':''));
+    pull(true);                              // reconcile against what it did
+  }catch(e){
+    // online() means "configured", not "connected", so a dropped connection
+    // arrives here as a bare fetch TypeError with no status. "Failed to fetch"
+    // tells the user nothing they can act on.
+    ubFail((e&&e.status)?e.message:'Unbilling needs a connection — the server records it');
+  }finally{btn.disabled=false;btn.textContent='Unbill';}
+}
+$('ubGo').onclick=doUnbill;
+$('ubCancel').onclick=()=>hide();
+$('ubX').onclick=()=>hide();
+$('ubCode').addEventListener('keydown',e=>{if(e.key==='Enter')doUnbill();});
+
 function markGroup(gid,status){
   const mine=rows.filter(r=>groupIdOf(r)===String(gid));
   if(!mine.length)return;
@@ -4885,6 +4973,7 @@ $('list').addEventListener('click',e=>{
   const ex=e.target.closest('[data-exp]');
   if(ex){expanded[ex.dataset.exp]=!expanded[ex.dataset.exp];render();return;}
   const ed=e.target.closest('[data-edit]');if(ed){openEntry(ed.dataset.edit);return;}
+  const ub=e.target.closest('[data-unbill]');if(ub){openUnbill(ub.dataset.unbill);return;}
   const sd=e.target.closest('[data-send]');if(sd){openStmtFor(sd.dataset.send);return;}
   const mk=e.target.closest('[data-mark]');if(mk){markGroup(mk.dataset.gid,mk.dataset.mark);return;}
 });
