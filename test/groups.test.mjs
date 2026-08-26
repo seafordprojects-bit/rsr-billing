@@ -221,6 +221,105 @@ ok('lines still numbered 1.0 and 2.0', doc.includes('>1.0<') && doc.includes('>2
 ok('both line titles listed', /Line One/.test(doc) && /Line Two/.test(doc));
 ok('total is the group total', /2,000\.00/.test(doc));
 
+console.log('\n--- N. a group whose lines disagree ---');
+// groupOf used to take every group field off list[0]. With line_no null on
+// every row that head was whatever order the server happened to return, so
+// the same billing could read BILLED on one sync and DRAFT on the next.
+const mk = o => Object.assign({
+  id:'r0', group_id:'g-mix', code:'RSR-DW-082026-009', bill_no:'BILLDWG-26-009',
+  doc_type:'DW', bill_date:'2026-08-21', client:'Seaford', vessel:'MV SF Voyager',
+  status:'DRAFT', billed_date:null, paid_date:null, invoice_no:null, remarks:null,
+  line_no:null, created_at:'2026-08-21T05:07:40Z', qty:1, rate:10000,
+  drawing_title:'Untitled', billable:true
+}, o);
+const billedLine = mk({ id:'aaa', status:'BILLED', billed_date:'2026-08-24',
+                        created_at:'2026-08-21T05:07:41Z', drawing_title:'Propeller Detail Plan' });
+const draftLine  = mk({ id:'bbb', status:'DRAFT',  billed_date:null,
+                        created_at:'2026-08-21T05:07:40Z', drawing_title:'Hydrostatic Curves' });
+
+const gA = app.groupOf([billedLine, draftLine]);
+const gB = app.groupOf([draftLine, billedLine]);
+const same = (a, b) => String(a == null ? '' : a) === String(b == null ? '' : b);
+app.GROUP_FIELDS.forEach(k => ok('order-independent: ' + k, same(gA[k], gB[k]),
+   String(gA[k]) + ' vs ' + String(gB[k])));
+ok('head is the same line either way', gA.lines[0].id === gB.lines[0].id,
+   gA.lines[0].id + ' vs ' + gB.lines[0].id);
+
+ok('status is the least-advanced line', gA.status === 'DRAFT', String(gA.status));
+ok('billed_date is the earliest non-null', gA.billed_date === '2026-08-24', String(gA.billed_date));
+ok('mixed names status', gA.mixed.includes('status'), JSON.stringify(gA.mixed));
+ok('mixed names billed_date', gA.mixed.includes('billed_date'), JSON.stringify(gA.mixed));
+ok('mixed leaves agreeing fields out', !gA.mixed.includes('client') && !gA.mixed.includes('code'),
+   JSON.stringify(gA.mixed));
+
+const gClean = app.groupOf([billedLine,
+  mk({ id:'ccc', status:'BILLED', billed_date:'2026-08-24', created_at:'2026-08-21T05:07:42Z' })]);
+ok('a consistent group has an empty mixed array',
+   Array.isArray(gClean.mixed) && gClean.mixed.length === 0, JSON.stringify(gClean.mixed));
+ok('a one-line group is never mixed', app.groupOf([billedLine]).mixed.length === 0);
+
+// least-advanced, not most: a PAID line beside a BILLED one is a billing that
+// is not fully paid, and must not read as PAID
+const gPaid = app.groupOf([
+  mk({ id:'d1', status:'PAID',   billed_date:'2026-08-24', paid_date:'2026-08-26' }),
+  mk({ id:'d2', status:'BILLED', billed_date:'2026-08-24' })]);
+ok('PAID beside BILLED reads as BILLED', gPaid.status === 'BILLED', String(gPaid.status));
+ok('paid_date still carried from the line that has one', gPaid.paid_date === '2026-08-26',
+   String(gPaid.paid_date));
+
+console.log('\n--- O. every line agrees after a group write ---');
+app = reset();
+app.openEntry(null, 'DW');
+batch('Seaford', 'MV SF Voyager', '2026-08-21', '10000');
+app.mlines[0].title = 'Line One';
+app.mlines.push({ id:null, title:'Line Two',   ref:'', qty:1, rate:'' });
+app.mlines.push({ id:null, title:'Line Three', ref:'', qty:1, rate:'' });
+app.renderML();
+await el('eSave').onclick();
+const sgid = app.allGroups()[0].id;
+// the invariant GROUP_FIELDS has always claimed and nothing ever checked
+const disagree = g => {
+  const mine = app.rows.filter(r => app.groupIdOf(r) === String(g));
+  if (!mine.length) return ['(no lines)'];
+  return app.GROUP_FIELDS.filter(k => {
+    const h = mine[0][k] == null ? '' : String(mine[0][k]);
+    return mine.some(r => (r[k] == null ? '' : String(r[k])) !== h);
+  });
+};
+
+app.markGroup(sgid, 'BILLED');
+ok('markGroup leaves every line agreeing', disagree(sgid).length === 0, disagree(sgid).join(','));
+ok('and the group reports nothing mixed', app.groupById(sgid).mixed.length === 0,
+   JSON.stringify(app.groupById(sgid).mixed));
+ok('group reads BILLED', app.groupById(sgid).status === 'BILLED', app.groupById(sgid).status);
+
+app.markGroup(sgid, 'DRAFT');
+const moved = app.markBilledNow(app.allGroups());
+ok('markBilledNow moved the one group', moved === 1, String(moved));
+ok('markBilledNow leaves every line agreeing', disagree(sgid).length === 0, disagree(sgid).join(','));
+ok('and nothing mixed after it', app.groupById(sgid).mixed.length === 0,
+   JSON.stringify(app.groupById(sgid).mixed));
+
+console.log('\n--- P. a straggler left in DRAFT ---');
+// exactly the shape found on the server: three lines BILLED, one still DRAFT
+// because its PATCH never landed. The group has to stay markable, or the line
+// is stranded for good -- which is what happened for five days.
+app.rows[1].status = 'DRAFT';
+app.rows[1].billed_date = null;
+const split = app.groupById(sgid);
+ok('a split group reads as DRAFT', split.status === 'DRAFT', String(split.status));
+ok('and names the fields that differ', split.mixed.includes('status'), JSON.stringify(split.mixed));
+app.render();
+ok('Monitoring badges it', el('list').innerHTML.includes('Lines differ'));
+ok('and the badge names the field', /Lines differ[^<]*status/.test(el('list').innerHTML));
+
+ok('the split group is still markable', app.markBilledNow(app.allGroups()) === 1);
+ok('marking heals it', disagree(sgid).length === 0, disagree(sgid).join(','));
+ok('and clears the mixed flag', app.groupById(sgid).mixed.length === 0,
+   JSON.stringify(app.groupById(sgid).mixed));
+app.render();
+ok('the badge is gone', !el('list').innerHTML.includes('Lines differ'));
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

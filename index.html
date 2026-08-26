@@ -223,6 +223,7 @@ header.top{
 .revlink{font-family:var(--mono);font-size:10.5px;color:var(--rsr);border-bottom:1px solid currentColor;font-weight:600}
 .revgone{font-family:var(--mono);font-size:10.5px;color:var(--slate);font-style:italic}
 .badge.free{color:var(--slate)}
+.badge.mixed{color:var(--weld);background:rgba(224,122,24,.07);letter-spacing:.08em}
 .row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
 .act{
   display:inline-flex;align-items:center;justify-content:center;
@@ -1284,14 +1285,51 @@ function migrateGroups(){
   rows.forEach(r=>{if(!r.group_id){r.group_id=String(r.id);n++;}});
   return n;
 }
+// DRAFT < BILLED < PAID. A group is only as advanced as its least-advanced
+// line: a straggler still in DRAFT has to keep the billing markable, or it is
+// left behind for good. Reading status off one line is what let three BILLED
+// lines and one DRAFT sit in the same billing unnoticed for five days.
+const STATUS_RANK={DRAFT:0,BILLED:1,PAID:2};
+const rankOf=s=>{const n=STATUS_RANK[s];return n==null?0:n;};
+// earliest non-null: a billing was billed when its first line was, and that
+// stops the date walking forward every time a straggler is picked up
+function firstDate(list,k){
+  let best=null;
+  list.forEach(r=>{
+    const v=r[k];if(!v)return;
+    if(best==null||String(v)<String(best))best=String(v);
+  });
+  return best;
+}
 function groupOf(raw){
   // a sync returns rows in whatever order the query gave, so entry order is
-  // restored from line_no; rows predating it keep their relative order
+  // restored from line_no. Rows predating it have none and would all tie at
+  // 1e9, leaving head -- and with it every identity field -- at the mercy of
+  // the server's row order; created_at then id break that tie so head is the
+  // same line on every sync.
   const list=raw.slice().sort((a,b)=>
-    (a.line_no==null?1e9:Number(a.line_no))-(b.line_no==null?1e9:Number(b.line_no)));
+    ((a.line_no==null?1e9:Number(a.line_no))-(b.line_no==null?1e9:Number(b.line_no)))||
+    String(a.created_at||'').localeCompare(String(b.created_at||''))||
+    String(a.id||'').localeCompare(String(b.id||'')));
   const head=list[0]||{};
   const g={id:groupIdOf(head),lines:list};
+  // identity fields (code, bill_no, client, vessel, …) have no ordering, so
+  // head is the only answer available. A disagreement there is a fault to
+  // surface, not a state to reconcile -- see g.mixed below.
   GROUP_FIELDS.forEach(k=>{g[k]=head[k];});
+  if(list.length){
+    g.status=list.reduce((a,r)=>rankOf(r.status)<rankOf(a)?r.status:a,'PAID');
+    g.billed_date=firstDate(list,'billed_date');
+    g.paid_date=firstDate(list,'paid_date');
+  }
+  // every GROUP_FIELD the lines do not agree on, empty when they agree -- so
+  // g.mixed.length is the badge test and the names are its wording. Compared
+  // against head rather than the derived values above, because the question is
+  // whether the rows disagree, not what was derived from them.
+  g.mixed=list.length<2?[]:GROUP_FIELDS.filter(k=>{
+    const h=head[k]==null?'':String(head[k]);
+    return list.some(r=>(r[k]==null?'':String(r[k]))!==h);
+  });
   g.total=list.reduce((s,r)=>s+amountOf(r),0);
   g.count=list.length;
   g.allFree=list.length>0&&list.every(noCharge);
@@ -1779,6 +1817,7 @@ function render(){
         <span class="code">${esc(g.code||'—')}</span>
         <span class="badge ${esc(g.status)}">${esc(g.status)}</span>
         ${g.allFree?`<span class="badge free">No charge</span>`:''}
+        ${g.mixed&&g.mixed.length?`<span class="badge mixed">Lines differ · ${esc(g.mixed.join(', '))}</span>`:''}
         <span class="row-amt">${money(g.total)}</span>
       </div>
       <div class="row-title">${esc(g.client||'No client')}</div>
