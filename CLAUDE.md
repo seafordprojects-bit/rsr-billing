@@ -593,6 +593,38 @@ Before going live:
    ```
    Secrets, unlike code, take effect on the **next invocation** — no redeploy.
 
+   **There are two Resend accounts and only one of them can send.** Mint the
+   key on the account that holds the domain:
+
+   | Resend account | domains | usable for sending |
+   |---|---|---|
+   | `seafordprojects@gmail.com` | `rsrengg.com`, verified | **yes — mint the key here** |
+   | `rsrengineering.services2025@gmail.com` | none | no — every key 403s |
+
+   A key from the second account fails with **403 `domain is not verified`**,
+   which reads as a domain problem and is not one: the domain is fine, the key
+   simply belongs to an account that has never held it. Nothing in the message
+   points at the account, and this cost two hours on 2026-08-26. The trap is
+   easy to fall into because `rsrengineering.services2025@gmail.com` appears
+   elsewhere in this file for two unrelated reasons — it is `DEFAULT_REPLY_TO`,
+   and it owned the old sandbox account. Neither makes it where a sending key
+   comes from.
+
+   **Rotating `RESEND_API_KEY` — the order is the whole point.** Resend shows a
+   key's value **once**, at creation, and can never show it again. So:
+
+   1. Create the new key, on `seafordprojects@gmail.com`.
+   2. `supabase secrets set` it — effective on the next invocation, no redeploy.
+   3. Send a test billing and confirm it **arrives**, not merely that Resend
+      accepted it (see the debugging section — those are different things).
+   4. **Only then** delete the old key.
+
+   Never delete first. The old value is unrecoverable, so if the new key turns
+   out to be wrong — from the wrong account, say — there is no way back and
+   sending stays down until another key is minted and set. Passing the key via
+   `supabase secrets set --env-file <file>` rather than on the command line
+   keeps it out of shell history; delete the file afterwards.
+
    **`rsrengg.com` is verified and mail leaves from the firm's own address.**
    `STATEMENT_FROM` has been set since 2026-08-25 to `billing@rsrengg.com`, and
    a test billing delivered 2026-08-26 17:03 — DKIM signed by `rsrengg.com`,

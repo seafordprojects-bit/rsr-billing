@@ -71,6 +71,13 @@ const canonName = (v: unknown) =>
 // never mail that vanishes. That is the one thing to check first if sending
 // breaks for every client at once.
 //
+// But check the ACCOUNT before the domain: that same 403 is far more often a
+// key minted on the wrong Resend account. rsrengg.com is verified on
+// seafordprojects@gmail.com ONLY. rsrengineering.services2025@gmail.com -- the
+// Reply-To below, and the owner of the old sandbox account -- holds no domains
+// at all, so every key from it 403s with a message about the domain. Two hours
+// went into learning that on 2026-08-26. Mint RESEND_API_KEY on the first.
+//
 // Reply-To is a different mailbox on purpose: replies to a billing should land
 // where they are read, which is the Gmail account, not an alias on the sending
 // domain that nobody watches.
