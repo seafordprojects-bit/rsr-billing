@@ -583,29 +583,55 @@ Before going live:
 2. **Confirm signup is disabled** in Authentication → Providers. RLS is
    `to authenticated using (true)` on every table, so anyone who can create an
    account can read and rewrite all billing data.
-3. ~~**Deploy the function and set its secrets**~~ — **done 2026-08-23.**
-   `send-statement` is deployed to `wpmcbjrisuyjvobvzaus` and `RESEND_API_KEY`
-   is set. Redeploy after any edit to the function:
+3. ~~**Deploy the function and set its secrets**~~ — **done, in three steps:**
+   deployed with `RESEND_API_KEY` set **2026-08-23**, `STATEMENT_FROM` set
+   **2026-08-25**, sending domain verified **2026-08-26**.
+   `send-statement` is deployed to `wpmcbjrisuyjvobvzaus`. Redeploy after any
+   edit to the function:
    ```
    supabase functions deploy send-statement
    ```
    Secrets, unlike code, take effect on the **next invocation** — no redeploy.
 
-   **There is no verified sending domain yet**, so `STATEMENT_FROM` is unset and
-   the function falls back to Resend's shared sandbox sender. That sender
-   delivers **only to the mailbox that owns the Resend account**
-   (`rsrengineering.services2025@gmail.com`); mail to a real client is accepted,
-   given an id, and then dropped, and nothing in the Supabase logs says so.
-   Until a domain is verified this function can only usefully mail RSR itself.
+   **`rsrengg.com` is verified and mail leaves from the firm's own address.**
+   `STATEMENT_FROM` has been set since 2026-08-25 to `billing@rsrengg.com`, and
+   a test billing delivered 2026-08-26 17:03 — DKIM signed by `rsrengg.com`,
+   mailed by `send.rsrengg.com`, **with an external CC that arrived**. Real
+   clients receive billings; there is no sandbox restriction on this function
+   any more, and the CC field is usable for a second recipient.
+
+   Worth knowing what that replaced, because the old constraint was invisible
+   rather than noisy. Resend's shared sandbox sender delivered **only to the
+   mailbox that owns the Resend account**
+   (`rsrengineering.services2025@gmail.com`); mail to a real client was
+   accepted, given an id, and then dropped, with nothing in the Supabase logs
+   to say so. Anything written before 2026-08-26 that describes billings
+   reaching only RSR is describing that, and is out of date.
+
+   `STATEMENT_REPLY_TO` is unset, so Reply-To falls to `DEFAULT_REPLY_TO`
+   (`rsrengineering.services2025@gmail.com`). That is the intended address and
+   wants no change.
+
+   **The deployed build matches the tree.** `send-statement` is at version 17,
+   deployed 2026-08-26 17:10 (+08), which carries `9b43989`'s rewrite of the
+   SENDER IDENTITY block. Worth knowing what that closed: v15 fell back to
+   `onboarding@resend.dev` where the tree falls back to `billing@rsrengg.com`,
+   so while the gap stood, clearing `STATEMENT_FROM` would have dropped sending
+   silently back into the sandbox. It now changes nothing — secret and constant
+   name the same address. The general point survives the specific fix: **this
+   function's fallbacks only behave as documented when the deployed version is
+   current**, so check `supabase functions list` before reasoning about them.
 
    Everything about who the mail comes from lives in **one marked block** —
    `SENDER IDENTITY` in `supabase/functions/send-statement/index.ts`. It names
-   the two secrets that retire the sandbox (`STATEMENT_FROM`,
-   `STATEMENT_REPLY_TO`) and the constants to delete afterwards. Change sender
-   behaviour there, not at the use sites.
+   the two secrets that override the addresses without a redeploy
+   (`STATEMENT_FROM`, `STATEMENT_REPLY_TO`) and the two constants they override
+   (`DEFAULT_FROM`, `DEFAULT_REPLY_TO`). Change sender behaviour there, not at
+   the use sites.
 
-   `reply_to` is the **company mailbox, not the person who pressed Send** — the
-   sandbox address bounces replies into nowhere. Who sent it is still logged.
+   `reply_to` is the **company mailbox, not the person who pressed Send** — a
+   client answering a billing should land where someone reads it, not in an
+   alias on the sending domain that nobody watches. Who sent it is still logged.
 4. **Add yourself to `billing_senders`**, or emailing is refused for everyone:
    ```sql
    insert into billing_senders (email) values ('you@example.com')
@@ -639,7 +665,7 @@ stream** means the request never arrived — the gateway rejected it, and
 `sb-error-code: UNAUTHORIZED_NO_AUTH_HEADER` is a missing or expired token.
 
 `statement … sent to …` means Resend **accepted** it, which is not delivery.
-Delivery is only visible at resend.com/emails — see the sandbox note in step 3.
+Delivery is only visible at resend.com/emails.
 
 CORS was verified against the live endpoint from the Pages origin: the
 preflight returns 200 with `Access-Control-Allow-Origin: *` and reaches the

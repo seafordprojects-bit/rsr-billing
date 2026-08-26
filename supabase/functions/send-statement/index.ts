@@ -56,15 +56,20 @@ const canonName = (v: unknown) =>
 // ===========================================================================
 // SENDER IDENTITY — the From and Reply-To on every billing
 // ===========================================================================
-// Billings now leave from the firm's own domain rather than Resend's shared
+// Billings leave from the firm's own domain rather than Resend's shared
 // sandbox address, which delivered only to the mailbox owning the Resend
 // account and dropped everything else in silence.
 //
-// PREREQUISITE, and it fails loudly if unmet: billing@rsrengg.com must sit on
-// a domain VERIFIED in Resend. An unverified domain is refused with a 403 and
-// the message "domain is not verified", which this function passes straight
-// back to the sender -- so a mis-set domain shows up as a failed send, not as
-// mail that vanishes.
+// rsrengg.com is VERIFIED in Resend -- confirmed 2026-08-26 by a test billing
+// that arrived DKIM-signed by rsrengg.com, mailed by send.rsrengg.com, with an
+// external CC delivered. So this is settled, not a prerequisite to arrange:
+// real clients receive billings, and cc carries a second recipient.
+//
+// It stays true only while billing@rsrengg.com sits on a verified domain. If
+// verification ever lapses Resend refuses with a 403 "domain is not verified",
+// which this function passes straight back -- so the failure is a failed send,
+// never mail that vanishes. That is the one thing to check first if sending
+// breaks for every client at once.
 //
 // Reply-To is a different mailbox on purpose: replies to a billing should land
 // where they are read, which is the Gmail account, not an alias on the sending
