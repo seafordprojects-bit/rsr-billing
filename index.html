@@ -3912,8 +3912,14 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-close{margin-top:16px}
 .stmt-close .ty{font-size:11.5px;font-weight:bold}
 .stmt-close .pb{font-size:10.5px;color:#333;margin-top:5px}
-.ltr{max-width:760px;margin:0 auto 22px;font-size:12.5px;line-height:1.55;color:#000}
-.ltr-d{font-family:Consolas,monospace;font-size:11px;color:#444;margin-bottom:14px}
+/* margin-left must stay 0. "0 auto" centres the 760px block, and in a reading
+   pane wider than that the leftover gap reads as a letter indented by an inch
+   -- which is what Gmail was showing. max-width still holds the line length. */
+.ltr{max-width:760px;margin:0 0 22px;font-size:12.5px;line-height:1.55;color:#000}
+/* the date is part of the letter, not a data field: same face and size as the
+   body. Spelled out rather than inherit, because Outlook's Word engine does
+   not resolve inherit reliably -- keep these two in step with body/.ltr. */
+.ltr-d{font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#444;margin-bottom:14px}
 .ltr p{margin:0 0 11px}`;
 
 /* ---- the covering letter ---- */
