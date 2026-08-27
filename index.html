@@ -4751,6 +4751,46 @@ create table if not exists billing_senders (
 alter table billing_senders enable row level security;
 
 -- ---------------------------------------------------------------
+-- Unbilling: authenticated callers only, never anon.
+--
+-- The unbill RPCs are not created here. They were written by hand in
+-- the SQL editor and this file has never carried them; what it does
+-- carry is the grant, because the grant is the whole perimeter. They
+-- are security definer, so they bypass RLS entirely and EXECUTE is the
+-- only thing in front of them. Supabase grants EXECUTE on new
+-- functions in public to the anon role by default, so re-creating one
+-- silently reopens it to anybody holding the public anon key -- which
+-- ships to every browser and is not a secret. Re-running this takes
+-- that back, and skips whichever functions are absent.
+-- ---------------------------------------------------------------
+do $BODY$
+declare
+  f text;
+begin
+  foreach f in array array[
+    'public.unbill_group(text,text,text)',
+    'public.add_unbill_operator(text,text,text)',
+    'public.resolve_unbill_operator(text)',
+    'public.set_unbill_passcode(text,text)'
+  ] loop
+    if to_regprocedure(f) is not null then
+      execute 'revoke execute on function ' || f || ' from anon';
+    end if;
+  end loop;
+end
+$BODY$;
+
+-- The shared-passcode path that billing_unbill_operator replaced.
+-- verify_unbill_passcode returned a bare boolean: no operator identity,
+-- nothing written to the unbill log. Neither the app nor any other
+-- function called it, but it still wrote to the single throttle row the
+-- live path locks, so ten wrong guesses through it denied real
+-- unbilling -- and adding an operator -- for fifteen minutes. Dropped
+-- 2026-08-28 along with the credential table it read.
+drop function if exists public.verify_unbill_passcode(text);
+drop table if exists public.billing_unbill_credential;
+
+-- ---------------------------------------------------------------
 -- Storage. This project is shared with other RSR apps, so every
 -- statement below touches only the ${b} bucket:
 --   * the bucket row is addressed by id, so other buckets keep

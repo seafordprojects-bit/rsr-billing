@@ -728,6 +728,36 @@ in the browser as a real 401 rather than an opaque CORS error.
   compared canonically, so `Seaford Shipping lines` matched in the app and was
   refused by the function — with a message about the billing email, which was
   not what had gone wrong. `fn.test.mjs` section I2 pins this.
+- **The unbill subsystem is not in `sqlText()`.** It exists only in the live
+  database, written by hand in the SQL editor, and `sqlText()` creates none of
+  it:
+
+  | | |
+  |---|---|
+  | tables | `billing_unbill_operator`, `billing_unbill_throttle`, `drawing_billing_unbill_log` |
+  | RPCs | `unbill_group`, `resolve_unbill_operator`, `add_unbill_operator`, `set_unbill_passcode` |
+  | trigger functions | `rsr_dwg_block_unbill`, `rsr_dwg_block_delete_billed` |
+  | triggers | `rsr_dwg_unbill_guard`, `rsr_dwg_delete_guard` (both on `drawing_billing`) |
+
+  So step 1 of **Before going live** — run the regenerated SQL — produces a
+  project where **Unbill is broken**: `openUnbill` opens its sheet, `doUnbill`
+  posts to `rpc/unbill_group`, and PostgREST answers 404. Worse, the two guards
+  are missing with it, so the protections they enforce are simply absent —
+  `rsr_dwg_unbill_guard` is the only thing that stops a queued PATCH walking a
+  BILLED billing back to DRAFT, and `rsr_dwg_delete_guard` the only thing that
+  refuses a DELETE on a billed row. The app's own checks for both are
+  client-side. A fresh project is therefore not merely missing a feature, it is
+  missing two server-side guarantees the app assumes.
+
+  What **is** in `sqlText()` is the hardening: a guarded `do` block that revokes
+  EXECUTE from the anon role on the four RPCs where they exist, and drops the
+  retired `verify_unbill_passcode` / `billing_unbill_credential` pair. That is
+  deliberately written to skip whatever is absent, so it is safe on a fresh
+  project — but it hardens the subsystem without creating it.
+
+  Recording rather than fixing, because the DDL was never captured anywhere and
+  reconstructing it from `pg_get_functiondef` is a task in itself. Until then,
+  **a second project cannot be stood up from this repo alone.**
 - The project URL, key and session are per-device by design. A new device needs
   them entered once before anything syncs.
 - pdf.js and jsPDF both load from cdnjs, pinned with SRI hashes. pdf.js's **worker** is loaded via
