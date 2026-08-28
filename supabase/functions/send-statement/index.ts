@@ -177,6 +177,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const statementNo = cleanHeader(body.statement_no, 60);
   const html = typeof body.html === "string" ? body.html : "";
 
+  // Which billings this email covers. One send-log row is written per billing,
+  // because bill_no is per group and so is its send history. Absent means an
+  // older app build: the mail still goes, it simply is not recorded.
+  const gids = Array.isArray(body.gids)
+    ? (body.gids as unknown[]).map((g) => cleanHeader(g, 80)).filter(Boolean)
+    : [];
+
   // The CC is optional, but a malformed one must not be dropped in silence --
   // the sender would believe a second party was copied when nobody was. Absent
   // and blank are fine; present-and-unparseable is a refusal.
@@ -285,6 +292,57 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ ok: false, error: msg }, sent.status === 422 ? 400 : 502);
   }
 
-  console.log(`statement ${statementNo || "(no number)"} sent to ${to}${cc ? ` cc ${cc}` : ""} by ${senderEmail}`);
-  return json({ ok: true, id: parsed?.id ?? null, to, statement_no: statementNo || null });
+  // ===========================================================================
+  // The mail has gone. Everything below is bookkeeping.
+  //
+  // A failure here must NEVER be reported as a failed send. The client already
+  // has the billing, and lSend skips markBilledNow on a failure -- so returning
+  // ok:false would leave a sent billing sitting in DRAFT and tell the user to
+  // send it again. Refusing to send fails closed; refusing to *log* fails open,
+  // loudly, and says so in the response.
+  //
+  // The snapshot itself is built inside record_billing_send, from
+  // drawing_billing. Nothing about the lines is passed from here, and nothing
+  // came from the caller: this table is the record of what the client actually
+  // received, and a stale device must not be able to write it.
+  // ===========================================================================
+  let logged = gids.length > 0;
+  let sendNo: number | null = null;
+  for (const gid of gids) {
+    try {
+      const rec = await fetch(`${SUPABASE_URL}/rest/v1/rpc/record_billing_send`, {
+        method: "POST",
+        headers: { ...svc, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          p_gid: gid,
+          p_bill_no: statementNo || null,
+          p_to: to,
+          p_cc: cc ? [cc] : [],
+          p_sent_by_uid: user?.id ?? null,
+          p_sent_by_email: senderEmail,
+          p_provider_id: (parsed?.id as string) ?? null,
+          p_letter_text: html,
+        }),
+      });
+      const txt = await rec.text();
+      let out: Record<string, unknown> = {};
+      try { out = txt ? JSON.parse(txt) : {}; } catch { /* keep txt */ }
+      if (!rec.ok || out?.ok !== true) {
+        logged = false;
+        console.error("send log refused", gid, rec.status, out?.reason ?? txt);
+      } else if (sendNo === null) {
+        sendNo = out.send_no as number;
+      }
+    } catch (e) {
+      logged = false;
+      console.error("send log threw", gid, e);
+    }
+  }
+
+  console.log(
+    `statement ${statementNo || "(no number)"} sent to ${to}${cc ? ` cc ${cc}` : ""}` +
+    ` by ${senderEmail}${logged ? ` (send #${sendNo})` : " (not logged)"}`,
+  );
+  return json({ ok: true, id: parsed?.id ?? null, to,
+                statement_no: statementNo || null, logged, send_no: sendNo });
 });

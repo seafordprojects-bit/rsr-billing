@@ -29,7 +29,9 @@ const netState = { user: { id:'u1', email:'raffy@rsr.test' }, userOk: true,
                    resendStatus: 200,
                    senders: ['raffy@rsr.test'], sendersOk: true,
                    clients: [{ name:'Seaford', billing_email:'billing@seaford.test' }],
-                   clientsOk: true, svcAuth: [] };
+                   clientsOk: true, svcAuth: [],
+                   rpcCalls: [], rpcOk: true,
+                   rpcBody: { ok:true, send_no:2, change_kind:'decreased', total_delta:-500 } };
 globalThis.fetch = async (url, opts={}) => {
   if (String(url).includes('/auth/v1/user')) {
     return { ok: netState.userOk, status: netState.userOk ? 200 : 401,
@@ -53,6 +55,14 @@ globalThis.fetch = async (url, opts={}) => {
     netState.sentPayload = JSON.parse(opts.body);
     return { ok: netState.resendOk, status: netState.resendStatus,
              text: async () => JSON.stringify(netState.resendBody) };
+  }
+  if (String(url).includes('/rest/v1/rpc/record_billing_send')) {
+    netState.svcAuth.push((opts.headers||{}).Authorization);
+    netState.rpcCalls.push(JSON.parse(opts.body || '{}'));
+    return { ok: netState.rpcOk, status: netState.rpcOk ? 200 : 500,
+             text: async () => netState.rpcOk
+               ? JSON.stringify(netState.rpcBody)
+               : JSON.stringify({ message:'boom' }) };
   }
   throw new Error('unexpected fetch: ' + url);
 };
@@ -303,6 +313,63 @@ ok('nothing reaches Resend', netState.sentPayload === null, JSON.stringify(netSt
 
 r = await call({ ...good, attachment: null });
 ok('an explicit null attachment is refused the same way', r.status === 400, String(r.status));
+
+// section N broke the attachment and the mail mock; put both back
+netState.resendOk = true; netState.resendStatus = 200; netState.sentPayload = null;
+
+console.log('\n--- O. the send is recorded ---');
+netState.rpcCalls = []; netState.rpcOk = true;
+r = await call({ ...good, gids:['g-1'] });
+let out = await r.json();
+ok('the send succeeded', out.ok === true, JSON.stringify(out));
+ok('the RPC was called once', netState.rpcCalls.length === 1, String(netState.rpcCalls.length));
+// null-safe: a red run should report every assertion, not die on the first
+const c0 = netState.rpcCalls[0] || {};
+ok('it passed the gid', c0.p_gid === 'g-1', JSON.stringify(c0));
+ok('it passed the sender, not an operator', c0.p_sent_by_email === 'raffy@rsr.test');
+ok('it passed the auth uid', c0.p_sent_by_uid === 'u1');
+ok('it never passes line data',
+   !('p_lines' in c0) && !('p_total' in c0), JSON.stringify(Object.keys(c0)));
+ok('cc travels as an array', Array.isArray(c0.p_cc));
+ok('the RPC is called with the service key, never the user token',
+   /service-key/.test(String(netState.svcAuth[netState.svcAuth.length - 1])));
+ok('the send number comes back', out.send_no === 2, String(out.send_no));
+ok('and it reports being logged', out.logged === true);
+
+console.log('\n--- O2. one row per billing ---');
+netState.rpcCalls = [];
+r = await call({ ...good, gids:['g-1','g-2'] });
+out = await r.json();
+ok('two billings, two rows', netState.rpcCalls.length === 2, String(netState.rpcCalls.length));
+ok('each carries its own gid',
+   (netState.rpcCalls[0]||{}).p_gid === 'g-1' && (netState.rpcCalls[1]||{}).p_gid === 'g-2',
+   JSON.stringify(netState.rpcCalls.map(c => c.p_gid)));
+
+console.log('\n--- O3. a logging failure never fails the send ---');
+netState.rpcCalls = []; netState.rpcOk = false;
+r = await call({ ...good, gids:['g-1'] });
+out = await r.json();
+ok('the send still succeeded', out.ok === true, JSON.stringify(out));
+ok('the status is still 200', r.status === 200, String(r.status));
+ok('but it says it was not logged', out.logged === false);
+ok('and no send number is claimed', out.send_no === null, String(out.send_no));
+netState.rpcOk = true;
+
+console.log('\n--- O4. an older app that sends no gids still mails ---');
+netState.rpcCalls = [];
+r = await call(good);
+out = await r.json();
+ok('the mail goes', out.ok === true, JSON.stringify(out));
+ok('nothing is recorded', netState.rpcCalls.length === 0, String(netState.rpcCalls.length));
+ok('and it says so', out.logged === false);
+
+console.log('\n--- O5. a refused send records nothing ---');
+netState.rpcCalls = []; netState.resendOk = false; netState.resendStatus = 422;
+r = await call({ ...good, gids:['g-1'] });
+ok('the send failed', (await r.json()).ok === false);
+ok('the send log was never touched', netState.rpcCalls.length === 0,
+   String(netState.rpcCalls.length));
+netState.resendOk = true; netState.resendStatus = 200;
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
