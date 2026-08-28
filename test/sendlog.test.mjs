@@ -30,8 +30,17 @@ ok('the RPC snapshots from the table, not from the caller',
    /from public\.drawing_billing b/.test(html) && !/p_lines/.test(html));
 ok('no-charge lines contribute zero, matching amountOf',
    /case when b\.billable is false then 0/.test(html));
-ok('the RPC is revoked from the anon role',
+ok('the RPC is in the revoke list',
    /'public\.record_billing_send\(text,text,text,text\[\],uuid,text,text,text\)'/.test(html));
+ok('so is the diff helper',
+   /'public\.billing_line_diff\(jsonb,jsonb\)'/.test(html));
+// Revoking the named role alone is not enough: create function grants EXECUTE
+// to PUBLIC, and the anon role inherits it. This is a string assertion and
+// cannot see the live ACL -- only the has_function_privilege check can.
+ok('the revoke takes PUBLIC, not just the named role',
+   /revoke execute on function ' \|\| f \|\| ' from public/.test(html));
+ok('and authenticated is granted back explicitly',
+   /grant execute on function ' \|\| f \|\| ' to authenticated/.test(html));
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
