@@ -4751,6 +4751,184 @@ create table if not exists billing_senders (
 alter table billing_senders enable row level security;
 
 -- ---------------------------------------------------------------
+-- What was sent, and when. One row per billing per send: a
+-- correction keeps its billing number, so send_no is what tells
+-- send #1 from send #2, not a suffix on bill_no.
+--
+-- The snapshot is built in record_billing_send from drawing_billing
+-- itself. The caller never supplies line data -- a stale device would
+-- otherwise record a billing the database never held, and this table
+-- is the record of what the client actually received.
+--
+-- Readable by any signed-in user, writable by nobody: RLS with a
+-- select policy and no other, so only send-statement's service key
+-- can insert. The rows are a record, not working state.
+-- ---------------------------------------------------------------
+create table if not exists drawing_billing_send_log (
+  id            bigserial primary key,
+  gid           text        not null,
+  bill_no       text        not null,
+  send_no       int         not null,
+  sent_at       timestamptz not null default now(),
+  sent_by_uid   uuid,
+  sent_by_email text        not null,
+  to_email      text        not null,
+  cc_emails     text[]      not null default '{}',
+  provider_id   text,
+  total         numeric(14,2) not null,
+  line_count    int         not null,
+  lines         jsonb       not null,
+  prev_send_no  int,
+  change_kind   text        not null,
+  total_delta   numeric(14,2),
+  changed_lines jsonb       not null default '[]',
+  letter_text   text,
+  constraint drawing_billing_send_log_gid_no unique (gid, send_no)
+);
+
+create index if not exists drawing_billing_send_log_gid_idx
+  on drawing_billing_send_log (gid, send_no desc);
+
+alter table drawing_billing_send_log enable row level security;
+
+drop policy if exists rsr_dwg_sendlog_read on drawing_billing_send_log;
+create policy rsr_dwg_sendlog_read on drawing_billing_send_log
+  for select to authenticated using (true);
+
+-- What changed between two snapshots. Line identity is drawing_billing.id,
+-- which is stable, so an edited line reads as amended. The known limit: a
+-- line deleted and re-entered gets a new id and shows as removed + added.
+-- Accepted -- the alternative is inventing a business key the lines do not
+-- have.
+create or replace function public.billing_line_diff(p_prev jsonb, p_cur jsonb)
+returns jsonb
+language sql
+immutable
+set search_path to 'public'
+as $BODY$
+  with prev as (
+    select (e->>'id') as id,
+           coalesce(e->>'drawing_title','') as title,
+           coalesce((e->>'qty')::numeric, 0)  as qty,
+           coalesce((e->>'rate')::numeric, 0) as rate
+      from jsonb_array_elements(coalesce(p_prev, '[]'::jsonb)) e
+  ), cur as (
+    select (e->>'id') as id,
+           coalesce(e->>'drawing_title','') as title,
+           coalesce((e->>'qty')::numeric, 0)  as qty,
+           coalesce((e->>'rate')::numeric, 0) as rate
+      from jsonb_array_elements(coalesce(p_cur, '[]'::jsonb)) e
+  )
+  select coalesce(jsonb_agg(d order by d->>'title'), '[]'::jsonb) from (
+    select jsonb_build_object('op','removed','id',p.id,'title',p.title,
+             'was', jsonb_build_object('qty',p.qty,'rate',p.rate)) as d
+      from prev p left join cur c on c.id = p.id where c.id is null
+    union all
+    select jsonb_build_object('op','added','id',c.id,'title',c.title,
+             'now', jsonb_build_object('qty',c.qty,'rate',c.rate))
+      from cur c left join prev p on p.id = c.id where p.id is null
+    union all
+    select jsonb_build_object('op','amended','id',c.id,'title',c.title,
+             'was', jsonb_build_object('qty',p.qty,'rate',p.rate,'title',p.title),
+             'now', jsonb_build_object('qty',c.qty,'rate',c.rate,'title',c.title))
+      from cur c join prev p on p.id = c.id
+     where p.qty <> c.qty or p.rate <> c.rate or p.title <> c.title
+  ) x;
+$BODY$;
+
+-- Records one send. Claims send_no by compare-and-swap against the unique
+-- constraint: a second device racing this insert loses and retries against
+-- the fresh maximum, exactly as the billing-number claim does.
+create or replace function public.record_billing_send(
+  p_gid           text,
+  p_bill_no       text,
+  p_to            text,
+  p_cc            text[] default '{}',
+  p_sent_by_uid   uuid   default null,
+  p_sent_by_email text   default null,
+  p_provider_id   text   default null,
+  p_letter_text   text   default null
+) returns jsonb
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $BODY$
+declare
+  v_lines   jsonb;
+  v_total   numeric(14,2);
+  v_count   int;
+  v_prev    public.drawing_billing_send_log%rowtype;
+  v_no      int;
+  v_kind    text;
+  v_delta   numeric(14,2);
+  v_changed jsonb;
+  v_try     int := 0;
+begin
+  if p_gid is null or btrim(p_gid) = '' then
+    return jsonb_build_object('ok', false, 'reason', 'No billing given');
+  end if;
+  if p_sent_by_email is null or btrim(p_sent_by_email) = '' then
+    return jsonb_build_object('ok', false, 'reason', 'No sender given');
+  end if;
+
+  -- billable is false means no charge, matching amountOf in the app; null
+  -- and true both charge, so "is false" is the right test, not "= false"
+  select jsonb_agg(to_jsonb(b) order by b.line_no nulls last, b.created_at, b.id),
+         coalesce(sum(case when b.billable is false then 0
+                           else round(coalesce(b.qty,0) * coalesce(b.rate,0), 2) end), 0),
+         count(*)
+    into v_lines, v_total, v_count
+    from public.drawing_billing b
+   where coalesce(b.group_id::text, b.id::text) = btrim(p_gid);
+
+  if v_count = 0 then
+    return jsonb_build_object('ok', false, 'reason', 'That billing has no lines');
+  end if;
+
+  select * into v_prev
+    from public.drawing_billing_send_log
+   where gid = btrim(p_gid)
+   order by send_no desc
+   limit 1;
+
+  if v_prev.id is null then
+    v_kind := 'first'; v_delta := null; v_changed := '[]'::jsonb;
+  else
+    v_delta   := v_total - v_prev.total;
+    v_changed := public.billing_line_diff(v_prev.lines, v_lines);
+    v_kind    := case when v_delta > 0 then 'increased'
+                      when v_delta < 0 then 'decreased'
+                      when v_changed = '[]'::jsonb then 'unchanged'
+                      else 'restructured' end;
+  end if;
+
+  loop
+    v_try := v_try + 1;
+    select coalesce(max(send_no), 0) + 1 into v_no
+      from public.drawing_billing_send_log where gid = btrim(p_gid);
+    begin
+      insert into public.drawing_billing_send_log
+        (gid, bill_no, send_no, sent_by_uid, sent_by_email, to_email, cc_emails,
+         provider_id, total, line_count, lines, prev_send_no, change_kind,
+         total_delta, changed_lines, letter_text)
+      values
+        (btrim(p_gid), p_bill_no, v_no, p_sent_by_uid, btrim(p_sent_by_email),
+         p_to, coalesce(p_cc, '{}'), p_provider_id, v_total, v_count, v_lines,
+         v_prev.send_no, v_kind, v_delta, v_changed, p_letter_text);
+      exit;
+    exception when unique_violation then
+      if v_try >= 5 then
+        return jsonb_build_object('ok', false, 'reason', 'Could not claim a send number');
+      end if;
+    end;
+  end loop;
+
+  return jsonb_build_object('ok', true, 'send_no', v_no, 'change_kind', v_kind,
+                            'total_delta', v_delta, 'total', v_total);
+end
+$BODY$;
+
+-- ---------------------------------------------------------------
 -- Unbilling: authenticated callers only, never anon.
 --
 -- The unbill RPCs are not created here. They were written by hand in
@@ -4771,7 +4949,8 @@ begin
     'public.unbill_group(text,text,text)',
     'public.add_unbill_operator(text,text,text)',
     'public.resolve_unbill_operator(text)',
-    'public.set_unbill_passcode(text,text)'
+    'public.set_unbill_passcode(text,text)',
+    'public.record_billing_send(text,text,text,text[],uuid,text,text,text)'
   ] loop
     if to_regprocedure(f) is not null then
       execute 'revoke execute on function ' || f || ' from anon';
