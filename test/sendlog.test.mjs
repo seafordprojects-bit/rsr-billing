@@ -250,6 +250,67 @@ ok('render is not async', !/^\s*async function render/m.test(html));
 ok('and awaits nothing', !/\bawait\b/.test(renderSrc),
    (renderSrc.match(/.*\bawait\b.*/) || [''])[0]);
 
+console.log('\n--- F4. a send whose total did not match is flagged for good ---');
+// The concern is a document already out in the world, not the current state:
+// send 4 of BILLDWG-26-002 went to a client at 30,000 while the database
+// totalled 20,000, and send 5 was clean. Flagging only the latest send would
+// show that billing as fine.
+app.sendMap = { [gidOf()]: { send_no:5, sent_by_email:'raffy@rsr.test',
+                             sent_at:'2026-08-28T09:00:00Z', bad:[4] } };
+app.render();
+ok('the clean latest send still shows its own badge', /Sent ×5 · raffy/.test(listHtml()));
+ok('and the earlier mismatch is flagged', /class="bad"/.test(listHtml()),
+   listHtml().slice(0, 400));
+ok('naming which send', /send 4/.test(listHtml()),
+   (listHtml().match(/<span class="bad"[^>]*>[^<]*/) || [''])[0]);
+ok('the long form is on the title',
+   /title="[^"]*does not match[^"]*"/.test(listHtml()),
+   (listHtml().match(/<span class="bad"[^>]*/) || [''])[0]);
+
+app.sendMap = { [gidOf()]: { send_no:5, sent_by_email:'raffy@rsr.test',
+                             sent_at:'2026-08-28T09:00:00Z', bad:[2,4] } };
+app.render();
+ok('several are named in order', /sends 2, 4/.test(listHtml()),
+   (listHtml().match(/<span class="bad"[^>]*>[^<]*/) || [''])[0]);
+
+app.sendMap = { [gidOf()]: { send_no:5, sent_by_email:'raffy@rsr.test',
+                             sent_at:'2026-08-28T09:00:00Z', bad:[] } };
+app.render();
+ok('a clean history is not flagged', !/class="bad"/.test(listHtml()));
+
+console.log('\n--- F5. refreshSendMap collects every mismatch, not just the newest ---');
+net.mode = 'online';
+net.script.push({ match:'drawing_billing_send_log', method:'GET', status:200, body:[
+  { gid:'g-9', send_no:5, sent_by_email:'raffy@rsr.test', total_mismatch:false },
+  { gid:'g-9', send_no:4, sent_by_email:'raffy@rsr.test', total_mismatch:true  },
+  { gid:'g-9', send_no:3, sent_by_email:'raffy@rsr.test', total_mismatch:false },
+  { gid:'g-9', send_no:2, sent_by_email:'raffy@rsr.test', total_mismatch:true  },
+  { gid:'g-9', send_no:1, sent_by_email:'raffy@rsr.test', total_mismatch:false },
+]});
+await app.refreshSendMap();
+ok('the newest send is still the entry', app.sendMap['g-9'].send_no === 5,
+   JSON.stringify(app.sendMap['g-9']));
+ok('every mismatched send is collected',
+   JSON.stringify(app.sendMap['g-9'].bad) === '[2,4]',
+   JSON.stringify(app.sendMap['g-9'].bad));
+ok('the query asks for the flag',
+   net.calls.some(c => /total_mismatch/.test(c.url)),
+   JSON.stringify(net.calls.slice(-1).map(c => c.url)));
+
+net.script.push({ match:'drawing_billing_send_log', method:'GET', status:200, body:[
+  { gid:'g-8', send_no:1, sent_by_email:'raffy@rsr.test', total_mismatch:false },
+]});
+await app.refreshSendMap();
+ok('a clean billing gets an empty list, not undefined',
+   Array.isArray(app.sendMap['g-8'].bad) && app.sendMap['g-8'].bad.length === 0,
+   JSON.stringify(app.sendMap['g-8']));
+
+console.log('\n--- F6. a later clean send does not clear an earlier flag ---');
+ok('lSend keeps the history it already had',
+   /\(prev\.bad\|\|\[\]\)/.test(html), 'lSend must carry prev.bad forward');
+ok('and records a new mismatch',
+   /res\.total_mismatch/.test(html) && /bad\.push\(/.test(html), 'lSend mismatch capture');
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

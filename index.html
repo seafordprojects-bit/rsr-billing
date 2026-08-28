@@ -209,6 +209,7 @@ header.top{
 .row-meta b{font-weight:600;color:var(--ink2)}
 .row-meta .m{font-family:var(--mono);font-size:11.5px}
 .row-meta .sent{font-family:var(--mono);font-size:11.5px;color:var(--slate)}
+.row-meta .bad{font-family:var(--mono);font-size:11.5px;color:var(--weld);font-weight:600}
 
 .gtoggle{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;font-size:12.5px;font-weight:600;color:var(--ink2);border:1px solid var(--line);border-radius:999px}
 .gtoggle:hover{background:var(--paper)}
@@ -1379,9 +1380,19 @@ async function refreshSendMap(){
   if(!online()||!authed())return sendMap;
   try{
     const r=await sb('drawing_billing_send_log'+
-      '?select=gid,bill_no,send_no,sent_at,sent_by_email&order=send_no.desc');
+      '?select=gid,bill_no,send_no,sent_at,sent_by_email,total_mismatch'+
+      '&order=send_no.desc');
     const m={};
-    (r||[]).forEach(row=>{if(row&&row.gid&&!m[row.gid])m[row.gid]=row;});
+    (r||[]).forEach(row=>{
+      if(!row||!row.gid)return;
+      // newest first, so the first row seen for a gid is the current one
+      if(!m[row.gid])m[row.gid]=Object.assign({},row,{bad:[]});
+      // every send whose recorded total disagreed with the document, not only
+      // the latest: the concern is a copy already with a client, and a clean
+      // re-send afterwards does not take it back
+      if(row.total_mismatch)m[row.gid].bad.push(Number(row.send_no));
+    });
+    Object.keys(m).forEach(k=>{m[k].bad.sort((a,b)=>a-b);});
     sendMap=m;
   }catch(e){/* decoration only: a cache that cannot refresh keeps what it had */}
   return sendMap;
@@ -1874,6 +1885,17 @@ function render(){
       const who=String(sm.sent_by_email||'').split('@')[0];
       meta.push(`<span class="sent" title="${esc(sm.sent_by_email||'')}">Sent${
         Number(sm.send_no)>1?' ×'+esc(String(sm.send_no)):''}${who?' · '+esc(who):''}</span>`);
+      // A send whose recorded total disagreed with the document the client
+      // received. Kept for the life of the billing rather than cleared by a
+      // clean re-send, because the bad copy is already out there. The toast at
+      // send time is seen once, by one person; this is the only lasting sign.
+      const bad=(sm.bad||[]).filter(Boolean);
+      if(bad.length){
+        const which=(bad.length===1?'send ':'sends ')+bad.join(', ');
+        meta.push(`<span class="bad" title="The total recorded for ${esc(which)
+          } does not match the document that was emailed.">⚠ ${
+          bad.length===1?'total differs':'totals differ'} · ${esc(which)}</span>`);
+      }
     }
     let acts='';
     // The send dialog was reachable only from the FAB, which opens on the
@@ -4259,9 +4281,17 @@ $('lSend').onclick=async()=>{
     const mark=await markBilledNow(p.list);
     // the card should show the send that just happened, not the one before it
     if(res&&res.send_no){
-      (p.list||[]).forEach(g=>{if(g&&g.id)sendMap[g.id]={gid:g.id,bill_no:issued,
-        send_no:res.send_no,sent_at:new Date().toISOString(),
-        sent_by_email:(session.user&&session.user.email)||''};});
+      (p.list||[]).forEach(g=>{
+        if(!g||!g.id)return;
+        // a clean re-send must not clear an earlier bad copy off the card
+        const prev=sendMap[g.id]||{};
+        const bad=(prev.bad||[]).slice();
+        if(res.total_mismatch&&bad.indexOf(Number(res.send_no))<0)bad.push(Number(res.send_no));
+        bad.sort((a,b)=>a-b);
+        sendMap[g.id]={gid:g.id,bill_no:issued,send_no:res.send_no,
+          sent_at:new Date().toISOString(),
+          sent_by_email:(session.user&&session.user.email)||'',bad:bad};
+      });
     }
     pendingSend=null;
     hide();
