@@ -494,64 +494,117 @@ ok('a revised note alone has no trailing space',
    !/unchanged\. \n/.test(revOnly), JSON.stringify(revOnly.slice(-200)));
 ok('a change note alone has no leading space',
    !/\n The total/.test(chgOnly), JSON.stringify(chgOnly.slice(-200)));
-console.log('\n--- I. the expanded card lists every send ---');
-// refreshSendMap always fetched every row and kept only the newest. The rest
-// are now kept in all[] and rendered under the lines, sharing the card's
-// existing toggle rather than adding a second one.
-const HIST = [
-  { gid:'g-h', send_no:3, sent_at:'2026-08-28T09:00:00Z', sent_by_email:'raffy@rsr.test',
-    total:'19000.00', change_kind:'decreased', total_mismatch:false },
-  { gid:'g-h', send_no:2, sent_at:'2026-08-27T09:00:00Z', sent_by_email:'ana@rsr.test',
-    total:'30000.00', change_kind:'increased', total_mismatch:true },
-  { gid:'g-h', send_no:1, sent_at:'2026-08-26T09:00:00Z', sent_by_email:'raffy@rsr.test',
-    total:'20000.00', change_kind:'first', total_mismatch:false },
+console.log('\n--- I. the card lists sends and unbills on one timeline ---');
+// Deliberately not part of refreshSendMap: that runs on every sync and feeds
+// the badge, which needs one row per billing. This needs every row of two
+// tables and is only looked at when somebody opens a card.
+const SENDS = [
+  { send_no:3, sent_at:'2026-08-28T22:30:00Z', sent_by_email:'raffy@rsr.test',
+    total:'39000.00', change_kind:'decreased', total_mismatch:false,
+    changed_lines:[{ op:'amended', title:'Shafting Arrangement' }] },
+  { send_no:2, sent_at:'2026-08-28T02:10:00Z', sent_by_email:'raffy@rsr.test',
+    total:'40000.00', change_kind:'unchanged', total_mismatch:false, changed_lines:[] },
+  { send_no:1, sent_at:'2026-08-27T02:00:00Z', sent_by_email:'ana@rsr.test',
+    total:'40000.00', change_kind:'first', total_mismatch:false, changed_lines:[] },
 ];
+// sits BETWEEN sends 2 and 3, which is what makes the naive index wrong
+const UNBILLS = [
+  { unbilled_at:'2026-08-28T22:00:00Z', operator_name:'Summer Imma',
+    reason:'wrong rate on the shafting line', rows_affected:4 },
+];
+const scriptBoth = (s, u) => {
+  net.script.push({ match:'drawing_billing_send_log',   method:'GET', status:200, body:s });
+  net.script.push({ match:'drawing_billing_unbill_log', method:'GET', status:200, body:u });
+};
 
 net.mode = 'online';
-net.script.push({ match:'drawing_billing_send_log', method:'GET', status:200, body:HIST });
-await app.refreshSendMap();
-ok('every row is kept, not just the newest',
-   app.sendMap['g-h'].all.length === 3, JSON.stringify(app.sendMap['g-h'].all.length));
-ok('newest first', app.sendMap['g-h'].all.map(r => r.send_no).join(',') === '3,2,1',
-   app.sendMap['g-h'].all.map(r => r.send_no).join(','));
-ok('the newest is still the entry itself', app.sendMap['g-h'].send_no === 3);
-ok('and the mismatches are still collected',
-   JSON.stringify(app.sendMap['g-h'].bad) === '[2]', JSON.stringify(app.sendMap['g-h'].bad));
-ok('letter_text is never asked for',
-   !net.calls.some(c => /letter_text/.test(String(c.url))),
-   JSON.stringify(net.calls.slice(-1).map(c => c.url)));
+net.calls.length = 0;
+scriptBoth(SENDS, UNBILLS);
+const ev = await app.historyFor('g-h');
 
-const block = app.sendLogLines({ id:'g-h' });
-ok('all three sends are listed', (block.match(/class="sl[ "]/g) || []).length === 3, block);
-ok('newest at the top', block.indexOf('#3') < block.indexOf('#1'), block);
-ok('each names its date', /26 Aug 2026/.test(block) && /28 Aug 2026/.test(block), block);
-ok('and its sender, local part only',
-   /raffy/.test(block) && /ana/.test(block) && !/rsr\.test/.test(block), block);
-ok('and what changed', /decreased/.test(block) && /increased/.test(block), block);
-ok('a first send is not labelled with a change', !/first/.test(block), block);
-ok('the amount sent is shown', /19,000/.test(block) && /30,000/.test(block), block);
+ok('both logs are read', ev.length === 4, JSON.stringify(ev.length));
+ok('interleaved newest first, by time not by send_no',
+   ev.map(e => e.kind + (e.send_no || '')).join(',') === 'send3,unbill,send2,send1',
+   ev.map(e => e.kind + (e.send_no || '')).join(','));
+ok('neither snapshot column is ever asked for',
+   !net.calls.some(c => /billing_snapshot|letter_text/.test(String(c.url))),
+   JSON.stringify(net.calls.map(c => String(c.url).split('select=')[1] || '')));
+ok('the unbill query takes only what it shows',
+   net.calls.some(c => /unbill_log\?select=unbilled_at,operator_name,reason,rows_affected/.test(String(c.url))),
+   JSON.stringify(net.calls.map(c => c.url)));
 
-ok('a mismatched send is marked', /class="sl bad"/.test(block), block);
-ok('and says why', /total differs from what was sent/.test(block), block);
-ok('the clean ones are not marked',
-   (block.match(/class="sl bad"/g) || []).length === 1, block);
+console.log('\n--- I2. the rows read as a timeline ---');
+app.histMap = { 'g-h': ev };
+const block = app.historyLines({ id:'g-h' });
+ok('four rows', (block.match(/class="sl[ "]/g) || []).length === 4, block);
+ok('sends are numbered', /#3/.test(block) && /#1/.test(block), block);
+ok('unbills are not', /class="sl unbill"/.test(block) && /<span class="n">—<\/span>/.test(block),
+   block);
+ok('the unbill names its operator', /Summer Imma/.test(block), block);
+ok('and its reason', /wrong rate on the shafting line/.test(block), block);
+ok('and how many lines it moved', /4 lines/.test(block), block);
+ok('an unbill carries no amount',
+   !/class="sl unbill"[\s\S]*?₱[\s\S]*?<\/div>/.test(block.slice(block.indexOf('sl unbill'))),
+   block.slice(block.indexOf('sl unbill'), block.indexOf('sl unbill') + 260));
 
-// nothing tappable: touch.test.mjs holds anything interactive to 44px, and six
-// sends of a four-line billing would be a screen of buttons
-ok('nothing in the block is interactive',
-   !/<button|<a |data-exp|role="button"/.test(block), block);
+console.log('\n--- I3. the movement is priced against the previous SEND ---');
+// send 3 follows an unbill; walking back one index would price it against a
+// row that has no total at all
+ok('a correction shows from -> to, skipping the unbill between',
+   /₱40,000 → ₱39,000/.test(block), block);
+ok('an unchanged re-send collapses to one amount',
+   /₱40,000/.test(block) && !/₱40,000 → ₱40,000/.test(block), block);
+ok('a first send shows just its amount', /#1[\s\S]*?₱40,000/.test(block), block);
+ok('the changed line is named with what happened to it',
+   /amended Shafting Arrangement/.test(block), block);
 
-console.log('\n--- I2. a billing never sent gets no block at all ---');
-ok('no history, no block', app.sendLogLines({ id:'g-never' }) === '',
-   app.sendLogLines({ id:'g-never' }));
-app.sendMap['g-empty'] = { send_no:0, all:[] };
-ok('an empty list is the same as none', app.sendLogLines({ id:'g-empty' }) === '');
+console.log('\n--- I4. dates are Manila, not the UTC slice ---');
+// 22:30 UTC on the 28th is 06:30 on the 29th in Manila -- the window that put
+// 28 Aug on a letter sent on the 29th
+// Scoped to the SEND row, not the whole block. Searching the block passed
+// even with the send reverted to the UTC slice, because the unbill beside it
+// still resolved through dayOf and satisfied the match on its own.
+const rowOf = tag => ('<div class="sl' + block.split('<div class="sl')
+  .slice(1).find(r => r.includes('>' + tag + '<')));
+ok('the #3 row was found', /#3/.test(rowOf('#3')), rowOf('#3'));
+ok('a late-evening UTC send reads as the next Manila day',
+   /29 Aug 2026/.test(rowOf('#3')), rowOf('#3'));
+ok('and a daytime send is not shifted',
+   /27 Aug 2026/.test(rowOf('#1')), rowOf('#1'));
+ok('no timestamp is date-sliced in historyLines',
+   !/\.at\|\|''\)\.slice\(0,10\)/.test(html), 'slice(0,10) on an instant');
+ok('and the unbill beside it agrees', app.dayOf('2026-08-28T22:00:00Z') === '2026-08-29',
+   app.dayOf('2026-08-28T22:00:00Z'));
+ok('a daytime one is unmoved', app.dayOf('2026-08-27T02:00:00Z') === '2026-08-27',
+   app.dayOf('2026-08-27T02:00:00Z'));
+ok('the raw UTC slice is not used anywhere in the block',
+   !/sent_at\|\|''\)\.slice\(0,10\)/.test(html), 'slice(0,10) on a timestamp');
 
-console.log('\n--- I3. it only renders inside the expanded card ---');
-const cardSrc = html.slice(html.indexOf('${open?`<div class="glines">'),
-                           html.indexOf('${open?`<div class="glines">') + 200);
-ok('the block is gated on the same open flag as the lines',
-   /\$\{open\?sendLogLines\(g\)/.test(cardSrc), cardSrc);
+console.log('\n--- I5. empty, and degraded ---');
+app.histMap = {};
+ok('nothing fetched, nothing rendered', app.historyLines({ id:'g-h' }) === '');
+app.histMap = { 'g-none': [] };
+ok('an empty history is the same as none', app.historyLines({ id:'g-none' }) === '');
+
+// until the read policy is run the unbill table refuses; the sends must still show
+net.script.push({ match:'drawing_billing_send_log',   method:'GET', status:200, body:SENDS });
+net.script.push({ match:'drawing_billing_unbill_log', method:'GET', status:403, body:{} });
+const degraded = await app.historyFor('g-h');
+ok('a refused unbill query still leaves the sends',
+   degraded.length === 3 && degraded.every(e => e.kind === 'send'),
+   JSON.stringify(degraded.map(e => e.kind)));
+
+net.mode = 'offline';
+ok('offline is an empty history, not a throw', (await app.historyFor('g-h')).length === 0);
+net.mode = 'online';
+
+console.log('\n--- I6. the badge map stays cheap ---');
+ok('refreshSendMap no longer hoards every row', !/\.all\.push\(row\)/.test(html),
+   'refreshSendMap must keep one row per billing');
+ok('and the history is fetched per billing instead',
+   /historyFor\(xg\)\.then/.test(html), 'expand must fetch');
+
+
 
 
 
