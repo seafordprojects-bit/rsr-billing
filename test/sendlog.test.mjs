@@ -409,11 +409,30 @@ v = app.letterVars(f3, 'BILLDWG-26-003', Object.assign({}, prior, { change_kind:
 ok('an added line reads as an increase', /increased by/.test(v.change_note), v.change_note);
 ok('and the new line is named', /Capacity Plan/.test(v.change_note), v.change_note);
 
+// Deliberate: a re-send where nothing moved says nothing at all. A note
+// announcing a correction that is not there reads worse than no note, and a
+// billing is often re-sent only because the client mislaid the first copy.
 const f4 = { ...f2, grand:20000, list:prior.lines };
 v = app.letterVars(f4, 'BILLDWG-26-003', prior);
-ok('an identical re-send says the total is unchanged',
-   /total is unchanged/.test(v.change_note), v.change_note);
-ok('and names nothing', !/Amended/.test(v.change_note), v.change_note);
+ok('a re-send with nothing changed says nothing', v.change_note === '', v.change_note);
+
+// but a total that HELD while lines moved is a different case, and does speak
+const f5 = { ...f2, grand:20000,
+  list:[{ id:'r1', drawing_title:'Shell Expansion Plan', qty:2, rate:1500 },
+        { id:'r9', drawing_title:'Rudder Detail Plan',   qty:1, rate:9999 }] };
+v = app.letterVars(f5, 'BILLDWG-26-003', prior);
+ok('an unchanged total with an amended line still speaks',
+   /total amount is unchanged/.test(v.change_note), v.change_note);
+ok('and names the line', /Amended: Rudder Detail Plan/.test(v.change_note), v.change_note);
+// {revised_note} owns the supersession sentence. change_note carries only the
+// arithmetic, so a template using both does not say it twice -- and the app's
+// vocabulary stays "billing" rather than drifting to "statement".
+ok('change_note does not repeat the supersession sentence',
+   !/supersede|replaces the copy/i.test(v.change_note), v.change_note);
+ok('and revised_note still carries it, saying billing',
+   /replaces the copy sent on/.test(v.revised_note) &&
+   /billing/i.test(v.revised_note) && !/statement/i.test(v.revised_note),
+   v.revised_note);
 
 console.log('\n--- G2. the PDF marks the FIRST correction, not the second ---');
 const tx = pl => pl.ops.filter(o => o.t === 'text').map(o => o.s).join('\n');

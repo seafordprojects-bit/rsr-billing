@@ -4092,6 +4092,20 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 // honorific or gender anywhere in the data, so "Ashford Chua" is never turned
 // into "Mr. Chua" — that form is typed into Salutation, which exists because
 // Bill To needs the full name on the same record.
+// The three sentences {change_note} can open with, kept together so the copy
+// can be read and changed as a set rather than hunted for inside a ternary.
+// Client-facing text: these go to a shipping line, over the firm's name.
+// A fourth case resolves to nothing at all -- see letterVars.
+// Deliberately silent about supersession: {revised_note} already says a copy
+// is being replaced, and says it in the app's own vocabulary -- "billing", not
+// "statement". These three carry only the arithmetic, so a template using both
+// placeholders reads as one thought rather than saying it twice.
+const CHANGE_NOTE={
+  unchanged:()=>'The total amount is unchanged.',
+  decreased:amt=>'The total has decreased by '+amt+'.',
+  increased:amt=>'The total has increased by '+amt+
+                 '; we apologize for the earlier discrepancy.'
+};
 // What the client will see as different from the copy they already hold.
 // Computed here against the snapshot of what was SENT, not read off that row's
 // change_kind: that field says how the previous send differed from the one
@@ -4129,11 +4143,16 @@ function letterVars(f,no,prior){
   let change_note='';
   if(sent>=1&&prior){
     const c=changeSince(prior,f);
-    if(c){
-      const d=c.delta;
-      const head=d>0?'The total has increased by '+money(Math.abs(d))+'.'
-                :d<0?'The total has decreased by '+money(Math.abs(d))+'.'
-                :'The total is unchanged.';
+    // Nothing moved at all -- same total, no line touched -- resolves to
+    // nothing. A note announcing a correction that is not there reads worse
+    // than no note, and a billing is often re-sent only because the client
+    // mislaid the first copy. A total that held while lines moved is NOT this
+    // case: that is CHANGE_NOTE.unchanged, and it still has something to say.
+    if(c&&(c.delta!==0||c.titles.length)){
+      const d=c.delta,amt=money(Math.abs(d));
+      const head=d>0?CHANGE_NOTE.increased(amt)
+                :d<0?CHANGE_NOTE.decreased(amt)
+                :CHANGE_NOTE.unchanged();
       change_note=head+(c.titles.length?' Amended: '+c.titles.join(', ')+'.':'');
     }
   }
