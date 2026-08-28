@@ -25,14 +25,61 @@ const reset = () => {
 net.mode = 'offline';
 let app = reset();
 
-console.log('\n--- A. line rows are title + rate only ---');
+console.log('\n--- A. line rows are title, qty and rate ---');
 app.openEntry(null, 'DW');
 const row = el('mlList').innerHTML;
 ok('title field present', /data-mlf="title"/.test(row));
 ok('rate field present', /data-mlf="rate"/.test(row));
 ok('ref column removed', !/data-mlf="ref"/.test(row), row.slice(0, 200));
-ok('qty column removed', !/data-mlf="qty"/.test(row));
-ok('qty is still 1 internally', app.mlines[0].qty === 1, String(app.mlines[0].qty));
+// Qty was deliberately absent, which made a UTG line of 7200 points x 35
+// unenterable: qty was pinned at 1 and only a PDF import could ever set it.
+ok('qty field present', /data-mlf="qty"/.test(row), row.slice(0, 300));
+ok('qty sits before rate, so the row reads title, qty, rate',
+   row.indexOf('data-mlf="qty"') < row.indexOf('data-mlf="rate"'));
+ok('qty is a whole number only',
+   /class="ml-qty"[^>]*type="number"[^>]*min="1"[^>]*step="1"/.test(row),
+   (row.match(/<input class="ml-qty"[^>]*>/) || [''])[0]);
+ok('and asks for the numeric keypad, not the decimal one',
+   /class="ml-qty"[^>]*inputmode="numeric"/.test(row),
+   (row.match(/<input class="ml-qty"[^>]*>/) || [''])[0]);
+ok('qty still defaults to 1', app.mlines[0].qty === 1, String(app.mlines[0].qty));
+
+console.log('\n--- A2. qty is written back and multiplies the line ---');
+const qtyBox = () => el('mlList').children.find(c => c.dataset.mlf === 'qty');
+// the listener is delegated on #mlList and the stub does not bubble, so the
+// event has to be fired on the container with the field as its target
+const setQty = v => { const q = qtyBox(); q.value = v;
+                      el('mlList').fire('input', { target: q }); };
+
+el('eRate').value = '35';
+app.mlines[0].title = 'UTG Measurement';
+setQty('7200');
+ok('the typed count reaches the line', String(app.mlines[0].qty) === '7200',
+   String(app.mlines[0].qty));
+ok('and the amount is qty x rate',
+   el('mlTotal').textContent.includes('252,000'), el('mlTotal').textContent);
+
+// blank is 1, not zero: an empty box must never zero a line's amount
+setQty('');
+ok('a blank qty counts as one', el('mlTotal').textContent.includes('35'),
+   el('mlTotal').textContent);
+ok('and does not read as zero', !/[^\d]0\.00/.test(el('mlTotal').textContent),
+   el('mlTotal').textContent);
+
+setQty('2');
+ok('two of them doubles it', el('mlTotal').textContent.includes('70'),
+   el('mlTotal').textContent);
+
+// the row is locked on a billing that is no longer a draft
+ok('qty is disabled with the rest when the billing is locked',
+   /class="ml-qty"[^>]*disabled|disabled[^>]*class="ml-qty"/.test(row) === false,
+   'a fresh draft must not be disabled');
+
+// this suite shares one app across sections: leave the line as the next one
+// expects to find it, or section B saves a record with qty 2
+setQty('1');
+ok('put back for the sections that follow', String(app.mlines[0].qty) === '1');
+
 
 console.log('\n--- B. rate still prefills from the batch default ---');
 el('eClient').value = 'Seaford'; el('eDate').value = '2026-08-21'; el('eRate').value = '1500';

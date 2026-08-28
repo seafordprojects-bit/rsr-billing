@@ -406,6 +406,11 @@ header.top{
 .cmb{position:relative}
 .ml-row .cmb{flex:1;min-width:0}
 .ml-row .cmb input{width:100%;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-size:13px}
+/* Qty is narrower than Rate on purpose: a count is two or three digits and a
+   rate is five or six, and the title needs whatever is left. Three fields on
+   one row is tight on a phone -- the harness has no layout, so MANUAL-TEST is
+   the only check that the title box stays usable in portrait. */
+.ml-row .ml-qty{flex:0 0 68px;min-width:0;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-family:var(--mono);font-size:12px}
 .ml-row .ml-rate{flex:0 0 108px;min-width:0;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--paper);font-family:var(--mono);font-size:12px}
 .cmb-pop{
   position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:6;
@@ -2636,6 +2641,7 @@ function renderML(){
             <input data-mlf="title" data-mli="${i}" value="${esc(l.title||'')}" placeholder="Title — type to search the catalog" autocomplete="off"${multiLocked?' disabled':''}>
             <div class="cmb-pop" data-pop="${i}" hidden></div>
           </div>
+          <input class="ml-qty" data-mlf="qty" data-mli="${i}" value="${esc(l.qty)}" type="number" inputmode="numeric" min="1" step="1" placeholder="Qty"${multiLocked?' disabled':''}>
           <input class="ml-rate" data-mlf="rate" data-mli="${i}" value="${esc(l.rate)}" type="number" inputmode="decimal" min="0" step="0.01" placeholder="Rate"${multiLocked?' disabled':''}>
         </div>
       </div>
