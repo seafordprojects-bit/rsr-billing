@@ -131,10 +131,20 @@ ok('and loads the pdf library before it claims',
    ' issue@' + lSendSrc.indexOf('await issueBillNos()'));
 ok('and not before the letter is reviewed',
    !/\$\('sEmailBtn'\)\.onclick[\s\S]{0,1400}await issueBillNos\(\)/.test(html));
-ok('issueBillNos resolves the type per billing',
-   /async function issueBillNos\(\)[\s\S]{0,900}typeOf\(g\)/.test(html));
+// extracted, not a character window: the window broke on an added comment,
+// which says nothing about whether the gate is still right
+const issueSrc = (html.match(/async function issueBillNos\(\)\{[\s\S]*?\n\}/) || [''])[0];
+ok('the issueBillNos block was found', issueSrc.length > 0);
+ok('issueBillNos resolves the type per billing', /typeOf\(g\)/.test(issueSrc));
+// The gate reads every line, not g.bill_no, which comes from head alone -- a
+// billing whose head had a number and whose sibling did not read as issued and
+// never healed. Skipping still means never re-claiming: a partly numbered
+// billing is backfilled with the number it already has, never given a second.
+// Section Y asserts the behaviour; this pins the shape.
 ok('and never re-claims an issued one',
-   /if\(g\.bill_no\)continue;/.test(html));
+   /g\.lines\.every\(r=>r\.bill_no\)\)continue;/.test(issueSrc) &&
+   /await setGroupBillNo\(g,existing\);continue;/.test(issueSrc),
+   'gate must skip a fully numbered billing and backfill a partly numbered one');
 
 console.log('\n--- G2. a BILLED billing can be re-sent under its own number ---');
 // The send dialog was never gated on DRAFT -- stmtCandidates filters on PAID.
@@ -179,6 +189,70 @@ ok('cards carry a data-send action', /data-send=/.test(html));
 ok('BILLED says Re-send, DRAFT says Send',
    /'Re-send':'Send'/.test(html));
 ok('PAID gets neither', /status==='DRAFT'\|\|g\.status==='BILLED'/.test(html));
+
+console.log('\n--- Y. the issue gate looks at every line, not just the head ---');
+// issueBillNos skipped a group whose g.bill_no was set, and g.bill_no comes
+// from head alone. A group whose head carried the number while a sibling was
+// null read as issued and was never repaired: loc-mt88r2ibt80wtm sat with
+// line 0 numbered and line 1 NULL through every later print and send.
+const line = (id, gid, no, extra) => Object.assign({
+  id, group_id:gid, code:'RSR-DW-082026-007', bill_no:no,
+  client:'Seaford', vessel:'MV SF CRUISER', doc_type:'DW', bill_date:'2026-08-21',
+  drawing_title:'Line ' + id, qty:1, rate:10000, status:'DRAFT', billable:true,
+  line_no:Number(String(id).slice(-1)), created_at:'2026-08-21T05:00:0' + String(id).slice(-1) + 'Z',
+}, extra || {});
+
+const pickAll = () => {
+  app.openStmt();
+  el('sClient').value = 'Seaford';
+  el('sFrom').value = '2026-08-01'; el('sTo').value = '2026-08-31';
+  el('sType').value = '';
+  app.buildPick();
+  el('sPick').querySelectorAll('input').forEach(i => i.checked = true);
+};
+
+// 1. a half-numbered group backfills the number it already has
+app = reset();
+net.mode = 'offline';
+app.rows.push(line('p0', 'g-half', `BILLDWG-${YY}-002`));
+app.rows.push(line('p1', 'g-half', null));
+app.commitBillNo(`BILLDWG-${YY}-009`, 'DW');      // counter well ahead
+const beforeSeq = app.nextBillNo('DW');
+pickAll();
+let issued = await app.issueBillNos();
+ok('the existing number is reused, not reissued',
+   issued === `BILLDWG-${YY}-002`, String(issued));
+ok('every line now carries it',
+   app.rows.filter(r => r.group_id === 'g-half')
+           .every(r => r.bill_no === `BILLDWG-${YY}-002`),
+   JSON.stringify(app.rows.filter(r => r.group_id === 'g-half').map(r => r.bill_no)));
+ok('the counter did not move', app.nextBillNo('DW') === beforeSeq,
+   beforeSeq + ' -> ' + app.nextBillNo('DW'));
+
+// 2. a fully numbered group is still left completely alone
+app = reset();
+net.mode = 'offline';
+app.rows.push(line('q0', 'g-done', `BILLDWG-${YY}-003`));
+app.rows.push(line('q1', 'g-done', `BILLDWG-${YY}-003`));
+app.commitBillNo(`BILLDWG-${YY}-009`, 'DW');
+const seqDone = app.nextBillNo('DW');
+pickAll();
+issued = await app.issueBillNos();
+ok('an issued billing keeps its number', issued === `BILLDWG-${YY}-003`, String(issued));
+ok('and the counter still did not move', app.nextBillNo('DW') === seqDone,
+   seqDone + ' -> ' + app.nextBillNo('DW'));
+
+// 3. a group with no number at all still claims one, for every line
+app = reset();
+net.mode = 'offline';
+app.rows.push(line('r0', 'g-new', null));
+app.rows.push(line('r1', 'g-new', null));
+pickAll();
+issued = await app.issueBillNos();
+ok('an unissued billing claims a number', /^BILLDWG-/.test(String(issued)), String(issued));
+ok('and every line gets it',
+   app.rows.filter(r => r.group_id === 'g-new').every(r => r.bill_no === issued),
+   JSON.stringify(app.rows.filter(r => r.group_id === 'g-new').map(r => r.bill_no)));
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');

@@ -3789,7 +3789,15 @@ async function issueBillNos(){
     return typed;
   }
   for(const g of groups){
-    if(g.bill_no)continue;                 // already issued — never re-claim
+    // Every line, not the group. g.bill_no comes from head alone, so a billing
+    // whose head carried a number while a sibling was null read as issued and
+    // was skipped by every later print and send -- the null never healed.
+    if(g.lines.every(r=>r.bill_no))continue;   // already issued — never re-claim
+    // A number this billing already has is the number the client was given.
+    // Write it to the lines missing it; do NOT fall through to the claim
+    // below, which would mint a second number and change the document.
+    const existing=g.bill_no||(g.lines.find(r=>r.bill_no)||{}).bill_no;
+    if(existing){await setGroupBillNo(g,existing);continue;}
     const t=typeOf(g);
     let no;
     if(online()&&authed()){
