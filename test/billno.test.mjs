@@ -20,7 +20,10 @@ const reset = (cfg) => {
   if (cfg) globalThis.localStorage.setItem('rsr_dwg_cfg_v1', JSON.stringify(cfg));
   return globalThis.__loadApp();
 };
-const YY = String(new Date().getFullYear()).slice(2);
+// the Manila year, matching yy2() in the app: deriving it from the device
+// makes the suite disagree with the code on 31 Dec / 1 Jan across zones
+const YY = new Intl.DateTimeFormat('en-CA',
+  { timeZone:'Asia/Manila', year:'numeric' }).format(new Date()).slice(2);
 net.mode = 'offline';
 let app = reset();
 
@@ -253,6 +256,57 @@ ok('an unissued billing claims a number', /^BILLDWG-/.test(String(issued)), Stri
 ok('and every line gets it',
    app.rows.filter(r => r.group_id === 'g-new').every(r => r.bill_no === issued),
    JSON.stringify(app.rows.filter(r => r.group_id === 'g-new').map(r => r.bill_no)));
+console.log('\n--- Z. dates are Manila, not the device and not UTC ---');
+// toISOString() is UTC, and Manila is UTC+8, so for eight hours out of every
+// twenty-four today() returned yesterday. A letter sent 06:03 on 29 Aug 2026
+// carried 28 Aug, and so did the PDF, the printed copy, and every billed_date
+// written in that window.
+const mnl = (d, opts) => new Intl.DateTimeFormat('en-CA',
+  Object.assign({ timeZone:'Asia/Manila' }, opts)).format(d);
+const manilaToday = mnl(new Date(), { year:'numeric', month:'2-digit', day:'2-digit' });
+
+ok('today() is the Manila calendar date', app.today() === manilaToday,
+   app.today() + ' vs ' + manilaToday);
+ok('and is shaped YYYY-MM-DD, which every consumer expects',
+   /^\d{4}-\d{2}-\d{2}$/.test(app.today()), app.today());
+ok('yy2 is the Manila year', app.yy2() === manilaToday.slice(2, 4),
+   app.yy2() + ' vs ' + manilaToday.slice(2, 4));
+
+// the mechanism, not just today's answer: on a day when UTC and Manila agree
+// the comparison above passes either way, so pin the zone in the source
+ok('the zone is hard-coded, not taken from the device',
+   /timeZone:'Asia\/Manila'/.test(html), 'Asia/Manila must be named');
+const todaySrc = (html.match(/const today=\(\)=>[^\n]*/) || [''])[0];
+ok('today() does not go through UTC', !/toISOString/.test(todaySrc), todaySrc);
+
+console.log('\n--- Z2. addDays stays on the calendar ---');
+ok('a plain add', app.addDays('2026-08-21', 30) === '2026-09-20',
+   app.addDays('2026-08-21', 30));
+ok('across a month end', app.addDays('2026-08-31', 1) === '2026-09-01',
+   app.addDays('2026-08-31', 1));
+ok('across a year end', app.addDays('2026-12-31', 1) === '2027-01-01',
+   app.addDays('2026-12-31', 1));
+ok('a leap day', app.addDays('2028-02-28', 1) === '2028-02-29',
+   app.addDays('2028-02-28', 1));
+ok('zero days is the same day', app.addDays('2026-08-21', 0) === '2026-08-21');
+ok('no argument means today', app.addDays(null, 0) === app.today());
+
+console.log('\n--- Z3. the due date is Manila too ---');
+// it used to be Date.now() + terms days serialised through toISOString()
+ok('due is computed from the Manila date, not an instant',
+   !/due:new Date\(Date\.now\(\)/.test(html), 'due must not add ms to an instant');
+ok('and goes through addDays', /due:addDays\(today\(\),terms\)/.test(html));
+
+console.log('\n--- Z4. the send sheet opens on the Manila month ---');
+// it was local getMonth() serialised through UTC: on the 1st before 08:00 that
+// is the last day of the previous month
+ok('From is the first of the current Manila month',
+   /\$\('sFrom'\)\.value=today\(\)\.slice\(0,8\)\+'01'/.test(html),
+   'openStmt From');
+ok('and no longer mixes local with UTC',
+   !/new Date\(d\.getFullYear\(\),d\.getMonth\(\),1\)\.toISOString/.test(html));
+
+
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');

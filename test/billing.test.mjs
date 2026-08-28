@@ -19,7 +19,10 @@ KEYS.forEach(k => globalThis.localStorage.removeItem(k));
 
 net.mode = 'offline';
 const app = globalThis.__loadApp();
-const YY = String(new Date().getFullYear()).slice(2);
+// the Manila year, matching yy2() in the app: deriving it from the device
+// makes the suite disagree with the code on 31 Dec / 1 Jan across zones
+const YY = new Intl.DateTimeFormat('en-CA',
+  { timeZone:'Asia/Manila', year:'numeric' }).format(new Date()).slice(2);
 
 console.log('\n--- A. billing number ---');
 ok('BILLDWG-YY-NNN shape', app.nextBillNo() === `BILLDWG-${YY}-001`, app.nextBillNo());

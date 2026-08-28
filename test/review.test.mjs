@@ -16,7 +16,10 @@ const el = id => document.getElementById(id);
 const html = fs.readFileSync(SRC, 'utf8');
 const KEYS = ['rsr_dwg_cfg_v1','rsr_dwg_rows_v1','rsr_dwg_queue_v1','rsr_dwg_session_v1',
               'rsr_dwg_catalog_v1','rsr_dwg_clients_v1','rsr_dwg_shared_v1'];
-const YY = String(new Date().getFullYear()).slice(2);
+// the Manila year, matching yy2() in the app: deriving it from the device
+// makes the suite disagree with the code on 31 Dec / 1 Jan across zones
+const YY = new Intl.DateTimeFormat('en-CA',
+  { timeZone:'Asia/Manila', year:'numeric' }).format(new Date()).slice(2);
 const reset = (cfg) => {
   KEYS.forEach(k => globalThis.localStorage.removeItem(k));
   globalThis.localStorage.setItem('rsr_dwg_cfg_v1',

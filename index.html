@@ -1070,7 +1070,30 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'₱'+(Number(n)||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
 const moneyShort=n=>{n=Number(n)||0;return n>=1e6?'₱'+(n/1e6).toFixed(2)+'M':money(n).replace(/\.00$/,'');};
-const today=()=>new Date().toISOString().slice(0,10);
+// Every date this app writes or prints is a Manila calendar date, and the zone
+// is hard-coded rather than taken from the device. RSR bills Philippine clients
+// from the Philippines, so the business day is Asia/Manila whatever a laptop's
+// clock is set to or wherever somebody is travelling.
+//
+// toISOString() is UTC by definition, and Manila is UTC+8 -- so between 00:00
+// and 07:59 Manila, every day, it returned YESTERDAY. A letter sent at 06:03 on
+// 29 Aug 2026 carried 28 Aug, and so did the PDF, the printed copy, and any
+// billed_date written in that window. Eight hours out of every twenty-four.
+//
+// en-CA formats as YYYY-MM-DD, which is exactly what every consumer already
+// expects, so the call sites did not have to change.
+const MNL=new Intl.DateTimeFormat('en-CA',
+  {timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'});
+const today=()=>MNL.format(new Date());
+// N calendar days after a YYYY-MM-DD. Done on the calendar rather than by
+// adding milliseconds to an instant: once it is a bare date there is no zone
+// left to get wrong.
+function addDays(ymd,n){
+  const p=String(ymd||today()).slice(0,10).split('-');
+  const d=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));
+  d.setUTCDate(d.getUTCDate()+(Number(n)||0));
+  return d.toISOString().slice(0,10);
+}
 const uid=()=>'loc-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 function fmtDate(d){if(!d)return'';const p=String(d).slice(0,10).split('-');if(p.length!==3)return d;
   const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1187,7 +1210,8 @@ if(!Array.isArray(cfg.banks))cfg.banks=[];
 while(cfg.banks.length<2)cfg.banks.push({bank:'',name:'',acct:''});
 
 /* ---- billing numbers: BILLDWG-26-003, one run per type per year ---- */
-const yy2=()=>String(new Date().getFullYear()).slice(2);
+// the billing series is a Manila year too, not the device's
+const yy2=()=>today().slice(2,4);
 if(!cfg.billSeries||typeof cfg.billSeries!=='object')cfg.billSeries={};
 // a single shared series predates per-type numbering; it belonged to drawings
 if(cfg.billYear&&Number(cfg.billSeq)&&!cfg.billSeries[DEF_TYPE]){
@@ -3740,8 +3764,9 @@ function openStmt(){
   const clients=uniq(rows.map(r=>r.client));
   $('sClient').innerHTML=clients.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('');
   if(filters.client)$('sClient').value=filters.client;
-  const d=new Date();
-  $('sFrom').value=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10);
+  // was local month serialised through UTC, so on the 1st before 08:00 it
+  // opened on the last day of the previous month
+  $('sFrom').value=today().slice(0,8)+'01';
   $('sTo').value=today();
   sNoAuto='';sNoMode='auto';
   // each billing opens on the configured default and stays editable from there
@@ -4536,7 +4561,7 @@ function stmtFacts(picked){
   return {groups:groups,list:list,vessels:vessels,
     oneVessel:vessels.length===1?vessels[0]:'',
     sub:sub,vat:vat,adj:adj,grand:sub+adj,terms:terms,
-    due:new Date(Date.now()+terms*864e5).toISOString().slice(0,10),
+    due:addDays(today(),terms),
     client:$('sClient').value,rec:clientRec($('sClient').value),
     // The period covered is the billings themselves, not the window that was
     // browsed to find them. The sheet's date filter is a selection mechanism:
