@@ -371,6 +371,53 @@ ok('the send log was never touched', netState.rpcCalls.length === 0,
    String(netState.rpcCalls.length));
 netState.resendOk = true; netState.resendStatus = 200;
 
+console.log('\n--- O6. the client total is passed as a cross-check ---');
+netState.rpcCalls = []; netState.rpcOk = true;
+netState.rpcBody = { ok:true, send_no:1, change_kind:'first', total_delta:null,
+                     total:20000, client_total:20000, total_mismatch:false };
+r = await call({ ...good, gids:['g-1'], gid_totals:{ 'g-1': 20000 } });
+out = await r.json();
+ok('the client total reaches the RPC',
+   (netState.rpcCalls[0]||{}).p_client_total === 20000,
+   JSON.stringify(netState.rpcCalls[0]));
+ok('no mismatch is reported when they agree', out.total_mismatch === false,
+   JSON.stringify(out));
+
+console.log('\n--- O7. a mismatch is surfaced, and the send still stands ---');
+netState.rpcCalls = [];
+netState.rpcBody = { ok:true, send_no:3, change_kind:'unchanged', total_delta:0,
+                     total:20000, client_total:30000, total_mismatch:true };
+r = await call({ ...good, gids:['g-1'], gid_totals:{ 'g-1': 30000 } });
+out = await r.json();
+ok('the send still succeeded', out.ok === true, JSON.stringify(out));
+ok('the mismatch is reported', out.total_mismatch === true, JSON.stringify(out));
+ok('and it was still logged', out.logged === true);
+
+console.log('\n--- O8. a missing or junk total is null, never a guess ---');
+netState.rpcCalls = [];
+netState.rpcBody = { ok:true, send_no:1, change_kind:'first', total:20000,
+                     client_total:null, total_mismatch:false };
+r = await call({ ...good, gids:['g-1'] });
+ok('no gid_totals means null', (netState.rpcCalls[0]||{}).p_client_total === null,
+   JSON.stringify(netState.rpcCalls[0]));
+netState.rpcCalls = [];
+r = await call({ ...good, gids:['g-1'], gid_totals:{ 'g-1': 'not-a-number' } });
+ok('an unparseable total is null, not NaN',
+   (netState.rpcCalls[0]||{}).p_client_total === null,
+   JSON.stringify(netState.rpcCalls[0]));
+netState.rpcCalls = [];
+r = await call({ ...good, gids:['g-1','g-2'], gid_totals:{ 'g-2': 5000 } });
+ok('each billing gets its own total, or null',
+   (netState.rpcCalls[0]||{}).p_client_total === null &&
+   (netState.rpcCalls[1]||{}).p_client_total === 5000,
+   JSON.stringify(netState.rpcCalls.map(c => c.p_client_total)));
+
+// the property the whole design rests on
+ok('the client total is never used as the snapshot',
+   netState.rpcCalls.every(c => !('p_lines' in c) && !('p_total' in c)),
+   JSON.stringify(Object.keys(netState.rpcCalls[0] || {})));
+netState.rpcBody = { ok:true, send_no:2, change_kind:'decreased', total_delta:-500 };
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

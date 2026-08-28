@@ -184,6 +184,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
     ? (body.gids as unknown[]).map((g) => cleanHeader(g, 80)).filter(Boolean)
     : [];
 
+  // What the sending device believed each billing totals, keyed by gid. This
+  // is a CROSS-CHECK and nothing else: record_billing_send still builds its
+  // snapshot from drawing_billing, and never from anything here. A device can
+  // hold a line the server has never seen -- that is exactly what happened on
+  // 2026-08-28 -- and the only way that shows up is by recording both numbers
+  // and comparing them.
+  const gidTotals: Record<string, number> = {};
+  if (body.gid_totals && typeof body.gid_totals === "object") {
+    for (const [k, v] of Object.entries(body.gid_totals as Record<string, unknown>)) {
+      const n = Number(v);
+      if (Number.isFinite(n)) gidTotals[cleanHeader(k, 80)] = n;
+    }
+  }
+
   // The CC is optional, but a malformed one must not be dropped in silence --
   // the sender would believe a second party was copied when nobody was. Absent
   // and blank are fine; present-and-unparseable is a refusal.
@@ -308,6 +322,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // ===========================================================================
   let logged = gids.length > 0;
   let sendNo: number | null = null;
+  let mismatch = false;
   for (const gid of gids) {
     try {
       const rec = await fetch(`${SUPABASE_URL}/rest/v1/rpc/record_billing_send`, {
@@ -322,6 +337,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           p_sent_by_email: senderEmail,
           p_provider_id: (parsed?.id as string) ?? null,
           p_letter_text: html,
+          p_client_total: gid in gidTotals ? gidTotals[gid] : null,
         }),
       });
       const txt = await rec.text();
@@ -330,8 +346,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (!rec.ok || out?.ok !== true) {
         logged = false;
         console.error("send log refused", gid, rec.status, out?.reason ?? txt);
-      } else if (sendNo === null) {
-        sendNo = out.send_no as number;
+      } else {
+        if (sendNo === null) sendNo = out.send_no as number;
+        if (out.total_mismatch === true) {
+          mismatch = true;
+          console.error("send total mismatch", gid,
+            "client", out.client_total, "server", out.total);
+        }
       }
     } catch (e) {
       logged = false;
@@ -344,5 +365,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
     ` by ${senderEmail}${logged ? ` (send #${sendNo})` : " (not logged)"}`,
   );
   return json({ ok: true, id: parsed?.id ?? null, to,
-                statement_no: statementNo || null, logged, send_no: sendNo });
+                statement_no: statementNo || null, logged, send_no: sendNo,
+                total_mismatch: mismatch });
 });

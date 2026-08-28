@@ -31,7 +31,7 @@ ok('the RPC snapshots from the table, not from the caller',
 ok('no-charge lines contribute zero, matching amountOf',
    /case when b\.billable is false then 0/.test(html));
 ok('the RPC is in the revoke list',
-   /'public\.record_billing_send\(text,text,text,text\[\],uuid,text,text,text\)'/.test(html));
+   /'public\.record_billing_send\(text,text,text,text\[\],uuid,text,text,text,numeric\)'/.test(html));
 ok('so is the diff helper',
    /'public\.billing_line_diff\(jsonb,jsonb\)'/.test(html));
 // Revoking the named role alone is not enough: create function grants EXECUTE
@@ -142,6 +142,47 @@ ok('the tracking code still never reaches the client copy',
 ok('a later revised date follows the facts',
    /29 Aug 2026/.test(textOf(app.pdfPlan({ ...f0, sendNo:3, revisedAt:'2026-08-29' },
                                          'BILLDWG-26-003'))));
+
+console.log('\n--- D. the client total is a cross-check, never the source ---');
+ok('the column is added idempotently',
+   /alter table drawing_billing_send_log\s+add column if not exists client_total/.test(html));
+ok('so is the mismatch flag',
+   /alter table drawing_billing_send_log\s+add column if not exists total_mismatch/.test(html));
+ok('the RPC takes the client total', /p_client_total\s+numeric/.test(html));
+// adding a parameter creates an OVERLOAD; PostgREST then sees two candidates
+// and cannot choose. The old signature has to go or every send 300s.
+ok('the old signature is dropped before the new one is created',
+   /drop function if exists public\.record_billing_send\(text,text,text,text\[\],uuid,text,text,text\);/.test(html));
+ok('the drop comes before the create',
+   html.indexOf('drop function if exists public.record_billing_send(text,text,text,text[],uuid,text,text,text);')
+   < html.indexOf('create or replace function public.record_billing_send'));
+ok('the revoke list names the new signature',
+   /'public\.record_billing_send\(text,text,text,text\[\],uuid,text,text,text,numeric\)'/.test(html));
+ok('and no longer the old one',
+   !/'public\.record_billing_send\(text,text,text,text\[\],uuid,text,text,text\)'/.test(html));
+
+// the whole point: the client's number is recorded and compared, never used
+ok('the snapshot still comes from the table',
+   /from public\.drawing_billing b/.test(html));
+ok('the client total never feeds the snapshot or the diff',
+   !/v_lines\s*:=\s*p_client_total/.test(html) &&
+   !/billing_line_diff\(p_client_total/.test(html));
+ok('a mismatch is computed against the server total',
+   /p_client_total is not null and round\(p_client_total,\s*2\) <> v_total/.test(html));
+ok('the RPC returns the flag', /'total_mismatch',\s*v_mismatch/.test(html));
+
+console.log('\n--- E. lSend re-checks the queue, not just the review step ---');
+const lSendBlock = (html.match(/\$\('lSend'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/) || [''])[0];
+ok('the lSend block was found', lSendBlock.length > 0);
+ok('lSend refuses to send with anything queued',
+   /queue\.length/.test(lSendBlock), lSendBlock.slice(0, 200));
+ok('it refuses before the number is claimed',
+   lSendBlock.indexOf('queue.length') < lSendBlock.indexOf('issueBillNos'),
+   'queue check must precede issueBillNos');
+ok('the payload carries a total per billing',
+   /gid_totals:/.test(lSendBlock), 'gid_totals');
+ok('a mismatch is surfaced to the sender',
+   /total_mismatch/.test(lSendBlock), 'total_mismatch toast');
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');

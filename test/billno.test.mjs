@@ -117,10 +117,18 @@ ok('print path issues through issueBillNos',
 // backing out of the review must not burn a number
 // the window is generous because lSend loads the PDF library before claiming,
 // so the CDN cannot cost a number -- see the same order in $('sPdf')
+// Ordering, asserted by position inside lSend rather than by a character
+// window. The window version broke the moment a comment was added above the
+// claim -- which says nothing about whether the order is still right.
+const lSendSrc = (html.match(/\$\('lSend'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/) || [''])[0];
+ok('the lSend block was found', lSendSrc.length > 0);
 ok('email path issues through issueBillNos',
-   /\$\('lSend'\)\.onclick[\s\S]{0,700}await issueBillNos\(\)/.test(html));
+   lSendSrc.indexOf('await issueBillNos()') > -1, 'no claim in lSend');
 ok('and loads the pdf library before it claims',
-   /\$\('lSend'\)\.onclick[\s\S]{0,600}await loadJsPdf\(\)[\s\S]{0,200}await issueBillNos\(\)/.test(html));
+   lSendSrc.indexOf('await loadJsPdf()') > -1 &&
+   lSendSrc.indexOf('await loadJsPdf()') < lSendSrc.indexOf('await issueBillNos()'),
+   'loadJsPdf@' + lSendSrc.indexOf('await loadJsPdf()') +
+   ' issue@' + lSendSrc.indexOf('await issueBillNos()'));
 ok('and not before the letter is reviewed',
    !/\$\('sEmailBtn'\)\.onclick[\s\S]{0,1400}await issueBillNos\(\)/.test(html));
 ok('issueBillNos resolves the type per billing',

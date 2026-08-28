@@ -171,8 +171,9 @@ const iPend = src.indexOf('pendingSend={');
 ok('setBillingEmail runs before the review opens',
    iSave > -1 && iPend > -1 && iSave < iPend,
    'save@' + iSave + ' pending@' + iPend);
-const snd = html.slice(html.indexOf("$('lSend').onclick"),
-                       html.indexOf("$('lSend').onclick") + 2400);   // room for the payload object
+// the whole handler, not a fixed slice of it: the payload object grows, and a
+// character budget silently stops covering what it was written to cover
+const snd = (html.match(/\$\('lSend'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/) || [''])[0];
 ok('and the send itself is gated on that having happened',
    /if\(!pendingSend\)\{[\s\S]{0,120}return;\}/.test(snd) &&
    snd.indexOf("fnPost('send-statement'") > -1, snd.slice(0, 160));

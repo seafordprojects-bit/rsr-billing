@@ -4072,6 +4072,15 @@ $('lSend').onclick=async()=>{
   const p=pendingSend,btn=$('lSend');
   const body=$('lBody').value;
   if(!body.trim()){toast('The letter is empty',true);$('lBody').focus();return;}
+  // Checked again here, not only at the review step. Between the two a line
+  // can be edited, and an unsynced line means the document is built from rows
+  // the server does not have -- which is how a billing went out for 30,000
+  // that the database could only total to 20,000 on 2026-08-28. Before the
+  // number is claimed, so backing out of this costs nothing.
+  if(queue.length){
+    toast('Sync the '+queue.length+' pending change(s) first — the billing would not match',true);
+    return;
+  }
   btn.disabled=true;btn.textContent='Sending…';
   try{
     // the CDN is the likeliest failure in this path, so it happens before a
@@ -4106,16 +4115,30 @@ $('lSend').onclick=async()=>{
       // history. The function builds the snapshot itself from these ids --
       // nothing about the lines is sent from here, deliberately.
       gids:(p.list||[]).map(g=>g&&g.id).filter(Boolean),
+      // What this device believes each billing totals. A cross-check only --
+      // the function still snapshots from drawing_billing and never from this.
+      // Per billing, not per email: the log row is per billing, and comparing
+      // a three-billing statement total against one billing would always
+      // disagree.
+      gid_totals:(p.list||[]).reduce((m,g)=>{
+        if(g&&g.id)m[g.id]=Number(g.total)||0;return m;},{}),
       attachment:attachment
     };
     // omitted entirely when blank, so the function never sees an empty cc
     if(p.cc)payload.cc=p.cc;
-    await fnPost('send-statement',payload);
+    const res=await fnPost('send-statement',payload);
     // only now, with the function's own confirmation in hand
     const n=markBilledNow(p.list);
     pendingSend=null;
     hide();
-    toast('Sent to '+p.to+(p.cc?' (cc '+p.cc+')':'')+(n?' — marked billed':''));
+    // The mail is already gone, so this can only report -- but a billing whose
+    // recorded total differs from the one the client is reading is worth
+    // saying out loud rather than leaving in a row nobody opens.
+    if(res&&res.total_mismatch){
+      toast('Sent, but the recorded total does not match what was emailed — check the billing',true);
+    }else{
+      toast('Sent to '+p.to+(p.cc?' (cc '+p.cc+')':'')+(n?' — marked billed':''));
+    }
   }catch(e){
     // the send failed, so nothing is marked and the letter is kept for
     // another try
@@ -4834,6 +4857,18 @@ create table if not exists drawing_billing_send_log (
   constraint drawing_billing_send_log_gid_no unique (gid, send_no)
 );
 
+-- What the device believed the total was, recorded beside what the database
+-- says it is. Purely a cross-check: it never feeds the snapshot or the diff.
+-- A billing went out for 30,000 on 2026-08-28 that the database could only
+-- total to 20,000, because the third line existed on one device and had never
+-- been queued for insert. Nothing noticed, and nothing could have -- the
+-- document is built from local rows and the record from server rows, and until
+-- now the two were never compared.
+alter table drawing_billing_send_log
+  add column if not exists client_total numeric(14,2);
+alter table drawing_billing_send_log
+  add column if not exists total_mismatch boolean not null default false;
+
 create index if not exists drawing_billing_send_log_gid_idx
   on drawing_billing_send_log (gid, send_no desc);
 
@@ -4887,6 +4922,11 @@ $BODY$;
 -- Records one send. Claims send_no by compare-and-swap against the unique
 -- constraint: a second device racing this insert loses and retries against
 -- the fresh maximum, exactly as the billing-number claim does.
+-- A new parameter makes an OVERLOAD, not a replacement: create or replace
+-- matches on the argument list, so the eight-argument version would survive
+-- beside the nine, PostgREST would see two candidates for one call and refuse
+-- to choose. Drop it first, every time, or sending breaks with a 300.
+drop function if exists public.record_billing_send(text,text,text,text[],uuid,text,text,text);
 create or replace function public.record_billing_send(
   p_gid           text,
   p_bill_no       text,
@@ -4895,7 +4935,9 @@ create or replace function public.record_billing_send(
   p_sent_by_uid   uuid   default null,
   p_sent_by_email text   default null,
   p_provider_id   text   default null,
-  p_letter_text   text   default null
+  p_letter_text   text   default null,
+  -- what the device thought the total was. Recorded and compared; never used.
+  p_client_total  numeric default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -4909,8 +4951,9 @@ declare
   v_no      int;
   v_kind    text;
   v_delta   numeric(14,2);
-  v_changed jsonb;
-  v_try     int := 0;
+  v_changed  jsonb;
+  v_try      int := 0;
+  v_mismatch boolean := false;
 begin
   if p_gid is null or btrim(p_gid) = '' then
     return jsonb_build_object('ok', false, 'reason', 'No billing given');
@@ -4932,6 +4975,11 @@ begin
   if v_count = 0 then
     return jsonb_build_object('ok', false, 'reason', 'That billing has no lines');
   end if;
+
+  -- The cross-check, and the only thing p_client_total is ever used for. The
+  -- send is already gone by the time this runs, so this cannot prevent a bad
+  -- one -- it makes it impossible for a bad one to go unrecorded.
+  v_mismatch := p_client_total is not null and round(p_client_total, 2) <> v_total;
 
   select * into v_prev
     from public.drawing_billing_send_log
@@ -4958,11 +5006,12 @@ begin
       insert into public.drawing_billing_send_log
         (gid, bill_no, send_no, sent_by_uid, sent_by_email, to_email, cc_emails,
          provider_id, total, line_count, lines, prev_send_no, change_kind,
-         total_delta, changed_lines, letter_text)
+         total_delta, changed_lines, letter_text, client_total, total_mismatch)
       values
         (btrim(p_gid), p_bill_no, v_no, p_sent_by_uid, btrim(p_sent_by_email),
          p_to, coalesce(p_cc, '{}'), p_provider_id, v_total, v_count, v_lines,
-         v_prev.send_no, v_kind, v_delta, v_changed, p_letter_text);
+         v_prev.send_no, v_kind, v_delta, v_changed, p_letter_text,
+         round(p_client_total, 2), v_mismatch);
       exit;
     exception when unique_violation then
       if v_try >= 5 then
@@ -4972,7 +5021,9 @@ begin
   end loop;
 
   return jsonb_build_object('ok', true, 'send_no', v_no, 'change_kind', v_kind,
-                            'total_delta', v_delta, 'total', v_total);
+                            'total_delta', v_delta, 'total', v_total,
+                            'client_total', round(p_client_total, 2),
+                            'total_mismatch', v_mismatch);
 end
 $BODY$;
 
@@ -4998,7 +5049,7 @@ begin
     'public.add_unbill_operator(text,text,text)',
     'public.resolve_unbill_operator(text)',
     'public.set_unbill_passcode(text,text)',
-    'public.record_billing_send(text,text,text,text[],uuid,text,text,text)',
+    'public.record_billing_send(text,text,text,text[],uuid,text,text,text,numeric)',
     'public.billing_line_diff(jsonb,jsonb)'
   ] loop
     if to_regprocedure(f) is not null then
