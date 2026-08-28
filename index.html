@@ -1382,6 +1382,7 @@ async function refreshSendMap(){
   try{
     const r=await sb('drawing_billing_send_log'+
       '?select=gid,bill_no,send_no,sent_at,sent_by_email,total_mismatch'+
+      ',cc_emails,total,change_kind'+
       '&order=send_no.desc');
     const m={};
     (r||[]).forEach(row=>{
@@ -4344,9 +4345,19 @@ $('lSend').onclick=async()=>{
         const bad=(prev.bad||[]).slice();
         if(res.total_mismatch&&bad.indexOf(Number(res.send_no))<0)bad.push(Number(res.send_no));
         bad.sort((a,b)=>a-b);
+        // Same keys refreshSendMap produces, so the two writers of this cache
+        // cannot drift apart. total and change_kind are null rather than this
+        // device's own figures: the RPC computes both server side and
+        // send-statement forwards neither, and putting a local belief under a
+        // name that means server truth is the confusion the cross-check exists
+        // to catch. The next pull fills them.
         sendMap[g.id]={gid:g.id,bill_no:issued,send_no:res.send_no,
           sent_at:new Date().toISOString(),
-          sent_by_email:(session.user&&session.user.email)||'',bad:bad};
+          sent_by_email:(session.user&&session.user.email)||'',
+          cc_emails:p.cc?[p.cc]:[],
+          total:null,change_kind:null,
+          total_mismatch:!!(res&&res.total_mismatch),
+          bad:bad};
       });
       // Repaint here, not by borrowing markBilledNow's. On a re-send the
       // billing is already BILLED, so markBilledNow short-circuits and returns
