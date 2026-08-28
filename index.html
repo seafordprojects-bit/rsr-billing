@@ -1103,6 +1103,10 @@ const LETTER_DEFAULT=
   'Please find our billing {billno} for {vessel} covering {period}, amounting to '+
   '{total}. The full billing and payment details are in the attached PDF. We would appreciate settlement '+
   'within the agreed terms.\n\n'+
+  // Both resolve to nothing on a first send, and fillLetter clears the blank
+  // line that leaves -- so the default letter is unchanged for a first send and
+  // gains one paragraph on a correction.
+  '{revised_note} {change_note}\n\n'+
   'Respectfully yours,\n\n'+
   'Raffy J. Ramirez\n'+
   'Naval Architect & Marine Engineer\n'+
@@ -4177,8 +4181,17 @@ function fillLetter(tpl,vars){
   // old class could never match them -- they would have been left standing
   // verbatim in the letter, looking exactly like a typo. Unknown tokens are
   // still left alone, because the whitelist below is what decides.
-  return String(tpl==null?'':tpl).replace(/\{([a-z_]+)\}/g,
+  const out=String(tpl==null?'':tpl).replace(/\{([a-z_]+)\}/g,
     (m,k)=>LETTER_KEYS.indexOf(k)<0?m:String(vars[k]==null?'':vars[k]));
+  // A placeholder that resolved to nothing must not leave a hole behind.
+  // letterHtml splits paragraphs on blank lines, so a line left holding only
+  // the space between two empty placeholders becomes an empty <p> in the
+  // client's copy -- and the line "{revised_note} {change_note}" is exactly
+  // that on every first send. Trim each line, then collapse the runs of blank
+  // lines that leaves. Indentation is not preserved either way: the letter is
+  // rendered into <p> elements, where HTML collapses it.
+  return out.split('\n').map(l=>l.trim()).join('\n')
+            .replace(/\n{3,}/g,'\n\n').replace(/^\n+|\n+$/g,'');
 }
 // A billing that does not address anyone is a defect, but on 2026-08-23 one
 // composed that way and could not be reproduced. The cause is still unknown,

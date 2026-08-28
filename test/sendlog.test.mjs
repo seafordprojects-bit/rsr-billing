@@ -449,6 +449,53 @@ ok('lSend keeps the history it already had',
    /\(prev\.bad\|\|\[\]\)/.test(html), 'lSend must carry prev.bad forward');
 ok('and records a new mismatch',
    /res\.total_mismatch/.test(html) && /bad\.push\(/.test(html), 'lSend mismatch capture');
+console.log('\n--- H. the default letter carries the notes without a hole ---');
+const V = (rn, cn) => ({ contact:'Sir/Madam', billno:'BILLDWG-26-003',
+  vessel:'MV SF CRUISER', period:'01 Aug 2026 — 31 Aug 2026',
+  total:'PHP 20,000.00', due:'27 Sep 2026', send_no:'1',
+  revised_note:rn, change_note:cn });
+const REV = 'This billing replaces the copy sent on 28 Aug 2026. The billing number is unchanged.';
+const CHG = 'The total has decreased by PHP 1,000.00. Amended: Rudder Detail Plan.';
+const blanks = h => (h.match(/<p>\s*<\/p>/g) || []).length;
+const paras  = h => (h.match(/<p>/g) || []).length;
+
+ok('the default template carries both placeholders',
+   app.LETTER_DEFAULT.includes('{revised_note}') &&
+   app.LETTER_DEFAULT.includes('{change_note}'), app.LETTER_DEFAULT);
+ok('they sit after the billing paragraph and before the closing',
+   app.LETTER_DEFAULT.indexOf('{total}') < app.LETTER_DEFAULT.indexOf('{revised_note}') &&
+   app.LETTER_DEFAULT.indexOf('{change_note}') < app.LETTER_DEFAULT.indexOf('Respectfully yours,'));
+
+// a first send: both resolve to nothing and must leave no trace
+const first = app.fillLetter(app.LETTER_DEFAULT, V('', ''));
+ok('a first send leaves no blank line', !/\n{3,}/.test(first), JSON.stringify(first.slice(-160)));
+ok('and no line of only whitespace',
+   first.split('\n').every(l => l === '' || l.trim() !== ''), JSON.stringify(first));
+ok('and no empty paragraph in the email', blanks(app.letterHtml(first)) === 0,
+   app.letterHtml(first));
+ok('the closing still follows the billing paragraph directly',
+   /agreed terms\.\n\nRespectfully yours,/.test(first), JSON.stringify(first.slice(-160)));
+
+// a correction: one extra paragraph, no hole
+const corr = app.fillLetter(app.LETTER_DEFAULT, V(REV, CHG));
+ok('a correction adds exactly one paragraph',
+   paras(app.letterHtml(corr)) === paras(app.letterHtml(first)) + 1,
+   paras(app.letterHtml(first)) + ' -> ' + paras(app.letterHtml(corr)));
+ok('both notes land in the same paragraph',
+   new RegExp('<p>' + 'This billing replaces').test(app.letterHtml(corr)) &&
+   /decreased by PHP 1,000\.00/.test(app.letterHtml(corr)),
+   app.letterHtml(corr));
+ok('and it still has no empty paragraph', blanks(app.letterHtml(corr)) === 0);
+
+// only one of the two filled -- the leading or trailing space must not survive
+const revOnly = app.fillLetter(app.LETTER_DEFAULT, V(REV, ''));
+const chgOnly = app.fillLetter(app.LETTER_DEFAULT, V('', CHG));
+ok('a revised note alone has no trailing space',
+   !/unchanged\. \n/.test(revOnly), JSON.stringify(revOnly.slice(-200)));
+ok('a change note alone has no leading space',
+   !/\n The total/.test(chgOnly), JSON.stringify(chgOnly.slice(-200)));
+
+
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
