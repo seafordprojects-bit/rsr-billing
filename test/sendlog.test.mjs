@@ -184,6 +184,72 @@ ok('the payload carries a total per billing',
 ok('a mismatch is surfaced to the sender',
    /total_mismatch/.test(lSendBlock), 'total_mismatch toast');
 
+console.log('\n--- F. Monitoring says who sent it, and how many times ---');
+const listHtml = () => document.getElementById('list').innerHTML;
+const gidOf = () => app.allGroups()[0].id;
+
+// render() is synchronous and re-runs on every keystroke in the filter box, so
+// the badge reads a cache. refreshSendMap fills it; render only reads it.
+app.sendMap = {};
+app.render();
+ok('a never-sent billing gets no badge', !/class="sent"/.test(listHtml()));
+
+app.sendMap = { [gidOf()]: { send_no:1, sent_by_email:'raffy@rsr.test',
+                             sent_at:'2026-08-28T09:00:00Z' } };
+app.render();
+ok('a first send is badged', /class="sent"/.test(listHtml()), listHtml().slice(0, 300));
+ok('it names the sender, local part only',
+   /Sent · raffy/.test(listHtml()) && !/rsr\.test</.test(listHtml()),
+   (listHtml().match(/<span class="sent"[^>]*>[^<]*/) || [''])[0]);
+ok('a first send carries no count, mirroring the PDF',
+   !/Sent ×/.test(listHtml()), listHtml().slice(0, 300));
+ok('the full address is still available on hover',
+   /title="raffy@rsr\.test"/.test(listHtml()));
+
+app.sendMap = { [gidOf()]: { send_no:3, sent_by_email:'raffy@rsr.test',
+                             sent_at:'2026-08-28T09:00:00Z' } };
+app.render();
+ok('a re-send shows the count', /Sent ×3 · raffy/.test(listHtml()),
+   (listHtml().match(/<span class="sent"[^>]*>[^<]*/) || [''])[0]);
+
+ok('the badge sits in row-meta, not the row head',
+   /class="row-meta"[\s\S]{0,400}class="sent"/.test(listHtml()) &&
+   !/class="row-head"[\s\S]{0,300}class="sent"/.test(listHtml()));
+
+console.log('\n--- F2. refreshSendMap keeps the newest row per billing ---');
+net.mode = 'online';
+net.script.push({ match:'drawing_billing_send_log', method:'GET', status:200, body:[
+  { gid:'g-1', send_no:3, sent_by_email:'raffy@rsr.test', sent_at:'2026-08-28T09:00:00Z' },
+  { gid:'g-1', send_no:2, sent_by_email:'someone@rsr.test', sent_at:'2026-08-27T09:00:00Z' },
+  { gid:'g-1', send_no:1, sent_by_email:'someone@rsr.test', sent_at:'2026-08-26T09:00:00Z' },
+  { gid:'g-2', send_no:1, sent_by_email:'raffy@rsr.test', sent_at:'2026-08-26T09:00:00Z' },
+]});
+await app.refreshSendMap();
+ok('one entry per billing', Object.keys(app.sendMap).length === 2,
+   JSON.stringify(Object.keys(app.sendMap)));
+ok('and it is the newest send', app.sendMap['g-1'].send_no === 3,
+   JSON.stringify(app.sendMap['g-1']));
+ok('the other billing is kept too', app.sendMap['g-2'].send_no === 1);
+ok('it asks the server newest first',
+   net.calls.some(c => /order=send_no\.desc/.test(c.url)),
+   JSON.stringify(net.calls.slice(-1).map(c => c.url)));
+
+net.mode = 'offline';
+app.sendMap = { keep:'me' };
+await app.refreshSendMap();
+ok('offline leaves the cache alone and does not throw',
+   app.sendMap.keep === 'me', JSON.stringify(app.sendMap));
+net.mode = 'online';
+
+console.log('\n--- F3. render stays synchronous ---');
+// an accidental `async function render` would resolve to a promise everywhere
+// it is called and break nothing loudly -- every caller ignores the return
+const renderSrc = (html.match(/\nfunction render\(\)\{[\s\S]*?\n\}/) || [''])[0];
+ok('the render block was found', renderSrc.length > 0);
+ok('render is not async', !/^\s*async function render/m.test(html));
+ok('and awaits nothing', !/\bawait\b/.test(renderSrc),
+   (renderSrc.match(/.*\bawait\b.*/) || [''])[0]);
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

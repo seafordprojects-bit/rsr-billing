@@ -208,6 +208,7 @@ header.top{
 .row-meta{font-size:12px;color:var(--slate);display:flex;flex-wrap:wrap;gap:4px 10px}
 .row-meta b{font-weight:600;color:var(--ink2)}
 .row-meta .m{font-family:var(--mono);font-size:11.5px}
+.row-meta .sent{font-family:var(--mono);font-size:11.5px;color:var(--slate)}
 
 .gtoggle{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;font-size:12.5px;font-weight:600;color:var(--ink2);border:1px solid var(--line);border-radius:999px}
 .gtoggle:hover{background:var(--paper)}
@@ -1365,6 +1366,26 @@ const groupById=gid=>{
 // anything: this decorates the document and the letter, and a billing whose
 // history cannot be read must still be sendable. Offline, signed out, or a
 // server that will not answer all read the same as never sent.
+// gid -> the newest send of that billing. render() is synchronous and re-runs
+// on every keystroke in the filter box, so it cannot await a lookup; it reads
+// this, and refreshSendMap fills it after a sync or a send.
+let sendMap={};
+// One query for every billing rather than one per card. It reduces client
+// side because PostgREST has no distinct-on: the rows come back newest first
+// and the first one seen for a gid wins. That is sends x billings rows for
+// ever, which is nothing at five and worth a latest_send view long before it
+// is thousands.
+async function refreshSendMap(){
+  if(!online()||!authed())return sendMap;
+  try{
+    const r=await sb('drawing_billing_send_log'+
+      '?select=gid,bill_no,send_no,sent_at,sent_by_email&order=send_no.desc');
+    const m={};
+    (r||[]).forEach(row=>{if(row&&row.gid&&!m[row.gid])m[row.gid]=row;});
+    sendMap=m;
+  }catch(e){/* decoration only: a cache that cannot refresh keeps what it had */}
+  return sendMap;
+}
 async function sendLogFor(gid){
   if(!online()||!authed())return null;
   try{
@@ -1701,6 +1722,8 @@ async function pull(quiet){
     }catch(e){/* settings table not created yet — the cached copy still works */}
     persist();render();
     setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
+    // the badge is decoration, so it must not hold the sync open or fail it
+    refreshSendMap().then(render,()=>{});
     return true;
   }catch(err){
     setSync('err','Offline');
@@ -1842,6 +1865,16 @@ function render(){
     if(g.vessel)meta.push(`<span><b>${esc(g.vessel)}</b></span>`);
     meta.push(`<span class="m">${fmtDate(g.bill_date)}</span>`);
     if(g.invoice_no)meta.push(`<span class="m">SI ${esc(g.invoice_no)}</span>`);
+    // Who sent it, and how many times. The count appears only from the second
+    // send, mirroring the PDF's Revised line -- a first send is just "Sent".
+    // Local part only: the full address would dominate the row on a phone, and
+    // it is on the title for anyone who needs it.
+    const sm=sendMap[g.id];
+    if(sm&&sm.send_no){
+      const who=String(sm.sent_by_email||'').split('@')[0];
+      meta.push(`<span class="sent" title="${esc(sm.sent_by_email||'')}">Sent${
+        Number(sm.send_no)>1?' ×'+esc(String(sm.send_no)):''}${who?' · '+esc(who):''}</span>`);
+    }
     let acts='';
     // The send dialog was reachable only from the FAB, which opens on the
     // current month -- so an older billing was simply not in its picker, which
@@ -4224,6 +4257,12 @@ $('lSend').onclick=async()=>{
     // count has to mean the status reached the server, or a refused write
     // reads to the sender as a billing that moved.
     const mark=await markBilledNow(p.list);
+    // the card should show the send that just happened, not the one before it
+    if(res&&res.send_no){
+      (p.list||[]).forEach(g=>{if(g&&g.id)sendMap[g.id]={gid:g.id,bill_no:issued,
+        send_no:res.send_no,sent_at:new Date().toISOString(),
+        sent_by_email:(session.user&&session.user.email)||''};});
+    }
     pendingSend=null;
     hide();
     // The mail is already gone, so this can only report -- but a billing whose
