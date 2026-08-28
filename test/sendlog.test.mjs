@@ -310,6 +310,55 @@ ok('a clean billing gets an empty list, not undefined',
    Array.isArray(app.sendMap['g-8'].bad) && app.sendMap['g-8'].bad.length === 0,
    JSON.stringify(app.sendMap['g-8']));
 
+console.log('\n--- F7. a re-send repaints the card ---');
+// The badge update in lSend borrowed its repaint from markBilledNow. On a
+// re-send the billing is already BILLED, so markBilledNow short-circuits every
+// group and returns BEFORE persist();render() -- sendMap held the new count and
+// the DOM kept the old one until a hard refresh. The bug was latent on every
+// re-send and on every PAID billing, and no test reached it because they all
+// exercised the DRAFT path.
+
+// the precondition: a billing already BILLED is not moved, and not repainted
+app.rows.length = 0;
+app.rows.push({ id:'srv-rs1', group_id:'g-resend', code:'RSR-DW-082026-011',
+  bill_no:'BILLDWG-26-011', client:'Seaford Shipping Lines', vessel:'MV SF CRUISER',
+  doc_type:'DW', bill_date:'2026-08-21', drawing_title:'Shell Expansion Plan',
+  qty:1, rate:10000, status:'BILLED', billed_date:'2026-08-27', billable:true,
+  line_no:0, created_at:'2026-08-21T05:00:00Z' });
+
+app.sendMap = { 'g-resend': { send_no:3, sent_by_email:'raffy@rsr.test',
+                              sent_at:'2026-08-28T09:00:00Z', bad:[] } };
+app.render();
+ok('the card starts at the count it was last painted with',
+   /Sent ×3 · raffy/.test(listHtml()), listHtml().slice(0, 300));
+
+// what a re-send does to the cache, without the repaint
+app.sendMap['g-resend'].send_no = 4;
+const moved = await app.markBilledNow(app.allGroups());
+ok('markBilledNow moves nothing for a billing already BILLED',
+   moved.n === 0 && moved.queued === 0 && moved.dead === 0, JSON.stringify(moved));
+ok('and repaints nothing, so the caller has to',
+   /Sent ×3 · raffy/.test(listHtml()),
+   'if this now reads x4, markBilledNow renders and this test no longer proves anything');
+app.render();
+ok('an explicit render picks the new count up',
+   /Sent ×4 · raffy/.test(listHtml()), listHtml().slice(0, 300));
+
+// and the fix: lSend owns its own repaint rather than borrowing one
+const lSendBlk = (html.match(/\$\('lSend'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/) || [''])[0];
+ok('the lSend block was found', lSendBlk.length > 0);
+// Comments stripped first. The comment explaining this very fix contains the
+// literal "persist();render()", so searching the raw block found the prose
+// after the real statement was deleted -- the assertion passed against the bug
+// it exists to catch. A source assertion has to read code, not commentary.
+const lSendCode = lSendBlk.split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n');
+const iCache = lSendCode.indexOf('sendMap[g.id]=');
+ok('lSend writes the cache', iCache > -1);
+ok('and repaints after writing it',
+   iCache > -1 && lSendCode.indexOf('render()', iCache) > -1,
+   'render() must follow the sendMap write inside lSend, not be inherited from markBilledNow');
+
+
 console.log('\n--- G. the letter can explain a correction ---');
 ok('the new keys are whitelisted',
    app.LETTER_KEYS.includes('send_no') &&

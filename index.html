@@ -4348,6 +4348,12 @@ $('lSend').onclick=async()=>{
           sent_at:new Date().toISOString(),
           sent_by_email:(session.user&&session.user.email)||'',bad:bad};
       });
+      // Repaint here, not by borrowing markBilledNow's. On a re-send the
+      // billing is already BILLED, so markBilledNow short-circuits and returns
+      // before its own persist();render() -- the cache moved and the card kept
+      // the old count until a hard refresh. The code that changed the data
+      // owns the repaint.
+      render();
     }
     pendingSend=null;
     hide();
