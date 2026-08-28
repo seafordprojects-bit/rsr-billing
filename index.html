@@ -1223,6 +1223,16 @@ function typeOptions(cur,allLabel){
 /* ================= state ================= */
 let rows=[];
 let queue=[];
+// Remove in place, never by reassignment. Swapping in a new array mid-flush is
+// what destroyed writes: flushPass iterates the array it started with, so a
+// caller that reassigned `queue` pushed its job onto an array nobody was
+// reading, and the pass then finished by overwriting `queue` wholesale. Two
+// lines marked billed sent one PATCH; the other vanished with no error, no
+// dead job and an empty queue. Keeping one array identity means a job queued
+// during a pass is seen BY that pass.
+const queueDrop=pred=>{
+  for(let i=queue.length-1;i>=0;i--)if(pred(queue[i]))queue.splice(i,1);
+};
 let catalog=[];
 let clients=[];
 let settings={};      // shared settings, keyed by app_settings.key
@@ -1593,11 +1603,13 @@ async function flushQueue(){
   try{ await flushPass(); }finally{ flushing=false; }
 }
 async function flushPass(){
-  const still=[];
+  // what this pass actually completed. Everything else -- failed, dead, or
+  // queued while the pass was in flight -- stays, and stays in THIS array.
+  const done=new Set();
   for(const job of queue){
     // a job the server has already refused is not retried; it waits in
     // Settings -> Pending writes for a decision
-    if(job.dead){still.push(job);continue;}
+    if(job.dead)continue;
     // jobs written before the catalog existed carry neither field
     const tbl=job.table||cfg.table;
     const store=job.store==='catalog'?catalog:job.store==='clients'?clients:rows;
@@ -1623,10 +1635,11 @@ async function flushPass(){
       }else if(job.op==='delete'){
         await sb(tbl+'?id=eq.'+encodeURIComponent(job.id),{method:'DELETE'});
       }
+      done.add(job);
     }catch(err){
       // a server too old for on_conflict still answers 409; that is recoverable
       if(job.store==='clients'&&job.op==='insert'&&err.status===409){
-        try{ if(await healClientDup(job))continue; }
+        try{ if(await healClientDup(job)){done.add(job);continue;} }
         catch(e){ err=e; }
       }
       // Jobs queued before this shipped carry neither field, so both default.
@@ -1647,14 +1660,13 @@ async function flushPass(){
       // in front of a person rather than looping forever.
       // (job.attempts||0), not job.attempts: an uncounted failure leaves it
       // undefined, and undefined<3 is false, which would kill the job outright
-      if(transient(err)&&(job.attempts||0)<MAX_ATTEMPTS){still.push(job);continue;}
+      if(transient(err)&&(job.attempts||0)<MAX_ATTEMPTS)continue;
       job.dead=true;
       job.err=job.last_error;
-      still.push(job);
       toast(jobLabel(job)+' — '+job.err,true);
     }
   }
-  queue=still;persist();
+  queueDrop(j=>done.has(j));persist();
   // The Pending writes panel indexes into deadJobs() positionally, and a flush
   // can mark a job dead ahead of one already listed. Repaint so the row a user
   // clicks is the row they read.
@@ -1889,7 +1901,7 @@ async function saveRow(row,isNew){
       const j=queue.find(q=>q.op==='insert'&&q.localId===row.id);
       if(j)j.data=payloadOf(row);else queue.push({op:'insert',localId:row.id,data:payloadOf(row)});
     }else{
-      queue=queue.filter(q=>!(q.op==='update'&&q.id===row.id));
+      queueDrop(q=>q.op==='update'&&q.id===row.id);
       queue.push({op:'update',id:row.id,data:payloadOf(row)});
     }
   }
@@ -1924,7 +1936,7 @@ async function catSave(item,isNew){
       if(j)j.data=catPayload(item);
       else queue.push({op:'insert',store:'catalog',table:CAT_TABLE,localId:item.id,data:catPayload(item)});
     }else{
-      queue=queue.filter(q=>!(q.op==='update'&&q.id===item.id));
+      queueDrop(q=>q.op==='update'&&q.id===item.id);
       queue.push({op:'update',store:'catalog',table:CAT_TABLE,id:item.id,data:catPayload(item)});
     }
   }
@@ -1934,8 +1946,8 @@ async function catSave(item,isNew){
 }
 async function catDelete(id){
   catalog=catalog.filter(c=>c.id!==id);
-  if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
-  else{queue=queue.filter(q=>q.id!==id);queue.push({op:'delete',store:'catalog',table:CAT_TABLE,id:id});}
+  if(String(id).startsWith('loc-'))queueDrop(q=>q.localId===id);
+  else{queueDrop(q=>q.id===id);queue.push({op:'delete',store:'catalog',table:CAT_TABLE,id:id});}
   persist();
   if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
 }
@@ -1948,7 +1960,7 @@ async function catReorder(list){
       const j=queue.find(q=>q.op==='insert'&&q.localId===c.id);
       if(j)j.data=catPayload(c);
     }else{
-      queue=queue.filter(q=>!(q.op==='update'&&q.id===c.id));
+      queueDrop(q=>q.op==='update'&&q.id===c.id);
       queue.push({op:'update',store:'catalog',table:CAT_TABLE,id:c.id,data:catPayload(c)});
     }
   }
@@ -1989,7 +2001,7 @@ function applySettings(){
 function queueSetting(key,row){
   settings[key]=Object.assign({key:key},settings[key],row);
   // one pending write per key is enough; the latest wins
-  queue=queue.filter(q=>!(q.op==='upsert'&&q.key===key));
+  queueDrop(q=>q.op==='upsert'&&q.key===key);
   queue.push({op:'upsert',store:'settings',table:SET_TABLE,key:key,
               data:Object.assign({key:key},row)});
   persist();
@@ -2163,7 +2175,7 @@ async function cliSave(item,isNew){
       if(j)j.data=cliPayload(item);
       else queue.push({op:'insert',store:'clients',table:CLI_TABLE,localId:item.id,data:cliPayload(item)});
     }else{
-      queue=queue.filter(q=>!(q.op==='update'&&q.id===item.id));
+      queueDrop(q=>q.op==='update'&&q.id===item.id);
       // base_at is the version this edit was made against; base is what the
       // server last said the row held, so the merge can tell which fields
       // this device actually moved. Both absent on a row never seen from the
@@ -2178,8 +2190,8 @@ async function cliSave(item,isNew){
 }
 async function cliDelete(id){
   clients=clients.filter(c=>c.id!==id);
-  if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
-  else{queue=queue.filter(q=>q.id!==id);queue.push({op:'delete',store:'clients',table:CLI_TABLE,id:id});}
+  if(String(id).startsWith('loc-'))queueDrop(q=>q.localId===id);
+  else{queueDrop(q=>q.id===id);queue.push({op:'delete',store:'clients',table:CLI_TABLE,id:id});}
   persist();
   if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
 }
@@ -2230,8 +2242,8 @@ async function deleteRow(id){
     return false;
   }
   rows=rows.filter(r=>r.id!==id);
-  if(String(id).startsWith('loc-'))queue=queue.filter(q=>q.localId!==id);
-  else{queue=queue.filter(q=>q.id!==id);queue.push({op:'delete',id:id});}
+  if(String(id).startsWith('loc-'))queueDrop(q=>q.localId===id);
+  else{queueDrop(q=>q.id===id);queue.push({op:'delete',id:id});}
   persist();render();
   if(online()){await flushQueue();persist();setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');}
   return true;
@@ -2361,7 +2373,7 @@ async function doSignOut(){
   if(queue.length&&!confirm(queue.length+' change(s) have not synced yet and will be lost. Sign out anyway?'))return;
   try{if(authed())await fetch(cfg.url.replace(/\/+$/,'')+'/auth/v1/logout',{method:'POST',headers:{'apikey':cfg.key,'Authorization':'Bearer '+bearer()}});}catch(e){}
   clearSession();
-  rows=[];queue=[];persist();render();
+  rows=[];queue.length=0;persist();render();
   hide();showGate('Signed out.');
 }
 
@@ -3337,7 +3349,7 @@ $('cDeadList').addEventListener('click',async e=>{
     const job=deadJobs()[Number(d.dataset.djdrop)];
     if(!job)return;
     if(!confirm(lossSummary(job)))return;
-    queue=queue.filter(q=>q!==job);
+    queueDrop(q=>q===job);
     if(job.localId){
       const store=job.store==='catalog'?catalog:job.store==='clients'?clients:rows;
       const i=store.findIndex(x=>x.id===job.localId);

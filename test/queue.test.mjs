@@ -4,6 +4,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = process.argv[2] || path.join(ROOT, 'index.html');
 const FN_SRC = path.join(ROOT, 'supabase', 'functions', 'send-statement', 'index.ts');
 import { net } from './harness.mjs';
+import fs from 'node:fs';
 
 process.argv[2] = process.argv[2] || SRC;
 
@@ -239,6 +240,74 @@ ok('the reason is still recorded', /fetch/i.test(yard().last_error || ''),
 net.mode = 'online';
 await app.flushQueue();
 ok('and it syncs when the signal comes back', !yard(), 'still queued');
+
+console.log('\n--- Z. an unawaited saveRow loop must not lose writes ---');
+// markBilledNow and markGroup are synchronous and call the async saveRow once
+// per line without awaiting. flushPass used to iterate the array it started
+// with and finish by reassigning queue, so a job pushed by the second call
+// landed on an array nobody was reading and was then overwritten: two lines
+// marked billed sent ONE patch, with no error, no dead job and an empty queue.
+// The state survived only in localStorage and died with it.
+const mkLine = (id, i) => ({ id, group_id:'g-lost', code:'RSR-DW-082026-009',
+  bill_no:'BILLDWG-26-009', client:'Seaford', vessel:'MV SF CRUISER',
+  doc_type:'DW', bill_date:'2026-08-21', drawing_title:'Line ' + i,
+  qty:1, rate:10000, status:'DRAFT', billable:true, line_no:null,
+  created_at:'2026-08-25T05:45:1' + i + 'Z' });
+
+// This suite reuses localStorage between sections deliberately. Section Z
+// counts PATCHes, so it needs a clean slate or an earlier section's rows are
+// counted as lost writes that never were.
+const wipe = () => {
+  ['rsr_dwg_rows_v1','rsr_dwg_queue_v1'].forEach(k => globalThis.localStorage.removeItem(k));
+};
+
+const settle = async () => {
+  for (let i = 0; i < 80; i++) await Promise.resolve();
+  await new Promise(r => setTimeout(r, 60));
+};
+
+for (const n of [2, 4]) {
+  wipe();
+  app = globalThis.__loadApp();
+  configure(app);
+  app.setSession({ access_token:'t', refresh_token:'r', expires_at: 2e9,
+                   user:{ email:'raffy@rsr.test' } });
+  net.mode = 'online';
+  for (let i = 0; i < n; i++) app.rows.push(mkLine('srv-' + i, i));
+  net.calls.length = 0;
+  app.markBilledNow(app.allGroups());
+  await settle();
+  const patched = net.calls.filter(c => c.method === 'PATCH')
+    .map(c => String(c.url).split('id=eq.')[1]);
+  ok(n + ' lines send ' + n + ' patches', patched.length === n,
+     patched.length + ': ' + patched.join(','));
+  ok('every line is patched, not just the first',
+     new Set(patched).size === n, patched.join(','));
+  ok('and the queue drains', app.queue.length === 0, String(app.queue.length));
+}
+
+// the same shape through the other caller
+wipe();
+app = globalThis.__loadApp();
+configure(app);
+app.setSession({ access_token:'t', refresh_token:'r', expires_at: 2e9,
+                 user:{ email:'raffy@rsr.test' } });
+net.mode = 'online';
+for (let i = 0; i < 3; i++) app.rows.push(mkLine('srv-m' + i, i));
+net.calls.length = 0;
+app.markGroup('g-lost', 'PAID');
+await settle();
+ok('markGroup patches every line too',
+   net.calls.filter(c => c.method === 'PATCH').length === 3,
+   String(net.calls.filter(c => c.method === 'PATCH').length));
+
+// the mechanism itself: the array identity must never change
+const srcHtml = fs.readFileSync(SRC, 'utf8');
+ok('queue is never reassigned outside boot',
+   !/\bqueue=queue\.filter/.test(srcHtml) && !/\bqueue=still\b/.test(srcHtml),
+   'a reassignment is back');
+ok('removals go through queueDrop',
+   /const queueDrop=pred=>/.test(srcHtml) && /queueDrop\(/.test(srcHtml));
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
