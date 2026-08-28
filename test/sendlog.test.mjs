@@ -494,6 +494,66 @@ ok('a revised note alone has no trailing space',
    !/unchanged\. \n/.test(revOnly), JSON.stringify(revOnly.slice(-200)));
 ok('a change note alone has no leading space',
    !/\n The total/.test(chgOnly), JSON.stringify(chgOnly.slice(-200)));
+console.log('\n--- I. the expanded card lists every send ---');
+// refreshSendMap always fetched every row and kept only the newest. The rest
+// are now kept in all[] and rendered under the lines, sharing the card's
+// existing toggle rather than adding a second one.
+const HIST = [
+  { gid:'g-h', send_no:3, sent_at:'2026-08-28T09:00:00Z', sent_by_email:'raffy@rsr.test',
+    total:'19000.00', change_kind:'decreased', total_mismatch:false },
+  { gid:'g-h', send_no:2, sent_at:'2026-08-27T09:00:00Z', sent_by_email:'ana@rsr.test',
+    total:'30000.00', change_kind:'increased', total_mismatch:true },
+  { gid:'g-h', send_no:1, sent_at:'2026-08-26T09:00:00Z', sent_by_email:'raffy@rsr.test',
+    total:'20000.00', change_kind:'first', total_mismatch:false },
+];
+
+net.mode = 'online';
+net.script.push({ match:'drawing_billing_send_log', method:'GET', status:200, body:HIST });
+await app.refreshSendMap();
+ok('every row is kept, not just the newest',
+   app.sendMap['g-h'].all.length === 3, JSON.stringify(app.sendMap['g-h'].all.length));
+ok('newest first', app.sendMap['g-h'].all.map(r => r.send_no).join(',') === '3,2,1',
+   app.sendMap['g-h'].all.map(r => r.send_no).join(','));
+ok('the newest is still the entry itself', app.sendMap['g-h'].send_no === 3);
+ok('and the mismatches are still collected',
+   JSON.stringify(app.sendMap['g-h'].bad) === '[2]', JSON.stringify(app.sendMap['g-h'].bad));
+ok('letter_text is never asked for',
+   !net.calls.some(c => /letter_text/.test(String(c.url))),
+   JSON.stringify(net.calls.slice(-1).map(c => c.url)));
+
+const block = app.sendLogLines({ id:'g-h' });
+ok('all three sends are listed', (block.match(/class="sl[ "]/g) || []).length === 3, block);
+ok('newest at the top', block.indexOf('#3') < block.indexOf('#1'), block);
+ok('each names its date', /26 Aug 2026/.test(block) && /28 Aug 2026/.test(block), block);
+ok('and its sender, local part only',
+   /raffy/.test(block) && /ana/.test(block) && !/rsr\.test/.test(block), block);
+ok('and what changed', /decreased/.test(block) && /increased/.test(block), block);
+ok('a first send is not labelled with a change', !/first/.test(block), block);
+ok('the amount sent is shown', /19,000/.test(block) && /30,000/.test(block), block);
+
+ok('a mismatched send is marked', /class="sl bad"/.test(block), block);
+ok('and says why', /total differs from what was sent/.test(block), block);
+ok('the clean ones are not marked',
+   (block.match(/class="sl bad"/g) || []).length === 1, block);
+
+// nothing tappable: touch.test.mjs holds anything interactive to 44px, and six
+// sends of a four-line billing would be a screen of buttons
+ok('nothing in the block is interactive',
+   !/<button|<a |data-exp|role="button"/.test(block), block);
+
+console.log('\n--- I2. a billing never sent gets no block at all ---');
+ok('no history, no block', app.sendLogLines({ id:'g-never' }) === '',
+   app.sendLogLines({ id:'g-never' }));
+app.sendMap['g-empty'] = { send_no:0, all:[] };
+ok('an empty list is the same as none', app.sendLogLines({ id:'g-empty' }) === '');
+
+console.log('\n--- I3. it only renders inside the expanded card ---');
+const cardSrc = html.slice(html.indexOf('${open?`<div class="glines">'),
+                           html.indexOf('${open?`<div class="glines">') + 200);
+ok('the block is gated on the same open flag as the lines',
+   /\$\{open\?sendLogLines\(g\)/.test(cardSrc), cardSrc);
+
+
 
 
 

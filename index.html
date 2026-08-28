@@ -210,6 +210,14 @@ header.top{
 .row-meta .m{font-family:var(--mono);font-size:11.5px}
 .row-meta .sent{font-family:var(--mono);font-size:11.5px;color:var(--slate)}
 .row-meta .bad{font-family:var(--mono);font-size:11.5px;color:var(--weld);font-weight:600}
+/* the send history, shaped like .glines so the two blocks read as one card */
+.slines{margin-top:9px;border-top:1px solid var(--line2);padding-top:8px;display:flex;flex-direction:column;gap:5px}
+.sl-k{font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--slate);font-weight:700}
+.sl{display:flex;gap:9px;align-items:baseline;font-size:12px}
+.sl .n{font-family:var(--mono);font-size:10.5px;color:var(--slate);flex:0 0 26px}
+.sl .t{min-width:0;flex:1;line-height:1.3;color:var(--ink2)}
+.sl .a{margin-left:auto;font-family:var(--mono);font-size:11.5px;white-space:nowrap;color:var(--slate)}
+.sl.bad .t,.sl.bad .a{color:var(--weld)}
 
 .gtoggle{margin-left:auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;font-size:12.5px;font-weight:600;color:var(--ink2);border:1px solid var(--line);border-radius:999px}
 .gtoggle:hover{background:var(--paper)}
@@ -1399,8 +1407,12 @@ async function refreshSendMap(){
     const m={};
     (r||[]).forEach(row=>{
       if(!row||!row.gid)return;
-      // newest first, so the first row seen for a gid is the current one
-      if(!m[row.gid])m[row.gid]=Object.assign({},row,{bad:[]});
+      // newest first, so the first row seen for a gid is the current one.
+      // all[] keeps the rest for the expanded card; letter_text is deliberately
+      // not selected -- it holds the whole HTML email body and would dwarf
+      // every other column put together.
+      if(!m[row.gid])m[row.gid]=Object.assign({},row,{bad:[],all:[]});
+      m[row.gid].all.push(row);
       // every send whose recorded total disagreed with the document, not only
       // the latest: the concern is a copy already with a client, and a clean
       // re-send afterwards does not take it back
@@ -1947,11 +1959,33 @@ function render(){
       <div class="row-title">${esc(g.client||'No client')}</div>
       <div class="row-meta">${meta.join('')}<button type="button" class="gtoggle" data-exp="${esc(g.id)}">${g.count} item${g.count===1?'':'s'} <span class="ar">${open?'▴':'▾'}</span></button></div>
       ${open?`<div class="glines">${lines}</div>`:''}
+      ${open?sendLogLines(g):''}
       <div class="row-acts">${acts}<button class="act ghost" data-edit="${esc(g.id)}">Edit</button></div>
     </article>`;
   }).join('');
 }
 
+// Every send of one billing, newest first, under the lines in the expanded
+// card. Nothing here is interactive: touch.test.mjs holds anything tappable to
+// 44px, and six sends of a four-line billing would be a screen of buttons. It
+// shares the card's existing toggle rather than adding a second one.
+function sendLogLines(g){
+  const sm=sendMap[g.id];
+  const all=(sm&&sm.all)||[];
+  if(!all.length)return '';
+  const rows=all.map(r=>{
+    const who=String(r.sent_by_email||'').split('@')[0];
+    const bits=[fmtDate(String(r.sent_at||'').slice(0,10)),who].filter(Boolean);
+    if(r.change_kind&&r.change_kind!=='first')bits.push(String(r.change_kind));
+    return `<div class="sl${r.total_mismatch?' bad':''}">
+      <span class="n">#${esc(String(r.send_no))}</span>
+      <span class="t">${esc(bits.join(' · '))}${
+        r.total_mismatch?' · total differs from what was sent':''}</span>
+      <span class="a">${r.total==null?'':esc(money(Number(r.total)))}</span>
+    </div>`;
+  }).join('');
+  return `<div class="slines"><div class="sl-k">Sent</div>${rows}</div>`;
+}
 function uniq(a){return Array.from(new Set(a.filter(Boolean))).sort();}
 function syncSelect(sel,vals,cur,allLabel,fmt){
   sel.innerHTML=`<option value="">${allLabel}</option>`+vals.map(v=>`<option value="${esc(v)}"${v===cur?' selected':''}>${esc(fmt?fmt(v):v)}</option>`).join('');
