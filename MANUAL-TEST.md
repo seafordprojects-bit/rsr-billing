@@ -449,6 +449,150 @@ another device would.
 
 ---
 
+## 11. Re-sending a corrected billing
+
+Everything in this section is a **second** copy of a document a client already
+holds. That is what makes it worth walking: the billing number does not change
+on a correction, so the only things telling the two copies apart are a line on
+the PDF, a sentence in the letter, and a badge in Monitoring. All three are
+invisible to the harness — it has no layout, and it cannot see an email.
+
+The off-by-one that shipped here is the reason to take it slowly. The PDF's
+Revised line was gated on the wrong boundary and marked nothing until the
+*third* send, and the test asserted that mistake, so the suite stayed green.
+A green suite proves the rule was not deleted. It never proves the client can
+see it.
+
+Do the whole section on one billing, in order. Steps 1–3 set up state the
+later steps read.
+
+### A. The first send is not a correction
+
+- [ ] Pick a DRAFT billing with **at least two lines**. Note its number.
+- [ ] Send it to yourself. Open the mail.
+- [ ] **The PDF must carry no "Revised" line.** A first send is not a
+      correction, and marking one would make the mark meaningless.
+- [ ] **The letter must read normally.** If your template in Settings uses
+      `{revised_note}` or `{change_note}`, both resolve to nothing on a first
+      send — so there must be no stray blank paragraph, no double space, and
+      no sentence that starts mid-air where a note would have gone.
+- [ ] Monitoring shows **`Sent · <your name>`** on that card — no count on a
+      first send.
+
+### B. The correction — the case the feature exists for
+
+- [ ] **Change one line's rate**, so the total moves by an amount you can
+      recognise. Do not add or remove a line yet.
+- [ ] Re-send the same billing.
+- [ ] **The billing number must be identical to step A.** No `-R1`, no `-2`,
+      no suffix of any kind, on the document, in the subject or in the letter.
+      If a suffix appears anywhere, stop — the numbering model has changed
+      under you and nothing below is meaningful.
+- [ ] **The PDF must now carry `Revised <date>`**, right-aligned under the
+      date in the header. This is the **second** send: if it is missing here
+      and only appears on the third, the off-by-one is back.
+- [ ] The Revised date is the date of the **previous** send, not today's.
+- [ ] Read the line as text, not as a shape: `Revised 28 Aug 2026`, no `?`
+      where a character should be, no gap between digits.
+- [ ] Monitoring shows **`Sent ×2 · <your name>`**.
+
+### C. What the letter says about the change
+
+Skip to D if your template uses neither placeholder — but read the first box
+first, because adding them is a one-line change in Settings and this is the
+only place their wording gets checked.
+
+- [ ] In Settings, put `{revised_note}` and `{change_note}` into the letter
+      template on their own paragraph. Save. Re-send.
+- [ ] `{revised_note}` renders as a real sentence: *"This billing replaces the
+      copy sent on \<date\>. The billing number is unchanged."* — the date is
+      the previous send, and the second sentence is the one that stops the
+      client filing two invoices.
+- [ ] `{change_note}` names the **direction and the amount**: decreased by
+      the figure you recognise from step B, and it must match what the
+      document actually shows. This is computed against the copy that was
+      sent, not read off a stored field, so a wrong figure here means the
+      snapshot and the document disagree.
+- [ ] It names the **line you changed** and does **not** name the lines you
+      did not.
+- [ ] **No `{token}` survives anywhere in the letter.** A literal
+      `{revised_note}` in the body means the placeholder is not whitelisted —
+      that is the failure the leftover-token behaviour exists to reveal, and
+      it is visible to the client if you send it.
+
+### D. Adding and removing a line
+
+- [ ] Add a line, re-send. `{change_note}` reads **increased**, names the new
+      line, and the PDF total matches the letter's figure.
+- [ ] Delete a line, re-send. It reads **decreased** and names the removed
+      line.
+- [ ] Re-send once more with **no change at all**. The note reads *"The total
+      is unchanged."* and names nothing. A billing can be re-sent because the
+      client lost the first copy; saying nothing changed is correct, and
+      inventing a change would not be.
+
+### E. Sender attribution
+
+- [ ] The badge sits in the meta row with the vessel and date, **not** in the
+      card head beside the status. If it has crowded into the head and pushed
+      the amount onto a second line, that is the failure — check it on a
+      phone, in portrait, on the longest client name you have.
+- [ ] It shows the **local part only** — `raffy`, not the whole address. Long
+      press or hover: the full address is the title.
+- [ ] If a second person is in `billing_senders`, have them send one and
+      confirm their name appears on that card and yours does not change.
+
+### F. The mismatch flag — a document the database cannot reproduce
+
+This is the one warning that outlives the moment it happened. Read it even if
+you never trigger it deliberately.
+
+- [ ] Find a billing whose card shows **`⚠ total differs · send N`**. On the
+      current data that is `BILLDWG-26-002`, flagged for send 4.
+- [ ] **It must stay flagged after a clean re-send.** Send that billing again
+      with no changes; the badge must still name send 4. The bad copy is with
+      a client and a later good send does not take it back.
+- [ ] The flag names **which** send, not just that one exists. With more than
+      one it reads `totals differ · sends 2, 4`.
+- [ ] Cross-check in the SQL editor:
+      `select send_no, total, client_total, total_mismatch from`
+      `drawing_billing_send_log where gid = '<gid>' order by send_no;`
+      The flagged sends are exactly the rows with `total_mismatch = true`.
+
+### G. The record matches what was sent
+
+- [ ] After the last send, read the newest row:
+      `select send_no, bill_no, total, client_total, total_mismatch,`
+      `change_kind, total_delta, sent_by_email from`
+      `drawing_billing_send_log order by id desc limit 1;`
+- [ ] `bill_no` is the **same** number as every earlier row for that billing.
+- [ ] `total` equals the figure on the PDF you just received.
+- [ ] `client_total` equals `total`, and `total_mismatch` is `false`. If it is
+      `true`, the device sent a document the database cannot reproduce —
+      **stop and find out why before sending anything to a real client.**
+- [ ] `sent_by_email` is you.
+- [ ] `send_no` is one higher than the previous row, with no gap. A gap means
+      a send was not recorded.
+
+### H. The status actually moved
+
+The queue used to destroy every write after the first, so a billing reported
+as marked was marked only in that browser's local storage.
+
+- [ ] After the send, the toast says **marked billed** — and if it says
+      anything about writes waiting or refused, believe it over the status
+      badge.
+- [ ] In the SQL editor:
+      `select line_no, status, billed_date, bill_no from drawing_billing`
+      `where coalesce(group_id::text, id::text) = '<gid>' order by line_no;`
+- [ ] **Every line** is `BILLED`, every line has the **same** `billed_date`,
+      and every line has the **same** `bill_no`. One line lagging behind the
+      others is the failure this check exists for.
+- [ ] The card shows no **Lines differ** badge. If it does, it names the
+      field that disagrees — read it, then re-check the query above.
+
+---
+
 ## Open items — your call, not fixed
 
 1. **Offline numbers are not reconciled.** A billing numbered while offline
