@@ -463,12 +463,21 @@ Revised line was gated on the wrong boundary and marked nothing until the
 A green suite proves the rule was not deleted. It never proves the client can
 see it.
 
-Do the whole section on one billing, in order. Steps 1–3 set up state the
-later steps read.
+Do the whole section on one billing, in order: parts A–D set up state that
+parts E–H read back.
+
+**You need the unbill passcode before you start.** Correcting a billing is not
+just editing it. Once a billing is BILLED every title and rate in the editor is
+disabled and the remove-line button with them, so each correction below is
+really three steps: **Unbill** on the card, make the change, then re-send. If
+you do not have the passcode, you can walk part A and nothing after it.
+
+Start from a billing with **at least three lines** — part D removes one, and a
+billing must keep at least two for the rest of the section to mean anything.
 
 ### A. The first send is not a correction
 
-- [ ] Pick a DRAFT billing with **at least two lines**. Note its number.
+- [ ] Pick the DRAFT billing you chose above. Note its number.
 - [ ] Send it to yourself. Open the mail.
 - [ ] **The PDF must carry no "Revised" line.** A first send is not a
       correction, and marking one would make the mark meaningless.
@@ -481,6 +490,10 @@ later steps read.
 
 ### B. The correction — the case the feature exists for
 
+- [ ] **Unbill it first.** The card shows an Unbill button once a billing is
+      BILLED; it asks for the passcode and a reason, and the reason goes in
+      the unbill log. Without this the editor is read-only and the next step
+      is impossible — that is the guard working, not a fault.
 - [ ] **Change one line's rate**, so the total moves by an amount you can
       recognise. Do not add or remove a line yet.
 - [ ] Re-send the same billing.
@@ -498,9 +511,17 @@ later steps read.
 
 ### C. What the letter says about the change
 
-Skip to D if your template uses neither placeholder — but read the first box
-first, because adding them is a one-line change in Settings and this is the
-only place their wording gets checked.
+Skip to D if your template uses neither placeholder — but read the first
+checkbox first, because adding them is a one-line change in Settings and this
+is the only place their wording gets checked.
+
+> **The letter template is shared, not per-device.** `cfg.letter` travels in
+> `app_settings`, so editing it here publishes the change to every device on
+> the project, not just this one. Note what the box holds before you touch it.
+> Afterwards either paste the original text back, or **clear the box entirely**
+> — empty means `LETTER_DEFAULT`, which is the standard wording. Leaving the
+> placeholders in is fine if you want them; just decide, rather than leaving a
+> test edit live on everyone's device.
 
 - [ ] In Settings, put `{revised_note}` and `{change_note}` into the letter
       template on their own paragraph. Save. Re-send.
@@ -522,10 +543,14 @@ only place their wording gets checked.
 
 ### D. Adding and removing a line
 
+Each of these is Unbill → edit → re-send, the same cycle as part B.
+
 - [ ] Add a line, re-send. `{change_note}` reads **increased**, names the new
       line, and the PDF total matches the letter's figure.
 - [ ] Delete a line, re-send. It reads **decreased** and names the removed
-      line.
+      line. The remove button is disabled until you unbill, and a BILLED row
+      cannot be deleted at all — `rsr_dwg_delete_guard` refuses it server
+      side even if the button were live.
 - [ ] Re-send once more with **no change at all**. The note reads *"The total
       is unchanged."* and names nothing. A billing can be re-sent because the
       client lost the first copy; saying nothing changed is correct, and
@@ -547,8 +572,12 @@ only place their wording gets checked.
 This is the one warning that outlives the moment it happened. Read it even if
 you never trigger it deliberately.
 
-- [ ] Find a billing whose card shows **`⚠ total differs · send N`**. On the
-      current data that is `BILLDWG-26-002`, flagged for send 4.
+- [ ] Find a billing whose card shows **`⚠ total differs · send N`**. At the
+      time of writing that is `BILLDWG-26-002`, flagged for send 4 — but if
+      you have used that billing for parts A–D its send count has moved on.
+      The flag stays on the send that was wrong; only the total count grows.
+      Confirm which sends are flagged with the query below rather than
+      trusting the number written here.
 - [ ] **It must stay flagged after a clean re-send.** Send that billing again
       with no changes; the badge must still name send 4. The bad copy is with
       a client and a later good send does not take it back.
