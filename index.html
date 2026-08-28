@@ -1351,6 +1351,19 @@ const groupById=gid=>{
   return mine.length?groupOf(mine):null;
 };
 
+// The newest send of one billing, or null. Never throws and never gates
+// anything: this decorates the document and the letter, and a billing whose
+// history cannot be read must still be sendable. Offline, signed out, or a
+// server that will not answer all read the same as never sent.
+async function sendLogFor(gid){
+  if(!online()||!authed())return null;
+  try{
+    const r=await sb('drawing_billing_send_log?select=*&gid=eq.'+
+      encodeURIComponent(String(gid))+'&order=send_no.desc&limit=1');
+    return (r&&r.length)?r[0]:null;
+  }catch(e){return null;}
+}
+
 const CAT_FIELDS=['name','doc_type','drawing_no','default_rate','sort_order','active'];
 function catPayload(c){
   const o={};CAT_FIELDS.forEach(k=>{o[k]=c[k]===''?null:c[k];});
@@ -4072,6 +4085,10 @@ $('lSend').onclick=async()=>{
       subject:mailSubject(stmtFacts(p.list),issued),
       html:statementEmailHtml(letter),
       statement_no:issued,
+      // one send-log row per billing: bill_no is per group and so is its
+      // history. The function builds the snapshot itself from these ids --
+      // nothing about the lines is sent from here, deliberately.
+      gids:(p.list||[]).map(g=>g&&g.id).filter(Boolean),
       attachment:attachment
     };
     // omitted entirely when blank, so the function never sees an empty cc

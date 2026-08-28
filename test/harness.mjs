@@ -38,7 +38,7 @@ globalThis.__t={
   get settings(){return settings}, applySettings, queueSetting, pushSharedSettings,
   migrateSettings, claimBillNo, raiseBillNo, normaliseTypes,
   allGroups, groupById, groupsFrom, groupOf, groupIdOf, migrateGroups, markGroup,
-  GROUP_FIELDS, firstDate, rankOf,
+  GROUP_FIELDS, firstDate, rankOf, sendLogFor,
   openUnbill, doUnbill,
   get expanded(){return expanded}, set expanded(v){expanded=v},
   get multiLocked(){return multiLocked}, get editingId(){return editingId},
