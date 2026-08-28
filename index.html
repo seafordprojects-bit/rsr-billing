@@ -4165,7 +4165,7 @@ function letterVars(f,no,prior){
                      String(f.rec.contact_person||'').trim()))||'Sir/Madam',
     billno:String(no||'').trim(),
     vessel:f.vessels.length?f.vessels.join(', '):'your vessel',
-    period:fmtDate(f.from)+' — '+fmtDate(f.to),
+    period:periodText(f.from,f.to),
     total:money(f.grand),
     due:fmtDate(f.due),
     // the send this letter belongs to, not the one before it
@@ -4443,6 +4443,21 @@ function payBlock(){
 // Everything the document and its covering letter both need, read once from
 // the sheet. The letter quotes the total it sits above, so the two must come
 // from the same arithmetic and not from two copies of it.
+// Earliest and latest bill_date across the billings on the document. Pure: it
+// reads the groups it is given and nothing else, so pdfPlan can use it too.
+function periodEnds(groups){
+  const ds=(groups||[]).map(g=>String(g&&g.bill_date||'').slice(0,10))
+    .filter(Boolean).sort();
+  return{from:ds[0]||'',to:ds[ds.length-1]||''};
+}
+// One date when both ends fall on the same day, a range when they do not. A
+// single billing covers a day, not a span, and "21 Aug 2026 — 21 Aug 2026"
+// reads as a mistake to whoever receives it.
+function periodText(from,to){
+  const a=String(from||'').slice(0,10),b=String(to||'').slice(0,10);
+  if(a&&b&&a!==b)return fmtDate(a)+' — '+fmtDate(b);
+  return fmtDate(a||b);
+}
 function stmtFacts(picked){
   // accept a bare row as a group of one, so a caller holding a single line
   // does not have to build the wrapper itself
@@ -4470,7 +4485,14 @@ function stmtFacts(picked){
     sub:sub,vat:vat,adj:adj,grand:sub+adj,terms:terms,
     due:new Date(Date.now()+terms*864e5).toISOString().slice(0,10),
     client:$('sClient').value,rec:clientRec($('sClient').value),
-    from:$('sFrom').value,to:$('sTo').value,
+    // The period covered is the billings themselves, not the window that was
+    // browsed to find them. The sheet's date filter is a selection mechanism:
+    // openStmtFor pins it to the billing's own date at BOTH ends so siblings
+    // are not pulled into the picker, which made every single-billing send read
+    // "covering 21 Aug 2026 — 21 Aug 2026" on the letter, the PDF and the
+    // printed page. Falls back to the filter when a billing carries no date.
+    from:periodEnds(groups).from||$('sFrom').value,
+    to:periodEnds(groups).to||$('sTo').value,
     // the send history, read once when the sheet opened. pdfPlan takes it from
     // here rather than looking it up, which is what keeps it a pure function of
     // facts -- pdfplan.test.mjs proves that by mutating facts and asserting the
@@ -4515,7 +4537,7 @@ function renderStatement(picked,opts){
     </div>
     ${oneVessel?`<div class="ves-box"><span class="k">Vessel name</span><span class="v">${esc(oneVessel)}</span></div>`:''}
     <div class="stmt-meta">
-      <div class="wide"><div class="k">Period covered</div><div class="v mono">${fmtDate($('sFrom').value)} — ${fmtDate($('sTo').value)}</div></div>
+      <div class="wide"><div class="k">Period covered</div><div class="v mono">${esc(periodText(f.from,f.to))}</div></div>
       <div><div class="k">Terms</div><div class="v mono">${terms} days</div></div>
       <div><div class="k">Due on</div><div class="v mono">${fmtDate(due)}</div></div>
     </div>
@@ -4720,7 +4742,7 @@ function pdfPlan(facts,issuedNo){
     t('Period covered',PDF_M,y,{size:8,bold:true});
     t('Terms',m2,y,{size:8,bold:true});
     t('Due on',m3,y,{size:8,bold:true});y+=12;
-    t(fmtDate(facts.from)+' \u2014 '+fmtDate(facts.to),PDF_M,y,{size:9});
+    t(periodText(facts.from,facts.to),PDF_M,y,{size:9});
     t(facts.terms+' days',m2,y,{size:9});
     t(fmtDate(facts.due),m3,y,{size:9});
     const bot=box(0,7);

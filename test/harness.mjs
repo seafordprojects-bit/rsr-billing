@@ -48,7 +48,7 @@ globalThis.__t={
   stmtFacts, letterTemplate, letterVars, fillLetter, composeLetter, letterWarning, letterHtml,
   pdfPlan, pdfDoc, pdfFilename, pdfMoney, pdfText, MARK_INK, words, pesoWords,
   mailSubject, markBilledNow, termsDefault, canonVessel, LETTER_DEFAULT, LETTER_KEYS,
-  fmtDate, today, money,
+  fmtDate, today, money, periodEnds, periodText,
   get pendingSend(){return pendingSend}
 };
 `;

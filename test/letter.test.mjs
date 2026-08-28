@@ -92,8 +92,15 @@ ok('the contact person becomes the salutation',
    /^Dear Mr\. Chua,/.test(letter), letter.split('\n')[0]);
 ok('the billing number is quoted', letter.includes('BILLDWG-26-001'));
 ok('the vessel is named', letter.includes('MV SF Voyager'));
-ok('the period reads as the covered range',
-   letter.includes('01 Aug 2026 — 31 Aug 2026'), letter);
+// The period is the billings on the document, not the window browsed to find
+// them. Every fixture line is dated 2026-08-19, so one day is the whole period
+// -- the sheet's 01-31 Aug filter is a selection mechanism and must not reach
+// the client. This assertion used to expect that filter range.
+ok('the period is the billings, not the filter window',
+   letter.includes('21 Aug 2026'), letter);
+ok('and a single day is not written as a range',
+   !letter.includes('21 Aug 2026 — 21 Aug 2026') &&
+   !letter.includes('01 Aug 2026 — 31 Aug 2026'), letter);
 ok('the total is the document total',
    letter.includes(app.money(app.stmtFacts(app.pickedRows()).grand)) &&
    /₱1,000\.00/.test(letter), letter);

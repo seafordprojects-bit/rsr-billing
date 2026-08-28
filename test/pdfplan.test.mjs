@@ -142,8 +142,14 @@ ok('the address, line by line',
    text.indexOf('12F Ayala Tower One') > -1 && text.indexOf('Makati City, Philippines') > -1);
 ok('the vessel is labelled as print labels it', text.indexOf('Vessel name') > -1);
 ok('Period covered', text.indexOf('Period covered') > -1);
+// The period comes from the billings' bill_date, all 2026-08-19 here, not from
+// the sheet's 01-31 Aug filter. It used to read the filter, so a single-billing
+// send printed "21 Aug 2026 — 21 Aug 2026" on the client's copy.
 ok('the period is formatted, not raw ISO',
-   text.indexOf(app.fmtDate('2026-08-01')) > -1 && text.indexOf('2026-08-01') === -1);
+   text.indexOf(app.fmtDate('2026-08-19')) > -1 && text.indexOf('2026-08-19') === -1);
+ok('one day prints as one date, not a range',
+   text.indexOf(app.fmtDate('2026-08-19') + ' — ' + app.fmtDate('2026-08-19')) === -1,
+   text.slice(text.indexOf('Period covered'), text.indexOf('Period covered') + 60));
 ok('Terms, in days', text.indexOf('30 days') > -1);
 ok('Due on', text.indexOf('Due on') > -1);
 ok('the due date is formatted, not raw ISO',
