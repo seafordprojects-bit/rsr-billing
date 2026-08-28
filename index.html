@@ -3830,6 +3830,7 @@ $('sPdf').onclick=async()=>{
   const btn=$('sPdf');
   btn.disabled=true;btn.textContent='Building…';
   try{
+    await loadStmtSend(picked);
     const facts=stmtFacts(picked);
     // load before claiming. A CDN that will not answer is the likeliest
     // failure here, and a number spent on a PDF that never built is gone.
@@ -4034,6 +4035,10 @@ $('sEmailBtn').onclick=async()=>{
     // the CC rides on the client record, not the sheet: it is a standing
     // instruction for that client rather than a per-send choice
     const cc=String((clientRec(client)||{}).email_cc||'').trim();
+    // before the letter is composed: composeLetter reads stmtFacts, and the
+    // attachment built at Send must carry the same Revised line the letter
+    // refers to
+    await loadStmtSend(list);
     pendingSend={list:list,to:to,cc:cc,client:client,shownNo:$('sNo').value.trim()};
     $('lTo').innerHTML='To <b>'+esc(to)+'</b>'+(cc?' · cc <b>'+esc(cc)+'</b>':'')+' · '+esc(client)+
       (list.length>1?' · '+list.length+' billings':'');
@@ -4045,6 +4050,18 @@ $('sEmailBtn').onclick=async()=>{
 };
 
 /* ---- the review step ---- */
+// The newest send of the billing on the sheet, or null. Filled when the sheet
+// opens; stmtFacts only reads it. A multi-group statement leaves it null --
+// three billings have no single history to quote on one document.
+let stmtSend=null;
+// Fill it for the billings about to be documented. One billing has a history
+// worth quoting; a statement covering several has none that belongs on a
+// single page, so it stays null and no Revised line is drawn. Called by every
+// path that builds a document, so the attachment and a downloaded copy agree.
+async function loadStmtSend(picked){
+  stmtSend=(picked&&picked.length===1)?await sendLogFor(picked[0].id):null;
+  return stmtSend;
+}
 let pendingSend=null;
 const backToStatement=()=>{pendingSend=null;show('sheetStmt');};
 $('lBack').onclick=backToStatement;
@@ -4157,7 +4174,13 @@ function stmtFacts(picked){
     sub:sub,vat:vat,adj:adj,grand:sub+adj,terms:terms,
     due:new Date(Date.now()+terms*864e5).toISOString().slice(0,10),
     client:$('sClient').value,rec:clientRec($('sClient').value),
-    from:$('sFrom').value,to:$('sTo').value};
+    from:$('sFrom').value,to:$('sTo').value,
+    // the send history, read once when the sheet opened. pdfPlan takes it from
+    // here rather than looking it up, which is what keeps it a pure function of
+    // facts -- pdfplan.test.mjs proves that by mutating facts and asserting the
+    // output follows, and a plan that fetched its own data would fail it.
+    sendNo:Number(stmtSend&&stmtSend.send_no)||0,
+    revisedAt:(stmtSend&&stmtSend.sent_at)?String(stmtSend.sent_at).slice(0,10):''};
 }
 
 function renderStatement(picked,opts){
@@ -4351,6 +4374,14 @@ function pdfPlan(facts,issuedNo){
   t('Billing',right,ry,{size:11,bold:true,align:'right'});ry+=16;
   if(issuedNo){t(issuedNo,right,ry,{size:12,bold:true,align:'right'});ry+=13;}
   t(fmtDate(today()),right,ry,{size:9,align:'right'});ry+=11;
+  // A correction keeps its billing number, so this line is the only thing on
+  // the client's copy that says they are holding a second one. Drawn from
+  // facts alone -- pdfPlan never looks the history up itself. Not italic:
+  // pdfDoc sets helvetica bold or normal and nothing else, so a style key
+  // here would be silently dropped.
+  if(Number(facts.sendNo)>1&&facts.revisedAt){
+    t('Revised '+fmtDate(facts.revisedAt),right,ry,{size:8.5,align:'right'});ry+=11;
+  }
   y=Math.max(ly,ry,hy+42)+2;
   // Drawn to the box's width, not the text's: print gives .bill-to
   // border-top:0 because it butts against this rule, and a narrower rule

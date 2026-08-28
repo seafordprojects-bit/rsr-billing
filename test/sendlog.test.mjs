@@ -89,6 +89,60 @@ ok('gids ride in the same payload as statement_no',
    /statement_no:/.test(payloadBlock) && /gids:/.test(payloadBlock),
    payloadBlock.slice(0, 300));
 
+console.log('\n--- C. a re-sent billing is marked Revised ---');
+const pRows = [
+  { id:'r1', line_no:1, group_id:'g1', code:'RSR-DW-082026-001', bill_no:'BILLDWG-26-003',
+    client:'Seaford Shipping Lines', vessel:'MV SF Voyager', drawing_no:'D-101',
+    drawing_title:'Shell Expansion Plan', qty:2, rate:1500, status:'DRAFT',
+    bill_date:'2026-08-19' },
+];
+app.rows.push.apply(app.rows, pRows);
+app.clients.push({ id:'c1', name:'Seaford Shipping Lines',
+                   address:'12F Ayala Tower One', billing_email:'ap@seaford.test' });
+app.openStmt();
+document.getElementById('sClient').value = 'Seaford Shipping Lines';
+document.getElementById('sVat').value = '0';
+document.getElementById('sTerms').value = '30';
+document.getElementById('sFrom').value = '2026-08-01';
+document.getElementById('sTo').value = '2026-08-31';
+
+const textOf = pl => pl.ops.filter(o => o.t === 'text').map(o => o.s).join('\n');
+
+// pdfPlan is pure: the send history reaches it through facts, never by a
+// lookup of its own, which is what keeps pdfplan.test.mjs's mutate-and-follow
+// property true.
+const f0 = app.stmtFacts([app.groupOf(pRows)]);
+ok('stmtFacts carries a send number', typeof f0.sendNo === 'number', typeof f0.sendNo);
+ok('and a revised date', typeof f0.revisedAt === 'string', typeof f0.revisedAt);
+ok('never sent reads as 0', f0.sendNo === 0, String(f0.sendNo));
+
+ok('a first send carries no Revised line',
+   !/Revised/.test(textOf(app.pdfPlan({ ...f0, sendNo:1, revisedAt:'2026-08-28' },
+                                      'BILLDWG-26-003'))));
+ok('and neither does a never-sent one',
+   !/Revised/.test(textOf(app.pdfPlan(f0, 'BILLDWG-26-003'))));
+
+const rev = app.pdfPlan({ ...f0, sendNo:2, revisedAt:'2026-08-28' }, 'BILLDWG-26-003');
+const revOp = rev.ops.find(o => o.t === 'text' && /Revised/.test(o.s));
+ok('a re-send carries one', !!revOp, textOf(rev).slice(0, 200));
+ok('it names the date', !!revOp && /28 Aug 2026/.test(revOp.s), revOp && revOp.s);
+ok('it is right-aligned with the rest of the header block',
+   !!revOp && revOp.align === 'right', revOp && String(revOp.align));
+ok('it sits on page one', !!revOp && (revOp.p || 0) === 0);
+// jsPDF's standard fonts are cp1252; one char above U+00FF re-encodes the
+// whole string as UTF-16 and the line turns to rubbish
+ok('it stays cp1252-safe', !!revOp && !/[^\u0000-\u00FF]/.test(revOp.s), revOp && revOp.s);
+
+ok('the billing number is unchanged -- no -R suffix',
+   textOf(rev).includes('BILLDWG-26-003') && !/-R\d/.test(textOf(rev)));
+ok('the tracking code still never reaches the client copy',
+   !/RSR-DW-082026-001/.test(textOf(rev)));
+
+// the facts are the only input: mutating them must move the output
+ok('a later revised date follows the facts',
+   /29 Aug 2026/.test(textOf(app.pdfPlan({ ...f0, sendNo:3, revisedAt:'2026-08-29' },
+                                         'BILLDWG-26-003'))));
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
