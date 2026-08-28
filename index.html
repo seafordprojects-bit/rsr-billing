@@ -3838,20 +3838,62 @@ function confirmMultiGroup(groups){
 // Only a DRAFT moves. A billing already BILLED keeps its original
 // billed_date, and one already PAID is never walked backwards — re-sending
 // or reprinting either of them changes nothing. Returns how many moved.
-function markBilledNow(list){
-  let n=0;
+// Returns what actually happened, not what was attempted:
+//   {n, queued, dead}  — n billings reached the server, queued lines are
+//                        waiting to sync, dead ones the server refused.
+// It used to return the count of billings it INTENDED to move, which is a
+// different number and, on a bad day, a false one: a refused write left the
+// job dead in Pending writes while the toast said "marked billed". The count
+// now means the server has it.
+async function markBilledNow(list){
+  const moved=[],pending=[];
   (list||[]).forEach(g=>{
     if(g.status!=='DRAFT')return;
-    g.lines.forEach(r=>{r.status='BILLED';if(!r.billed_date)r.billed_date=today();saveRow(r,false);});
-    n++;
+    // keep every promise: awaiting flushQueue() here would not do, because a
+    // pass already in flight makes it return at once on the re-entry guard,
+    // and the queue would be read while the writes were still going out
+    g.lines.forEach(r=>{r.status='BILLED';if(!r.billed_date)r.billed_date=today();
+      pending.push(saveRow(r,false));});
+    moved.push(g);
   });
-  return n;
+  if(!moved.length)return{n:0,queued:0,dead:0};
+  try{await Promise.all(pending);}catch(e){}
+  persist();render();
+  // a line is unfinished if a job still names it, dead or merely waiting
+  const waiting=new Map();
+  queue.forEach(j=>{
+    const id=String(j.id||j.localId||'');
+    if(id)waiting.set(id,(waiting.get(id)||false)||!!j.dead);
+  });
+  let n=0,queued=0,dead=0;
+  moved.forEach(g=>{
+    let stuck=false;
+    g.lines.forEach(r=>{
+      const id=String(r.id);
+      if(!waiting.has(id))return;
+      stuck=true;
+      if(waiting.get(id))dead++;else queued++;
+    });
+    if(!stuck)n++;
+  });
+  return{n:n,queued:queued,dead:dead};
 }
-function offerMarkBilled(list){
+// One sentence for whatever happened, in the order that matters: a refusal
+// first, because it is the only outcome that needs a person.
+function markSummary(res){
+  if(!res||(!res.n&&!res.queued&&!res.dead))return'';
+  const bits=[];
+  if(res.n)bits.push(res.n+' marked billed');
+  if(res.queued)bits.push(res.queued+' waiting to sync');
+  if(res.dead)bits.push(res.dead+' refused by the server — see Settings, Pending writes');
+  return bits.join(' · ');
+}
+async function offerMarkBilled(list){
   const movable=(list||[]).filter(g=>g.status==='DRAFT');
   if(!movable.length)return;
   if(!confirm('Mark these '+movable.length+' billing(s) as BILLED?'))return;
-  toast(markBilledNow(movable)+' marked billed');
+  const res=await markBilledNow(movable);
+  toast(markSummary(res)||'Nothing was marked',!!res.dead);
 }
 
 // Preview prints the document without claiming a number or marking anything.
@@ -3899,10 +3941,11 @@ $('sPrint').onclick=async()=>{
     window.print();
     // print cannot report success, so this stays a confirm unless Settings
     // says otherwise — nothing here knows whether paper actually came out
-    setTimeout(()=>{
+    setTimeout(async()=>{
       if(!cfg.autoMarkPrint){offerMarkBilled(list);return;}
-      const n=markBilledNow(list);
-      if(n)toast(n+' marked billed');
+      const res=await markBilledNow(list);
+      const msg=markSummary(res);
+      if(msg)toast(msg,!!res.dead);
     },400);
   },220);
 };
@@ -4169,8 +4212,10 @@ $('lSend').onclick=async()=>{
     // omitted entirely when blank, so the function never sees an empty cc
     if(p.cc)payload.cc=p.cc;
     const res=await fnPost('send-statement',payload);
-    // only now, with the function's own confirmation in hand
-    const n=markBilledNow(p.list);
+    // only now, with the function's own confirmation in hand. Awaited: the
+    // count has to mean the status reached the server, or a refused write
+    // reads to the sender as a billing that moved.
+    const mark=await markBilledNow(p.list);
     pendingSend=null;
     hide();
     // The mail is already gone, so this can only report -- but a billing whose
@@ -4178,8 +4223,12 @@ $('lSend').onclick=async()=>{
     // saying out loud rather than leaving in a row nobody opens.
     if(res&&res.total_mismatch){
       toast('Sent, but the recorded total does not match what was emailed — check the billing',true);
+    }else if(mark.dead||mark.queued){
+      // the mail went; the status did not. Saying only "sent" would leave a
+      // billing the client has sitting in DRAFT with nobody the wiser.
+      toast('Sent to '+p.to+' — but '+markSummary(mark),true);
     }else{
-      toast('Sent to '+p.to+(p.cc?' (cc '+p.cc+')':'')+(n?' — marked billed':''));
+      toast('Sent to '+p.to+(p.cc?' (cc '+p.cc+')':'')+(mark.n?' — marked billed':''));
     }
   }catch(e){
     // the send failed, so nothing is marked and the letter is kept for

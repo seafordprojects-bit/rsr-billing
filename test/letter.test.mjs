@@ -276,13 +276,15 @@ ok('every line moved, not just the first',
 console.log('\n--- re-sending an already BILLED billing changes nothing ---');
 const wasDate = app.allGroups()[0].lines[0].billed_date;
 app.allGroups()[0].lines.forEach(r => { r.billed_date = '2026-01-01'; });
-ok('markBilledNow leaves BILLED alone', app.markBilledNow(app.allGroups()) === 0);
+ok('markBilledNow leaves BILLED alone',
+   (await app.markBilledNow(app.allGroups())).n === 0);
 ok('and does not restamp the date',
    app.allGroups()[0].lines[0].billed_date === '2026-01-01', wasDate);
 
 console.log('\n--- a PAID billing is never walked back ---');
 app.markGroup(app.allGroups()[0].id, 'PAID');
-ok('still PAID after a send would mark', app.markBilledNow(app.allGroups()) === 0);
+ok('still PAID after a send would mark',
+   (await app.markBilledNow(app.allGroups())).n === 0);
 ok('status untouched', app.allGroups()[0].status === 'PAID');
 
 console.log('\n--- 7. a failed send leaves status alone ---');

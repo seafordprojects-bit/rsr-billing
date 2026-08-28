@@ -275,7 +275,7 @@ for (const n of [2, 4]) {
   net.mode = 'online';
   for (let i = 0; i < n; i++) app.rows.push(mkLine('srv-' + i, i));
   net.calls.length = 0;
-  app.markBilledNow(app.allGroups());
+  await app.markBilledNow(app.allGroups());
   await settle();
   const patched = net.calls.filter(c => c.method === 'PATCH')
     .map(c => String(c.url).split('id=eq.')[1]);
@@ -308,6 +308,65 @@ ok('queue is never reassigned outside boot',
    'a reassignment is back');
 ok('removals go through queueDrop',
    /const queueDrop=pred=>/.test(srcHtml) && /queueDrop\(/.test(srcHtml));
+
+console.log('\n--- Z2. markBilledNow reports what landed, not what it tried ---');
+// It returned the number of billings it INTENDED to move, so a write the
+// server refused still toasted "marked billed" while the job sat dead in
+// Pending writes. The count now means: reached the server.
+const markSetup = (n) => {
+  wipe();
+  const a = globalThis.__loadApp();
+  configure(a);
+  a.setSession({ access_token:'t', refresh_token:'r', expires_at: 2e9,
+                 user:{ email:'raffy@rsr.test' } });
+  net.mode = 'online';
+  for (let i = 0; i < n; i++) a.rows.push(mkLine('srv-t' + i, i));
+  return a;
+};
+
+app = markSetup(2);
+let res = await app.markBilledNow(app.allGroups());
+ok('a clean send reports the billing as landed', res.n === 1, JSON.stringify(res));
+ok('nothing queued', res.queued === 0, JSON.stringify(res));
+ok('nothing rejected', res.dead === 0, JSON.stringify(res));
+
+console.log('\n--- Z3. a rejected write is not reported as marked ---');
+app = markSetup(2);
+// the server permanently refuses one line: a 400 is not retried, it goes dead
+net.script.push({ match:'id=eq.srv-t1', method:'PATCH', status:400,
+                  body:{ message:'value too long', code:'22001' }, keep:true });
+res = await app.markBilledNow(app.allGroups());
+ok('the billing is NOT counted as marked', res.n === 0, JSON.stringify(res));
+ok('and the rejection is counted', res.dead === 1, JSON.stringify(res));
+ok('the dead job is in Pending writes', app.queue.filter(j => j.dead).length === 1,
+   String(app.queue.filter(j => j.dead).length));
+net.script.length = 0;
+
+console.log('\n--- Z4. offline is queued, not lost, and says so ---');
+app = markSetup(2);
+net.mode = 'offline';
+res = await app.markBilledNow(app.allGroups());
+ok('not reported as landed', res.n === 0, JSON.stringify(res));
+ok('but reported as queued', res.queued === 2, JSON.stringify(res));
+ok('and nothing is dead', res.dead === 0, JSON.stringify(res));
+ok('the lines are BILLED locally', app.rows.every(r => r.status === 'BILLED'));
+net.mode = 'online';
+
+console.log('\n--- Z5. an already-billed billing is still left alone ---');
+app = markSetup(2);
+app.rows.forEach(r => { r.status = 'BILLED'; r.billed_date = '2026-08-24'; });
+res = await app.markBilledNow(app.allGroups());
+ok('nothing moves', res.n === 0 && res.queued === 0 && res.dead === 0, JSON.stringify(res));
+ok('the original billed_date is kept',
+   app.rows.every(r => r.billed_date === '2026-08-24'));
+
+console.log('\n--- Z6. the callers await it ---');
+ok('lSend awaits the mark',
+   /await markBilledNow\(/.test(srcHtml), 'lSend');
+ok('offerMarkBilled awaits it too',
+   /async function offerMarkBilled|offerMarkBilled=async/.test(srcHtml), 'offerMarkBilled');
+ok('no call site uses the bare return as a number',
+   !/[^t]\bmarkBilledNow\([^)]*\)\s*\+/.test(srcHtml), 'string-concatenated count');
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');

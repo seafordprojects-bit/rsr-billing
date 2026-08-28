@@ -294,8 +294,13 @@ ok('and the group reports nothing mixed', app.groupById(sgid).mixed.length === 0
 ok('group reads BILLED', app.groupById(sgid).status === 'BILLED', app.groupById(sgid).status);
 
 app.markGroup(sgid, 'DRAFT');
-const moved = app.markBilledNow(app.allGroups());
-ok('markBilledNow moved the one group', moved === 1, String(moved));
+const moved = await app.markBilledNow(app.allGroups());
+// this suite runs offline, so n (billings the SERVER has) is 0 by design and
+// the three line writes are queued -- which is exactly what should be reported
+ok('markBilledNow queues the group offline, and claims nothing landed',
+   moved.n === 0 && moved.queued === 3 && moved.dead === 0, JSON.stringify(moved));
+ok('and the group is BILLED locally', app.groupById(sgid).status === 'BILLED',
+   app.groupById(sgid).status);
 ok('markBilledNow leaves every line agreeing', disagree(sgid).length === 0, disagree(sgid).join(','));
 ok('and nothing mixed after it', app.groupById(sgid).mixed.length === 0,
    JSON.stringify(app.groupById(sgid).mixed));
@@ -313,7 +318,8 @@ app.render();
 ok('Monitoring badges it', el('list').innerHTML.includes('Lines differ'));
 ok('and the badge names the field', /Lines differ[^<]*status/.test(el('list').innerHTML));
 
-ok('the split group is still markable', app.markBilledNow(app.allGroups()) === 1);
+ok('the split group is still markable',
+   (await app.markBilledNow(app.allGroups())).queued > 0);
 ok('marking heals it', disagree(sgid).length === 0, disagree(sgid).join(','));
 ok('and clears the mixed flag', app.groupById(sgid).mixed.length === 0,
    JSON.stringify(app.groupById(sgid).mixed));
