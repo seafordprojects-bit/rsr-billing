@@ -1092,7 +1092,10 @@ const DEFAULT_CFG={
   // billing document
   billPrefix:'BILLDWG',billYear:'',billSeq:0,
   payee:'',remitEmail:'',showPrepared:false,hideNoCharge:false,
-  letter:'',autoMarkPrint:false,
+  // letter:'' is ambiguous on its own -- it is both "never customised" and
+  // "cleared on purpose". letterCleared carries the intent, so a device that
+  // never touched the box does not publish a row that looks like a clear.
+  letter:'',letterCleared:false,autoMarkPrint:false,
   banks:[]
 };
 // The covering letter that opens an emailed billing. Held empty in cfg and
@@ -2051,7 +2054,12 @@ function applySettings(){
     while(cfg.banks.length<2)cfg.banks.push({bank:'',name:'',acct:''});
   }
   const l=settings['letter'];
-  if(l&&l.value&&typeof l.value.text==='string')cfg.letter=l.value.text;
+  if(l&&l.value&&typeof l.value.text==='string'){
+    cfg.letter=l.value.text;
+    // adopt the intent too, so this device can republish the clear rather than
+    // falling silent and letting a stale device put the old wording back
+    cfg.letterCleared=!!l.value.cleared;
+  }
   Object.keys(settings).forEach(k=>{
     if(k.indexOf('billseq:')!==0)return;
     const r=settings[k];
@@ -2072,10 +2080,15 @@ async function pushSharedSettings(){
   queueSetting('payment',{value:{payee:cfg.payee||'',remitEmail:cfg.remitEmail||'',
                                  banks:cfg.banks||[]}});
   // The covering letter is the firm's wording, not a per-device preference:
-  // every device should send the same letter. Empty is a real value here and
-  // means LETTER_DEFAULT, so saving Settings on a device that never customised
-  // it will replace a custom letter written elsewhere.
-  queueSetting('letter',{value:{text:cfg.letter||''}});
+  // every device should send the same letter. Empty is a real value and means
+  // LETTER_DEFAULT -- but only when somebody meant it. This used to publish an
+  // empty letter from any device that had never touched the box, which both
+  // overwrote a custom letter written elsewhere and created a row that read
+  // exactly like a deliberate clear. Push only what this device actually has
+  // to say: a letter, or a clear it performed itself.
+  if(String(cfg.letter||'').trim()||cfg.letterCleared){
+    queueSetting('letter',{value:{text:cfg.letter||'',cleared:!!cfg.letterCleared}});
+  }
   if(online()){try{await flushQueue();persist();}catch(e){}syncBadge();}
 }
 // First sync on a device that already had settings locally: push whatever the
@@ -5502,7 +5515,16 @@ $('cSave').onclick=async()=>{
   cfg.signer=$('cSigner').value.trim();cfg.role=$('cRole').value.trim();
   cfg.showPrepared=$('cPrepared').checked;
   // an emptied box means the standard wording, not an empty letter
-  cfg.letter=$('cLetter').value.trim()===LETTER_DEFAULT.trim()?'':$('cLetter').value;
+  const boxLetter=$('cLetter').value;
+  const backToDefault=!String(boxLetter).trim()||
+                      String(boxLetter).trim()===LETTER_DEFAULT.trim();
+  const hadCustom=!!String(cfg.letter||'').trim();
+  cfg.letter=backToDefault?'':boxLetter;
+  // A clear is only a clear when there was something to clear. Emptying a box
+  // that was already on the default is not an instruction to anybody, and
+  // publishing it as one would overwrite another device's letter.
+  if(backToDefault){ if(hadCustom)cfg.letterCleared=true; }
+  else cfg.letterCleared=false;
   // warn while the box is still open and editable, which is the moment it
   // can actually be fixed
   const lw=letterWarning(letterTemplate(),{contact:'{contact}'});

@@ -160,6 +160,70 @@ ok('an empty shared letter still means the standard wording', (() => {
   return appM.letterTemplate() === appM.LETTER_DEFAULT;
 })(), appM.letterTemplate().slice(0, 40));
 
+console.log('\n--- C3. a deliberate clear is distinguishable from never having set one ---');
+// letter:'' meant both "never customised" and "cleared on purpose". Any device
+// saving Settings for an unrelated reason published {text:''}, which both
+// overwrote a custom letter written elsewhere and created a row that read
+// exactly like a clear -- after which migrateSettings sees a row and stays
+// quiet for good.
+const wait = () => new Promise(r => setTimeout(r, 40));
+
+// 1. a device that never touched the box publishes nothing at all
+server.rows.delete('letter');
+const appN = boot();
+await wait();
+appN.cfg.letter = ''; appN.cfg.letterCleared = false;
+await appN.pushSharedSettings();
+await wait();
+ok('a device with no letter publishes no letter row', !server.rows.has('letter'),
+   JSON.stringify(server.rows.get('letter')));
+ok('and its other settings still go up', server.rows.has('payment'));
+
+// 2. a device that cleared one publishes the clear, and says so
+const appC = boot({ letter: CUSTOM });
+await wait();
+appC.cfg.letter = ''; appC.cfg.letterCleared = true;
+await appC.pushSharedSettings();
+await wait();
+const row = server.rows.get('letter');
+ok('a deliberate clear is published', !!row, JSON.stringify(row));
+ok('as empty text', !!row && row.value.text === '', JSON.stringify(row && row.value));
+ok('and flagged as cleared', !!row && row.value.cleared === true,
+   JSON.stringify(row && row.value));
+
+// 3. a device reading it adopts the intent, so it can republish rather than
+//    fall silent and let a stale device put the old wording back
+const appR = boot();
+await wait();
+ok('the reader ends on the standard wording', appR.letterTemplate() === appR.LETTER_DEFAULT);
+ok('and knows the clear was deliberate', appR.cfg.letterCleared === true,
+   String(appR.cfg.letterCleared));
+server.rows.delete('letter');
+await appR.pushSharedSettings();
+await wait();
+ok('so saving there republishes the clear', !!server.rows.get('letter') &&
+   server.rows.get('letter').value.cleared === true,
+   JSON.stringify(server.rows.get('letter')));
+
+// 4. a published letter clears the flag again
+const appW = boot();
+await wait();
+appW.cfg.letter = CUSTOM; appW.cfg.letterCleared = false;
+await appW.pushSharedSettings();
+await wait();
+ok('writing a letter publishes it', server.rows.get('letter').value.text === CUSTOM);
+ok('and is not flagged as a clear', server.rows.get('letter').value.cleared === false,
+   JSON.stringify(server.rows.get('letter').value));
+
+// 5. the source rule the whole thing rests on
+const saveSrc = html.slice(html.indexOf('const boxLetter='),
+                           html.indexOf('const boxLetter=') + 700);
+ok('a clear is only recorded when there was something to clear',
+   /if\(hadCustom\)cfg\.letterCleared=true;/.test(saveSrc), saveSrc.slice(0, 200));
+ok('and typing a letter takes the flag back off',
+   /else cfg\.letterCleared=false;/.test(saveSrc), saveSrc.slice(0, 300));
+
+
 console.log('\n--- D. a second device reads them instead of re-entering ---');
 const app2 = boot();                    // fresh device, empty local settings
 await new Promise(r => setTimeout(r, 40));
