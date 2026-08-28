@@ -320,6 +320,84 @@ ok('and clears the mixed flag', app.groupById(sgid).mixed.length === 0,
 app.render();
 ok('the badge is gone', !el('list').innerHTML.includes('Lines differ'));
 
+console.log('\n--- Q. money is bucketed by line status, not group status ---');
+// The exact six rows on the server on 2026-08-28, one per line, all qty 1 at
+// 10,000:
+//   loc-mt2hn5wi44njli (RSR-DW-082026-001)  3 BILLED, 1 DRAFT
+//   loc-mt88r2ibt80wtm (RSR-DW-082026-002)  1 BILLED, 1 DRAFT
+// Correct: unbilled 20,000, receivable 40,000, collected 0.
+// Both groups roll up to DRAFT, so bucketing whole-group amounts by group
+// status put all 60,000 in unbilled and left receivable empty.
+let seq = 0;
+const L = (gid, code, status, extra) => Object.assign({
+  id: 'ln' + (++seq), group_id: gid, code,
+  bill_no: 'BILLDWG-26-' + code.slice(-3),
+  client: 'Seaford', vessel: 'MV SF CRUISER', doc_type: 'DW',
+  bill_date: '2026-08-21', drawing_title: 'Line ' + seq,
+  qty: 1, rate: 10000, status, billable: true, line_no: null,
+  created_at: '2026-08-21T05:00:0' + seq + 'Z',
+}, extra || {});
+
+const six = [
+  L('loc-mt2hn5wi44njli', 'RSR-DW-082026-001', 'BILLED'),
+  L('loc-mt2hn5wi44njli', 'RSR-DW-082026-001', 'BILLED'),
+  L('loc-mt2hn5wi44njli', 'RSR-DW-082026-001', 'BILLED'),
+  L('loc-mt2hn5wi44njli', 'RSR-DW-082026-001', 'DRAFT'),
+  L('loc-mt88r2ibt80wtm', 'RSR-DW-082026-002', 'BILLED'),
+  L('loc-mt88r2ibt80wtm', 'RSR-DW-082026-002', 'DRAFT'),
+];
+app = reset(six);
+app.render();
+const txt = id => document.getElementById(id).textContent;
+
+ok('six lines in two billings', app.rows.length === 6 && app.allGroups().length === 2,
+   app.rows.length + ' rows / ' + app.allGroups().length + ' groups');
+ok('unbilled counts only DRAFT lines',    txt('tDraft') === '₱20,000', txt('tDraft'));
+ok('receivable counts only BILLED lines', txt('tRecv')  === '₱40,000', txt('tRecv'));
+ok('collected is zero',                   txt('tPaid')  === '₱0',      txt('tPaid'));
+
+// a split billing lands in two tiles, so it has to be counted in both --
+// otherwise receivable reads 40,000 across "0 billings"
+ok('both billings have unbilled work',  /2 billings/.test(txt('cDraft')), txt('cDraft'));
+ok('both have receivable work',         /2 billings/.test(txt('cRecv')),  txt('cRecv'));
+ok('none collected',                    /0 billings/.test(txt('cPaid')),  txt('cPaid'));
+
+console.log('\n--- Q2. the chips reach the billed work inside a split billing ---');
+const chips = document.getElementById('chips').innerHTML;
+ok('the Draft chip counts 2',  /Draft<span class="n">2</.test(chips),  chips);
+ok('the Billed chip counts 2', /Billed<span class="n">2</.test(chips), chips);
+ok('the Paid chip counts 0',   /Paid<span class="n">0</.test(chips),   chips);
+
+app.filters.status = 'BILLED';
+app.render();
+ok('the Billed chip lists the split billing',
+   /RSR-DW-082026-001/.test(document.getElementById('list').innerHTML));
+app.filters.status = 'DRAFT';
+app.render();
+ok('and so does the Draft chip',
+   /RSR-DW-082026-001/.test(document.getElementById('list').innerHTML));
+app.filters.status = 'ALL';
+app.render();
+
+console.log('\n--- Q3. groupOf is untouched ---');
+const qg1 = app.groupById('loc-mt2hn5wi44njli');
+const qg2 = app.groupById('loc-mt88r2ibt80wtm');
+ok('a split group still reads least-advanced', qg1.status === 'DRAFT', qg1.status);
+ok('and so does the second', qg2.status === 'DRAFT', qg2.status);
+ok('the group total is still the whole billing', qg1.total === 40000, String(qg1.total));
+ok('mixed still names status', qg2.mixed.includes('status'), JSON.stringify(qg2.mixed));
+const shown = document.getElementById('list').innerHTML;
+ok('the DRAFT badge is still drawn', /class="badge DRAFT">DRAFT</.test(shown));
+ok('the Lines differ badge is still drawn', /Lines differ/.test(shown));
+
+console.log('\n--- Q4. no-charge work is delivered, not owed ---');
+app = reset(six.concat([
+  L('g-free', 'RSR-DW-082026-003', 'DRAFT', { billable:false }),
+]));
+app.render();
+ok('a no-charge line adds nothing to unbilled', txt('tDraft') === '₱20,000', txt('tDraft'));
+ok('and its billing is not counted',            /2 billings/.test(txt('cDraft')), txt('cDraft'));
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

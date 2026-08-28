@@ -1727,7 +1727,10 @@ function nextCode(dateStr,type,extra){
 function visible(){
   const q=filters.q.trim().toLowerCase();
   return allGroups().filter(g=>{
-    if(filters.status!=='ALL'&&g.status!==filters.status)return false;
+    // has a line in that status, not "its rolled-up status equals it" -- a
+    // split billing is listed under both chips, because part of it is billed
+    // and part is not, and the other way round its billed work is unreachable
+    if(filters.status!=='ALL'&&!g.lines.some(r=>r.status===filters.status))return false;
     if(filters.type&&typeOf(g)!==filters.type)return false;
     if(filters.client&&g.client!==filters.client)return false;
     if(filters.month&&monthKey(g.bill_date)!==filters.month)return false;
@@ -1761,8 +1764,28 @@ function render(){
     return true;
   });
   const agg={};STATUSES.forEach(s=>agg[s]={n:0,v:0});
-  // a wholly no-charge billing is delivered work, not money owed
-  scope.filter(g=>!g.allFree).forEach(g=>{const s=agg[g.status]||agg.DRAFT;s.n++;s.v+=g.total;});
+  // Money is summed per LINE, by that line's own status -- never by the
+  // group's. groupOf reports the least-advanced line, which is right for the
+  // badge and deliberately so, but it is the wrong question to ask of money: a
+  // billing with three lines billed and one still draft had its whole amount
+  // counted as unbilled, so 60,000 sat in Unbilled and Receivable read zero
+  // while 40,000 was genuinely owed. A split billing belongs in more than one
+  // tile, because part of it really is billed and part of it really is not.
+  //
+  // The count stays per billing rather than per line -- "2 billings" means
+  // billings -- but it counts a billing into every tile it has a line in, or
+  // Receivable would read 40,000 across "0 billings".
+  //
+  // amountOf already returns 0 for a no-charge line, so the value needs no
+  // filter of its own; allFree keeps a wholly no-charge billing out of the
+  // counts, because that is delivered work, not money owed.
+  scope.filter(g=>!g.allFree).forEach(g=>{
+    STATUSES.forEach(s=>{
+      if(!g.lines.some(r=>r.status===s))return;
+      agg[s].n++;
+      agg[s].v+=g.lines.reduce((t,r)=>t+(r.status===s?amountOf(r):0),0);
+    });
+  });
   const bill=n=>n+' billing'+(n===1?'':'s');
   $('tDraft').textContent=moneyShort(agg.DRAFT.v);$('cDraft').textContent=bill(agg.DRAFT.n);
   $('tRecv').textContent=moneyShort(agg.BILLED.v);$('cRecv').textContent=bill(agg.BILLED.n);
@@ -1770,7 +1793,14 @@ function render(){
 
   // chips
   const counts={ALL:scope.length};
-  STATUSES.forEach(s=>{counts[s]=scope.filter(g=>g.status===s).length;});
+  // A billing appears under every chip it has a line in, matching what the
+  // chip actually lists. Equality on the group's rolled-up status hid billed
+  // work: a billing with three billed lines and one draft one showed under
+  // Draft alone, so there was no way to reach it from Billed. The counts can
+  // therefore sum to more than ALL, which is correct -- a split billing really
+  // is in both places.
+  STATUSES.forEach(s=>{
+    counts[s]=scope.filter(g=>g.lines.some(r=>r.status===s)).length;});
   const labels={ALL:'All',DRAFT:'Draft',BILLED:'Billed',PAID:'Paid'};
   $('chips').innerHTML=['ALL'].concat(STATUSES).map(s=>
     `<button class="chip${filters.status===s?' on':''}" data-status="${s}">${labels[s]}<span class="n">${counts[s]||0}</span></button>`).join('');
