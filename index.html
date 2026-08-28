@@ -1107,7 +1107,8 @@ const LETTER_DEFAULT=
   'Raffy J. Ramirez\n'+
   'Naval Architect & Marine Engineer\n'+
   'RSR Engineering Services';
-const LETTER_KEYS=['contact','billno','vessel','period','total','due'];
+const LETTER_KEYS=['contact','billno','vessel','period','total','due',
+                   'send_no','revised_note','change_note'];
 const letterTemplate=()=>String(cfg.letter||'').trim()?cfg.letter:LETTER_DEFAULT;
 let cfg=Object.assign({},DEFAULT_CFG);
 try{Object.assign(cfg,JSON.parse(localStorage.getItem(LS_CFG)||'{}'));}catch(e){}
@@ -4090,7 +4091,51 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 // honorific or gender anywhere in the data, so "Ashford Chua" is never turned
 // into "Mr. Chua" — that form is typed into Salutation, which exists because
 // Bill To needs the full name on the same record.
-function letterVars(f,no){
+// What the client will see as different from the copy they already hold.
+// Computed here against the snapshot of what was SENT, not read off that row's
+// change_kind: that field says how the previous send differed from the one
+// before it, which is a different question and would describe the wrong pair.
+function changeSince(prior,f){
+  if(!prior)return null;
+  const was=Number(prior.total),now=Number(f&&f.grand)||0;
+  const prev=Array.isArray(prior.lines)?prior.lines:[];
+  const byId={};prev.forEach(r=>{if(r&&r.id!=null)byId[String(r.id)]=r;});
+  const seen={},named=[];
+  (f&&f.list||[]).forEach(r=>{
+    if(!r)return;
+    const id=String(r.id);seen[id]=true;
+    const o=byId[id];
+    const title=String(r.drawing_title||'').trim();
+    if(!o){if(title)named.push(title);return;}          // added
+    if(Number(o.qty)!==Number(r.qty)||Number(o.rate)!==Number(r.rate)||
+       String(o.drawing_title||'')!==String(r.drawing_title||''))
+      {if(title)named.push(title);}                     // amended
+  });
+  prev.forEach(r=>{                                     // removed
+    if(!r||seen[String(r.id)])return;
+    const title=String(r.drawing_title||'').trim();if(title)named.push(title);
+  });
+  return{delta:isFinite(was)?now-was:0,titles:named};
+}
+function letterVars(f,no,prior){
+  // f.sendNo is the PREVIOUS send, so 0 means never sent and this letter is
+  // send 1. A billing sent once is on its first correction, not its second.
+  const sent=Number(f&&f.sendNo)||0;
+  const revised_note=(sent>=1&&f.revisedAt)
+    ? 'This billing replaces the copy sent on '+fmtDate(f.revisedAt)+
+      '. The billing number is unchanged.'
+    : '';
+  let change_note='';
+  if(sent>=1&&prior){
+    const c=changeSince(prior,f);
+    if(c){
+      const d=c.delta;
+      const head=d>0?'The total has increased by '+money(Math.abs(d))+'.'
+                :d<0?'The total has decreased by '+money(Math.abs(d))+'.'
+                :'The total is unchanged.';
+      change_note=head+(c.titles.length?' Amended: '+c.titles.join(', ')+'.':'');
+    }
+  }
   return {
     contact:(f.rec&&(String(f.rec.salutation||'').trim()||
                      String(f.rec.contact_person||'').trim()))||'Sir/Madam',
@@ -4098,13 +4143,21 @@ function letterVars(f,no){
     vessel:f.vessels.length?f.vessels.join(', '):'your vessel',
     period:fmtDate(f.from)+' — '+fmtDate(f.to),
     total:money(f.grand),
-    due:fmtDate(f.due)
+    due:fmtDate(f.due),
+    // the send this letter belongs to, not the one before it
+    send_no:String(sent+1),
+    revised_note:revised_note,
+    change_note:change_note
   };
 }
 // An unknown {token} is left standing rather than blanked, so a typo in the
 // template shows up at the review step instead of leaving a hole.
 function fillLetter(tpl,vars){
-  return String(tpl==null?'':tpl).replace(/\{([a-z]+)\}/g,
+  // [a-z_], not [a-z]: send_no and the two notes carry underscores, and the
+  // old class could never match them -- they would have been left standing
+  // verbatim in the letter, looking exactly like a typo. Unknown tokens are
+  // still left alone, because the whitelist below is what decides.
+  return String(tpl==null?'':tpl).replace(/\{([a-z_]+)\}/g,
     (m,k)=>LETTER_KEYS.indexOf(k)<0?m:String(vars[k]==null?'':vars[k]));
 }
 // A billing that does not address anyone is a defect, but on 2026-08-23 one
@@ -4118,7 +4171,10 @@ function letterWarning(text,vars){
     'This letter does not address '+who+' anywhere — check the template.';
 }
 function composeLetter(picked,no){
-  const vars=letterVars(stmtFacts(picked),no);
+  // stmtSend is the newest send of this billing, filled when the sheet opened.
+  // It is the copy the client already holds, which is what a correction note
+  // has to describe.
+  const vars=letterVars(stmtFacts(picked),no,stmtSend);
   const out=fillLetter(letterTemplate(),vars);
   const w=letterWarning(out,vars);
   if(w)toast(w,true);
@@ -4570,7 +4626,10 @@ function pdfPlan(facts,issuedNo){
   // facts alone -- pdfPlan never looks the history up itself. Not italic:
   // pdfDoc sets helvetica bold or normal and nothing else, so a style key
   // here would be silently dropped.
-  if(Number(facts.sendNo)>1&&facts.revisedAt){
+  // >=1, not >1: facts.sendNo is the PREVIOUS send, so 1 means one copy is
+  // already out and this one is the first correction. The old test marked
+  // nothing until the third send, and its assertions encoded that mistake.
+  if(Number(facts.sendNo)>=1&&facts.revisedAt){
     t('Revised '+fmtDate(facts.revisedAt),right,ry,{size:8.5,align:'right'});ry+=11;
   }
   y=Math.max(ly,ry,hy+42)+2;

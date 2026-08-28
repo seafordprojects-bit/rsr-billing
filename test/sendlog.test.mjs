@@ -116,8 +116,13 @@ ok('stmtFacts carries a send number', typeof f0.sendNo === 'number', typeof f0.s
 ok('and a revised date', typeof f0.revisedAt === 'string', typeof f0.revisedAt);
 ok('never sent reads as 0', f0.sendNo === 0, String(f0.sendNo));
 
-ok('a first send carries no Revised line',
-   !/Revised/.test(textOf(app.pdfPlan({ ...f0, sendNo:1, revisedAt:'2026-08-28' },
+// This asserted that sendNo 1 shows no Revised line, which encoded the
+// off-by-one it was meant to guard: sendNo is the PREVIOUS send, so 1 means a
+// copy is already out and this one is the correction. Section G2 covers the
+// boundary properly; what belongs here is that a date alone does not mark an
+// unsent billing.
+ok('a never-sent billing is not revised even with a date',
+   !/Revised/.test(textOf(app.pdfPlan({ ...f0, sendNo:0, revisedAt:'2026-08-28' },
                                       'BILLDWG-26-003'))));
 ok('and neither does a never-sent one',
    !/Revised/.test(textOf(app.pdfPlan(f0, 'BILLDWG-26-003'))));
@@ -304,6 +309,72 @@ await app.refreshSendMap();
 ok('a clean billing gets an empty list, not undefined',
    Array.isArray(app.sendMap['g-8'].bad) && app.sendMap['g-8'].bad.length === 0,
    JSON.stringify(app.sendMap['g-8']));
+
+console.log('\n--- G. the letter can explain a correction ---');
+ok('the new keys are whitelisted',
+   app.LETTER_KEYS.includes('send_no') &&
+   app.LETTER_KEYS.includes('revised_note') &&
+   app.LETTER_KEYS.includes('change_note'),
+   JSON.stringify(app.LETTER_KEYS));
+// the token regex was /\{([a-z]+)\}/ and could never have matched an
+// underscore, so every one of these would have been left standing verbatim
+ok('an underscore token is substituted at all',
+   app.fillLetter('x {send_no} y', { send_no:'2' }) === 'x 2 y',
+   app.fillLetter('x {send_no} y', { send_no:'2' }));
+ok('an unknown token is still left standing',
+   app.fillLetter('a {nope} b', {}) === 'a {nope} b',
+   app.fillLetter('a {nope} b', {}));
+
+const f1 = { ...f0, sendNo:0, revisedAt:'', grand:20000 };
+let v = app.letterVars(f1, 'BILLDWG-26-003', null);
+ok('a first send has no revised note', v.revised_note === '', v.revised_note);
+ok('and no change note', v.change_note === '', v.change_note);
+ok('send_no counts the send about to happen', v.send_no === '1', v.send_no);
+
+// stmtSend holds the PREVIOUS send, so sendNo 1 means this is send 2
+const prior = { send_no:1, total:'20000.00', sent_at:'2026-08-28T09:00:00Z',
+  lines:[{ id:'r1', drawing_title:'Shell Expansion Plan', qty:2, rate:1500 },
+         { id:'r9', drawing_title:'Rudder Detail Plan',   qty:1, rate:5000 }] };
+const f2 = { ...f0, sendNo:1, revisedAt:'2026-08-28', grand:19000,
+  list:[{ id:'r1', drawing_title:'Shell Expansion Plan', qty:2, rate:1500 },
+        { id:'r9', drawing_title:'Rudder Detail Plan',   qty:1, rate:4000 }] };
+v = app.letterVars(f2, 'BILLDWG-26-003', prior);
+ok('the second send is a correction',
+   /replaces the copy sent on 28 Aug 2026/.test(v.revised_note), v.revised_note);
+ok('and says the number is unchanged', /number is unchanged/.test(v.revised_note), v.revised_note);
+ok('no -R suffix anywhere in it', !/-R\d/.test(v.revised_note), v.revised_note);
+ok('send_no reads 2', v.send_no === '2', v.send_no);
+ok('the change note names the direction', /decreased by/.test(v.change_note), v.change_note);
+ok('and the amount', /1,000/.test(v.change_note), v.change_note);
+ok('and the amended line', /Rudder Detail Plan/.test(v.change_note), v.change_note);
+ok('an unchanged line is not named', !/Shell Expansion/.test(v.change_note), v.change_note);
+
+// The diff is computed against what was SENT, not read off the previous row's
+// change_kind: that field describes how THAT send differed from the one before
+// it, which is a different question and would be wrong here.
+const f3 = { ...f2, grand:22000,
+  list:[{ id:'r1', drawing_title:'Shell Expansion Plan', qty:2, rate:1500 },
+        { id:'r9', drawing_title:'Rudder Detail Plan',   qty:1, rate:5000 },
+        { id:'rX', drawing_title:'Capacity Plan',        qty:1, rate:3000 }] };
+v = app.letterVars(f3, 'BILLDWG-26-003', Object.assign({}, prior, { change_kind:'decreased' }));
+ok('an added line reads as an increase', /increased by/.test(v.change_note), v.change_note);
+ok('and the new line is named', /Capacity Plan/.test(v.change_note), v.change_note);
+
+const f4 = { ...f2, grand:20000, list:prior.lines };
+v = app.letterVars(f4, 'BILLDWG-26-003', prior);
+ok('an identical re-send says the total is unchanged',
+   /total is unchanged/.test(v.change_note), v.change_note);
+ok('and names nothing', !/Amended/.test(v.change_note), v.change_note);
+
+console.log('\n--- G2. the PDF marks the FIRST correction, not the second ---');
+const tx = pl => pl.ops.filter(o => o.t === 'text').map(o => o.s).join('\n');
+ok('never sent is not revised',
+   !/Revised/.test(tx(app.pdfPlan({ ...f0, sendNo:0, revisedAt:'' }, 'BILLDWG-26-003'))));
+ok('the second send IS revised',
+   /Revised/.test(tx(app.pdfPlan({ ...f0, sendNo:1, revisedAt:'2026-08-28' }, 'BILLDWG-26-003'))),
+   'sendNo 1 means one prior send, so this copy is the first correction');
+ok('and so is the third',
+   /Revised/.test(tx(app.pdfPlan({ ...f0, sendNo:2, revisedAt:'2026-08-29' }, 'BILLDWG-26-003'))));
 
 console.log('\n--- F6. a later clean send does not clear an earlier flag ---');
 ok('lSend keeps the history it already had',
