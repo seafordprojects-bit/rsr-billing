@@ -135,6 +135,109 @@ app.rows.forEach(r => { if (r.group_id === 'gb') r.status = 'PAID'; });
 const paidGone = await app.deleteRow('u1');
 ok('a paid line still deletes, as the guard allows', paidGone === true, String(paidGone));
 ok('and it is gone locally', !app.rows.some(r => r.id === 'u1'));
+console.log('\n--- Y. one unbill per press, whichever way it is fired ---');
+// The button's disabled flag guarded a second CLICK. The Enter handler on
+// #ubCode calls doUnbill directly and never looked at it, so two quick presses
+// ran two unbills and wrote two rows to the log.
+app = await boot();
+app.openUnbill('gb');
+el('ubCode').value = '123456';
+el('ubReason').value = 'wrong rate on the shafting line';
+net.script.push({ match:'rpc/unbill_group', method:'POST', status:200, keep:true,
+                  body:{ ok:true, lines:2, by:'Raffy' } });
+net.calls.length = 0;
+
+// two presses before the first write can return
+const p1 = app.doUnbill();
+const p2 = app.doUnbill();
+await Promise.all([p1, p2]);
+await new Promise(r => setTimeout(r, 40));
+ok('a second press while one is in flight sends nothing', rpcCalls() === 1,
+   String(rpcCalls()) + ' calls');
+
+// and the same through the keyboard path, which is the one that was open
+app = await boot();
+app.openUnbill('gb');
+el('ubCode').value = '123456';
+el('ubReason').value = 'wrong rate on the shafting line';
+net.script.push({ match:'rpc/unbill_group', method:'POST', status:200, keep:true,
+                  body:{ ok:true, lines:2, by:'Raffy' } });
+net.calls.length = 0;
+el('ubCode').fire('keydown', { key:'Enter' });
+el('ubCode').fire('keydown', { key:'Enter' });
+await new Promise(r => setTimeout(r, 40));
+ok('two Enters are one unbill', rpcCalls() === 1, String(rpcCalls()) + ' calls');
+
+// the guard must not stick: a later unbill still works. Fresh boot, because
+// the previous case left this group DRAFT and openUnbill refuses those.
+app = await boot();
+net.script.push({ match:'rpc/unbill_group', method:'POST', status:200, keep:true,
+                  body:{ ok:true, lines:2, by:'Raffy' } });
+net.calls.length = 0;
+app.openUnbill('gb');
+el('ubCode').value = '123456';
+el('ubReason').value = 'again';
+await app.doUnbill();
+await new Promise(r => setTimeout(r, 40));
+ok('the guard clears, so the next unbill goes through', rpcCalls() === 1,
+   String(rpcCalls()) + ' calls');
+
+console.log('\n--- Y2. the card history repaints without a reload ---');
+app = await boot();
+// a card that is open, with a history already fetched and now out of date
+app.expanded = { gb: true };
+app.histMap = { gb: [{ kind:'send', at:'2026-08-27T02:00:00Z', send_no:1,
+                       sent_by_email:'raffy@rsr.test', total:'4000.00',
+                       change_kind:'first', total_mismatch:false, changed_lines:[] }] };
+ok('the stale history is showing', /#1/.test(app.historyLines({ id:'gb' })),
+   app.historyLines({ id:'gb' }));
+
+net.script.push({ match:'rpc/unbill_group', method:'POST', status:200,
+                  body:{ ok:true, lines:2, by:'Raffy' } });
+// what the refetch will find: the send, plus the unbill that just happened
+net.script.push({ match:'drawing_billing_send_log', method:'GET', status:200, keep:true,
+                  body:[{ send_no:1, sent_at:'2026-08-27T02:00:00Z',
+                          sent_by_email:'raffy@rsr.test', total:'4000.00',
+                          change_kind:'first', total_mismatch:false, changed_lines:[] }] });
+net.script.push({ match:'drawing_billing_unbill_log', method:'GET', status:200, keep:true,
+                  body:[{ unbilled_at:'2026-08-29T01:00:00Z', operator_name:'Raffy',
+                          reason:'wrong rate on the shafting line', rows_affected:2 }] });
+app.openUnbill('gb');
+el('ubCode').value = '123456';
+el('ubReason').value = 'wrong rate on the shafting line';
+await app.doUnbill();
+await new Promise(r => setTimeout(r, 60));
+
+const after = app.historyLines({ id:'gb' });
+ok('the unbill is in the timeline now', /unbilled/.test(after), after);
+ok('it names the operator', /Raffy/.test(after), after);
+ok('and the reason', /wrong rate on the shafting line/.test(after), after);
+ok('the earlier send is still there', /#1/.test(after), after);
+ok('no reload was needed', app.histMap.gb.length === 2,
+   JSON.stringify((app.histMap.gb || []).map(e => e.kind)));
+
+// a card that is closed is invalidated but not refetched
+app = await boot();
+app.expanded = {};
+app.histMap = { gb: [{ kind:'send', at:'2026-08-27T02:00:00Z', send_no:1,
+                       sent_by_email:'r@t.test', total:'1.00', change_kind:'first',
+                       total_mismatch:false, changed_lines:[] }] };
+net.script.push({ match:'rpc/unbill_group', method:'POST', status:200,
+                  body:{ ok:true, lines:2, by:'Raffy' } });
+net.calls.length = 0;
+app.openUnbill('gb');
+el('ubCode').value = '123456'; el('ubReason').value = 'closed card';
+await app.doUnbill();
+await new Promise(r => setTimeout(r, 40));
+ok('a closed card drops its cache', app.histMap.gb === undefined,
+   JSON.stringify(app.histMap.gb));
+// pull() refreshes the badge map, which reads the send log unfiltered. What
+// must NOT happen is the per-billing history fetch, which carries gid=eq.
+ok('and does not refetch the history nobody is looking at',
+   !net.calls.some(c => /gid=eq\.gb/.test(String(c.url))),
+   JSON.stringify(net.calls.filter(c => /gid=eq/.test(String(c.url))).map(c => c.url)));
+
+
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');

@@ -39,6 +39,7 @@ globalThis.__t={
   migrateSettings, claimBillNo, raiseBillNo, normaliseTypes,
   allGroups, groupById, groupsFrom, groupOf, groupIdOf, migrateGroups, markGroup,
   GROUP_FIELDS, firstDate, rankOf, sendLogFor, refreshSendMap, historyLines, historyFor, dayOf,
+  loadHistory, ensureHistory, historyChanged,
   get histMap(){return histMap}, set histMap(v){histMap=v},
   get sendMap(){return sendMap}, set sendMap(v){sendMap=v},
   openUnbill, doUnbill,

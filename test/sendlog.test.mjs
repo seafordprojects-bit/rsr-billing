@@ -602,7 +602,15 @@ console.log('\n--- I6. the badge map stays cheap ---');
 ok('refreshSendMap no longer hoards every row', !/\.all\.push\(row\)/.test(html),
    'refreshSendMap must keep one row per billing');
 ok('and the history is fetched per billing instead',
-   /historyFor\(xg\)\.then/.test(html), 'expand must fetch');
+   /ensureHistory\(xg\)/.test(html), 'expand must fetch');
+// "delete the key first" used to be the whole protocol for invalidation, and
+// being implicit is how doUnbill got left out of it: a completed unbill showed
+// the timeline from before it until the page was reloaded.
+ok('invalidation is a named function, not a deleted key',
+   /function historyChanged\(gid\)/.test(html), 'historyChanged must exist');
+ok('and no caller deletes the cache by hand',
+   (html.match(/delete histMap\[/g) || []).length === 1,
+   'only historyChanged may drop a cached history');
 
 
 

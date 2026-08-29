@@ -1480,6 +1480,30 @@ async function historyFor(gid){
   ev.sort((a,b)=>String(b.at||'').localeCompare(String(a.at||'')));
   return ev;
 }
+// Fetch and cache, always. A caller that wants a fresh copy says so by calling
+// this; nobody has to know that deleting a key is how you ask for one.
+async function loadHistory(gid){
+  const ev=await historyFor(gid);
+  histMap[gid]=ev;
+  return ev;
+}
+// Fetch only if it has never been fetched. An empty array is a real answer and
+// is kept, so a billing with no history is not re-queried on every toggle.
+function ensureHistory(gid){
+  return histMap[gid]?Promise.resolve(histMap[gid]):loadHistory(gid);
+}
+// A write changed this billing's timeline. Drop what is cached, and reload it
+// if the card is open so the change shows without a reload.
+//
+// This exists because "delete the key first" was the whole protocol, and it was
+// implicit: lSend did it, doUnbill did not, and an unbill therefore left the
+// history showing the state before it until the page was reloaded. The rule
+// belongs in a named function, not in each caller's memory.
+function historyChanged(gid){
+  if(!gid)return;
+  delete histMap[gid];
+  if(expanded[gid])loadHistory(gid).then(render,()=>{});
+}
 async function sendLogFor(gid){
   if(!online()||!authed())return null;
   try{
@@ -2472,7 +2496,13 @@ function ubFail(msg){
   $('ubCode').value='';                     // the reason survives a retry
   try{$('ubCode').focus();}catch(err){}
 }
+// The button's disabled flag guarded a second CLICK and nothing else: the
+// Enter handler on #ubCode calls this directly and never looked at it, so two
+// quick presses ran two unbills and wrote two log rows. Same shape as
+// flushQueue's `flushing` -- the guard belongs on the operation.
+let unbilling=false;
 async function doUnbill(){
+  if(unbilling)return;
   const g=groupById(unbillGid);
   if(!g){ubFail('That billing is no longer here');return;}
   const code=$('ubCode').value.trim(),reason=$('ubReason').value.trim();
@@ -2480,7 +2510,7 @@ async function doUnbill(){
   if(!/^[0-9]{6}$/.test(code)){ubFail('The passcode is six digits');return;}
   // the write happens on the server, so this one genuinely cannot be queued
   if(!online()||!authed()){ubFail('Unbilling needs a connection — the server records it');return;}
-  const btn=$('ubGo');btn.disabled=true;btn.textContent='Unbilling…';
+  const btn=$('ubGo');unbilling=true;btn.disabled=true;btn.textContent='Unbilling…';
   try{
     const out=await sb('rpc/unbill_group',{method:'POST',
       body:JSON.stringify({p_gid:unbillGid,p_passcode:code,p_reason:reason})});
@@ -2492,6 +2522,7 @@ async function doUnbill(){
       if(groupIdOf(r)!==String(unbillGid))return;
       r.status='DRAFT';r.billed_date=null;r.paid_date=null;
     });
+    historyChanged(unbillGid);
     persist();render();hide();
     const n=Number(out.lines)||0,mine=rows.filter(r=>groupIdOf(r)===String(unbillGid)).length;
     toast('Unbilled by '+(out.by||'—')+' — '+n+' line'+(n===1?'':'s')+
@@ -2502,7 +2533,7 @@ async function doUnbill(){
     // arrives here as a bare fetch TypeError with no status. "Failed to fetch"
     // tells the user nothing they can act on.
     ubFail((e&&e.status)?e.message:'Unbilling needs a connection — the server records it');
-  }finally{btn.disabled=false;btn.textContent='Unbill';}
+  }finally{unbilling=false;btn.disabled=false;btn.textContent='Unbill';}
 }
 $('ubGo').onclick=doUnbill;
 $('ubCancel').onclick=()=>hide();
@@ -4532,7 +4563,7 @@ $('lSend').onclick=async()=>{
           bad:bad};
       });
       // the history this card may be showing is now a send out of date
-      (p.list||[]).forEach(g=>{if(g&&g.id)delete histMap[g.id];});
+      (p.list||[]).forEach(g=>{if(g&&g.id)historyChanged(g.id);});
       // Repaint here, not by borrowing markBilledNow's. On a re-send the
       // billing is already BILLED, so markBilledNow short-circuits and returns
       // before its own persist();render() -- the cache moved and the card kept
@@ -5826,7 +5857,7 @@ $('list').addEventListener('click',e=>{
     expanded[xg]=!expanded[xg];render();
     // fetched once per card, on the way open, and cached until a send
     // invalidates it. An empty array is a real answer and is kept.
-    if(expanded[xg]&&!histMap[xg])historyFor(xg).then(h=>{histMap[xg]=h;render();});
+    if(expanded[xg])ensureHistory(xg).then(render,()=>{});
     return;
   }
   const ed=e.target.closest('[data-edit]');if(ed){openEntry(ed.dataset.edit);return;}
