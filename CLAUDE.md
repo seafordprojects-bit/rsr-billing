@@ -758,6 +758,48 @@ in the browser as a real 401 rather than an opaque CORS error.
   Recording rather than fixing, because the DDL was never captured anywhere and
   reconstructing it from `pg_get_functiondef` is a task in itself. Until then,
   **a second project cannot be stood up from this repo alone.**
+- **Parked: requiring an operator passcode to send.** Proposed 2026-08-29 and
+  not built — **separate logins are the chosen answer instead**, so each person
+  sends as themselves and `sent_by_email` already attributes it. Recorded
+  because the passcode route looks cheap and is not.
+
+  What it would have meant: the passcode cannot be a parameter of
+  `record_billing_send`, because that runs *after* Resend has accepted — a
+  check there fails the logging, not the send. It has to become a fourth
+  authorisation layer inside `send-statement`, before the Resend call, with the
+  resolved `operator_id`/`operator_name` carried into the RPC. And it has to be
+  verified **before `issueBillNos()`**, or a wrong passcode burns a billing
+  number the same way an unreachable CDN would — which is the reason
+  `loadJsPdf()` already runs before the claim.
+
+  Two reasons it is worse than it looks:
+
+  1. **`billing_unbill_throttle` is a single row** (`id = true`), locked
+     `for update` by `resolve_unbill_operator` before it checks anything.
+     Routing sends through it means ten fat-fingered passcodes at the send
+     sheet lock **unbilling** for fifteen minutes and vice versa, and every
+     send serialises on a row that today is contended perhaps twice a week.
+     A typo becomes a firm-wide billing outage.
+  2. **The two identity tables are unjoined.** `billing_unbill_operator` has no
+     email and `billing_senders` has no operator, so nothing stops one person
+     signing in as themselves and using another's passcode. The history would
+     then name the wrong human. Decide first whether the passcode is
+     *authorisation* or *attribution*; it cannot honestly be both until those
+     tables are linked.
+
+  **If it is ever revived, in this order:** re-key the throttle per operation
+  (or per operator) as its own change, with unbilling as the only consumer and
+  `unbill.test.mjs` as the proof — *then* add the send gate on top. Doing it in
+  one pass couples a routine operation to a rare privileged one and the
+  regression would not be visible until somebody mistyped in the field.
+
+  Roughly 40–60 assertions move: `fn.test.mjs` sections I, J, L and O–O8,
+  `sendlog.test.mjs` section A plus every history assertion reading
+  `sent_by_email`, `billno.test.mjs`'s claim-ordering pair, and all of
+  `unbill.test.mjs` if the throttle is re-keyed. `record_billing_send` would go
+  from nine parameters to eleven, so the nine-argument signature has to be
+  dropped before the new one is created — an overload makes PostgREST refuse to
+  choose and every send 300s.
 - The project URL, key and session are per-device by design. A new device needs
   them entered once before anything syncs.
 - pdf.js and jsPDF both load from cdnjs, pinned with SRI hashes. pdf.js's **worker** is loaded via
