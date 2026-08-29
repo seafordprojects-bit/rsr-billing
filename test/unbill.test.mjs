@@ -163,10 +163,15 @@ el('ubReason').value = 'wrong rate on the shafting line';
 net.script.push({ match:'rpc/unbill_group', method:'POST', status:200, keep:true,
                   body:{ ok:true, lines:2, by:'Raffy' } });
 net.calls.length = 0;
+// Three, not two. Two passes even with the guard INSIDE the try: press #2
+// returns through the finally, which clears the flag while #1 is still in
+// flight -- and only a third press gets through the door that reopens. The
+// early exit has to sit above `try{`, and this is the assertion that says so.
+el('ubCode').fire('keydown', { key:'Enter' });
 el('ubCode').fire('keydown', { key:'Enter' });
 el('ubCode').fire('keydown', { key:'Enter' });
 await new Promise(r => setTimeout(r, 40));
-ok('two Enters are one unbill', rpcCalls() === 1, String(rpcCalls()) + ' calls');
+ok('three Enters are one unbill', rpcCalls() === 1, String(rpcCalls()) + ' calls');
 
 // the guard must not stick: a later unbill still works. Fresh boot, because
 // the previous case left this group DRAFT and openUnbill refuses those.
