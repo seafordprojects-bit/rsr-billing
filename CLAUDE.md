@@ -749,11 +749,20 @@ in the browser as a real 401 rather than an opaque CORS error.
   client-side. A fresh project is therefore not merely missing a feature, it is
   missing two server-side guarantees the app assumes.
 
-  What **is** in `sqlText()` is the hardening: a guarded `do` block that revokes
-  EXECUTE from the anon role on the four RPCs where they exist, and drops the
-  retired `verify_unbill_passcode` / `billing_unbill_credential` pair. That is
-  deliberately written to skip whatever is absent, so it is safe on a fresh
-  project — but it hardens the subsystem without creating it.
+  What **is** in `sqlText()` is the hardening and one policy: a guarded `do`
+  block that revokes EXECUTE from the anon role on the four RPCs where they
+  exist, another that adds `rsr_dwg_unbilllog_read` so the card's history can
+  read the log, and the drops for the retired `verify_unbill_passcode` /
+  `billing_unbill_credential` pair. All of it skips whatever is absent, so it is
+  safe on a fresh project — but it hardens and grants against a subsystem it
+  does not create.
+
+  The policy is inside a `do` block for that reason, and it is not decoration.
+  **`drop policy if exists … on <table>` covers the policy, not the relation**:
+  where the table is missing it raises `42P01` and aborts the rest of the
+  script — which from that point would have skipped the `record_billing_send`
+  drop, the anon revokes, the storage bucket and its policy. `to_regclass`
+  guards it.
 
   Recording rather than fixing, because the DDL was never captured anywhere and
   reconstructing it from `pg_get_functiondef` is a task in itself. Until then,

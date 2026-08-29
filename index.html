@@ -5357,9 +5357,20 @@ create policy rsr_dwg_sendlog_read on drawing_billing_send_log
 -- the unbill prompt, and operator_name identifies who held the passcode. Both
 -- become visible to every signed-in user. billing_snapshot stays out of every
 -- query the app makes -- it is the full pre-image of every line.
-drop policy if exists rsr_dwg_unbilllog_read on drawing_billing_unbill_log;
-create policy rsr_dwg_unbilllog_read on drawing_billing_unbill_log
-  for select to authenticated using (true);
+-- Guarded, because this script does not create the table it names. "if exists"
+-- on a policy covers the POLICY, not the relation: on a fresh project the bare
+-- form raises 42P01 and aborts the rest of the script -- taking the
+-- record_billing_send drop, the anon revokes, the storage bucket and its policy
+-- with it. Skip when the table is absent, like everything else here.
+do $BODY$
+begin
+  if to_regclass('public.drawing_billing_unbill_log') is not null then
+    execute 'drop policy if exists rsr_dwg_unbilllog_read on drawing_billing_unbill_log';
+    execute 'create policy rsr_dwg_unbilllog_read on drawing_billing_unbill_log '||
+            'for select to authenticated using (true)';
+  end if;
+end
+$BODY$;
 
 -- What changed between two snapshots. Line identity is drawing_billing.id,
 -- which is stable, so an edited line reads as amended. The known limit: a

@@ -22,6 +22,18 @@ ok('RLS enabled',
    /alter table drawing_billing_send_log enable row level security/.test(html));
 ok('readable by authenticated',
    /create policy rsr_dwg_sendlog_read on drawing_billing_send_log\s*\n\s*for select to authenticated/.test(html));
+// The unbill log's policy names a table this script does not create. "if
+// exists" on a policy covers the POLICY, not the relation, so the bare form
+// raises 42P01 on a fresh project and aborts everything after it -- the
+// record_billing_send drop, the anon revokes, the storage bucket and its policy.
+ok('the unbill log gets a read policy too',
+   /rsr_dwg_unbilllog_read/.test(html));
+ok('and it is guarded, because this script does not create that table',
+   /to_regclass\('public\.drawing_billing_unbill_log'\)/.test(html),
+   'the policy must skip a project without the table');
+ok('so no bare create policy names it',
+   !/^create policy rsr_dwg_unbilllog_read/m.test(html),
+   'must go through the guarded do block');
 ok('no insert policy — only the service key writes',
    !/on drawing_billing_send_log\s*\n\s*for (all|insert)/.test(html));
 ok('the RPC exists', /create or replace function public\.record_billing_send/.test(html));
