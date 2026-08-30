@@ -609,6 +609,19 @@ px).
 - **No `\n` escapes inside heredoc-delivered Python.** They arrive as real
   newlines and break JS strings. Assign `const br='\n\n'` with a normal edit
   instead. This has bitten three times.
+- **Backslashes are halved in transit.** A `\\` typed into a heredoc or a
+  `node -e` payload arrives as a single `\`, so `'\\s+'` reaches the file
+  as `'\s+'` and the JS string then evaluates to `s+`. Same family as the
+  `\n` entry above, and quoting the heredoc does not prevent it. Build the
+  character instead — `const BS=String.fromCharCode(92)` — and concatenate.
+  Three retries in one session: `clients.test.mjs`, the `name_canon` SQL, and
+  the note about it.
+- **Never pass a `$` through `String.replace`.** `$&`, `$'` and `` $` `` are
+  substitution patterns in the *replacement* — `` $` `` inserts everything before
+  the match. `sqlText()` is full of `$BODY$` blocks, so a replacement carrying
+  one silently re-inserts the whole prefix of the file; on **2026-08-30** it
+  duplicated this file into itself. Use `s.split(a).join(b)`, which has no
+  `$` semantics.
 - **Check every `$('id')` resolves** after markup changes; a null target throws
   and kills the whole IIFE. There is a one-liner for this in the git history.
 - **No duplicate `id` attributes** — `getElementById` silently takes the first,
