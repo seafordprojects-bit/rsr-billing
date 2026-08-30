@@ -216,6 +216,18 @@ ok('blank lines become paragraphs',
    (block.match(/<p>/g) || []).length === 3, block);
 ok('single newlines break within one', /One<br>Two/.test(mail));
 ok('the mail stylesheet covers the letter', /\.ltr\{/.test(html) && /\.ltr p\{/.test(html));
+// c9fa5e4, and nothing pinned it until now. margin:0 auto centres the 760px
+// block, so in any reading pane wider than that the leftover gap lands on the
+// left and the letter reads as indented by about an inch -- which is what Gmail
+// was showing. The harness computes no layout, so this is a CSS-contract
+// assertion: it proves the rule was not put back, never that anything is
+// actually flush left on a screen. max-width stays -- it holds the line length,
+// not the position.
+const ltrRule = (html.match(/\.ltr\{[^}]*\}/) || [''])[0];
+ok('the letter block sets its left margin to 0',
+   /margin:0 0 /.test(ltrRule), ltrRule);
+ok('and is never re-centred with auto',
+   !/auto/.test(ltrRule), ltrRule);
 ok('letter text is escaped',
    app.letterHtml('a <b>bold</b> & co').includes('&lt;b&gt;'),
    app.letterHtml('a <b>bold</b> & co'));
