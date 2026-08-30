@@ -396,9 +396,11 @@ When you add a column or table:
 2. Add the field to `FIELDS` (billing rows), `CAT_FIELDS`, `CLI_FIELDS` or
    `GROUP_FIELDS` as appropriate, and to the relevant `payloadOf`.
 3. Tell the user to re-run the SQL before the change syncs. For a column the
-   app *queries* — `name_canon` — that ordering is load-bearing rather than
-   tidy: an un-migrated database answers `column does not exist`, and a
-   duplicate client insert that would have healed goes dead instead.
+   app *queries*, that ordering is load-bearing rather than tidy: an
+   un-migrated database answers `column does not exist` — for `name_canon` it
+   would have meant a duplicate client insert going dead instead of healing.
+   That is the order it was done in: the SQL was run **2026-08-30**, before
+   the push that shipped the lookup, so there was no window.
 
 > **A `create` that can fail must be guarded.** `clients_name_canon_key` cannot
 > be built while duplicate names already exist, and a failing statement aborts
@@ -408,6 +410,11 @@ When you add a column or table:
 > already has duplicates the constraint is simply absent** until they are merged
 > by hand and the script re-run. The column is added either way, which is what
 > keeps `healClientDup`'s lookup working meanwhile.
+>
+> On the live project it built. `name_canon` and `clients_name_canon_key` were
+> both verified present on **2026-08-30**, and the index existing is itself the
+> proof that no two client rows shared a canonical name — the question the
+> column was added to settle.
 
 > **No backticks inside the SQL string.** `sqlText()` returns a JS template
 > literal; a backtick in a comment terminates it and takes the whole script
