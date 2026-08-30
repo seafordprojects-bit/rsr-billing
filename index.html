@@ -1643,6 +1643,11 @@ const deadJobs=()=>queue.filter(j=>j.dead);
    All-or-nothing on purpose: a half-applied write is harder to reason about
    in Pending writes than one to redo.                                      */
 const cliNorm=v=>String(v==null?'':v).trim();
+// The canonical form of a client name: trimmed, runs of whitespace collapsed,
+// lowercased. The same comparison clientRec makes inline, and the same thing
+// the unique index in sqlText() computes in SQL -- so a name the app treats as
+// a duplicate is a name the constraint refuses.
+const cliKey=n=>String(n||'').trim().replace(/\s+/g,' ').toLowerCase();
 // What the row looked like when the server last handed it over. It rides in
 // localStorage with the row and is never sent back -- cliPayload picks only
 // CLI_FIELDS -- so this device's edit can be told from the server's changes.
@@ -1706,11 +1711,20 @@ async function reconcileClient(job){
 async function healClientDup(job){
   const name=cliNorm(job.data&&job.data.name);
   if(!name)return false;
-  const found=await sb(CLI_TABLE+'?select=*&name=eq.'+encodeURIComponent(name));
+  // Asked of name_canon, not name: the constraint that produced this 409 is on
+  // the canonical form, so an exact-spelling lookup would miss the very row that
+  // caused it -- the insert would stop being a silent duplicate and start being
+  // a job stuck in Pending writes instead.
+  const found=await sb(CLI_TABLE+'?select=*&name_canon=eq.'+encodeURIComponent(cliKey(name)));
   const srv=found&&found[0];
   if(!srv)return false;
   const patch={},clash=[];
   CLI_FIELDS.forEach(k=>{
+    // The name is what MATCHED -- this row was found by the canonical form of
+    // it -- so a different spelling is not a disagreement to escalate, and it
+    // is never patched: the server's spelling is the one its billings already
+    // carry. Without this every case variant would clash on the name itself.
+    if(k==='name')return;
     const mine=cliNorm(job.data[k]),theirs=cliNorm(srv[k]);
     if(!mine||mine===theirs)return;
     if(!theirs){patch[k]=job.data[k];return;}
@@ -5216,6 +5230,39 @@ alter table clients add column if not exists salutation     text;
 -- a second address copied on every billing to this client. Optional: blank
 -- means the billing goes to billing_email alone.
 alter table clients add column if not exists email_cc      text;
+
+-- One client, one row -- even when two devices spell the name differently.
+-- The name column is raw text, so "Seaford" and "seaford  " both satisfy its
+-- unique constraint and the second insert simply succeeds. The app then reads
+-- whichever row sorted first and never touches the other again, so an address
+-- corrected on one of them is silently never used.
+--
+-- name_canon is what canonClient compares on. Collapse, then trim, then lower,
+-- in that order: btrim strips spaces only, so a leading tab trimmed first would
+-- survive the collapse as a leading space.
+--
+-- Generated, never written: no existing spelling is rewritten, so a billing
+-- still matches the client name it was issued under.
+alter table clients add column if not exists name_canon text
+  generated always as (lower(btrim(regexp_replace(name, '\\s+', ' ', 'g')))) stored;
+
+-- The index cannot be built while duplicates already exist, and a bare create
+-- that fails takes every statement after it down with it -- the same trap the
+-- unbill-log policy below is guarded against. So it names them and warns
+-- instead: merge those rows by hand, then re-run this script. The column is
+-- added either way, which is what healClientDup looks a duplicate up by.
+do $BODY$
+declare dups text;
+begin
+  select string_agg(name_canon, ', ') into dups
+    from (select name_canon from clients group by name_canon having count(*) > 1) d;
+  if dups is null then
+    execute 'create unique index if not exists clients_name_canon_key on clients (name_canon)';
+  else
+    raise warning 'clients.name_canon not made unique -- these names already exist more than once: %', dups;
+  end if;
+end
+$BODY$;
 
 -- A version, not a timestamp for reading. Client edits swap against it, so a
 -- second device cannot overwrite a correction it never saw. The default only

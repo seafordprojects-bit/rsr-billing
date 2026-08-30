@@ -41,6 +41,7 @@ const boot = async () => {
 };
 const seaford = (a) => a.clients.find(c => c.name === 'Seaford Shipping Lines');
 const patches = () => net.calls.filter(c => c.method === 'PATCH');
+const el = id => document.getElementById(id);
 
 const BASE = '2026-08-24T00:13:27.973208+00:00';
 const MOVED = '2026-08-24T00:14:56.011412+00:00';
@@ -146,7 +147,7 @@ app = await boot();
 net.script.push({ match:'/rest/v1/clients', method:'POST', status:409,
   body:{ code:'23505',
          message:'duplicate key value violates unique constraint "clients_name_key"' } });
-net.script.push({ match:'/rest/v1/clients?select=*&name=eq.', method:'GET', status:200,
+net.script.push({ match:'/rest/v1/clients?select=*&name_canon=eq.', method:'GET', status:200,
   body:[{ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
           contact_person:null, address:null,
           billing_email:'rsrengineering.services2025@gmail.com', updated_at:BASE }] });
@@ -169,6 +170,100 @@ ok('the contested field is surfaced', !!dup && /billing_email/.test(dup.err),
    dup && dup.err);
 ok('the gaps are not treated as a conflict',
    !!dup && !/contact_person|address/.test(dup.err), dup && dup.err);
+
+
+console.log('\n--- 6. the canonical name key is in the SQL ---');
+// clients.name is raw text, so "Seaford" and "seaford  " both satisfy `unique`
+// and a case variant inserts a second row instead of 409ing. name_canon is
+// exactly what canonClient compares on, and the unique index is on that. It is
+// GENERATED, never written: no existing spelling is rewritten, so a billing
+// still matches the client name it was issued under.
+app = await boot();
+el('sqlWrap').hidden = true;
+el('cSql').onclick();
+const sql = el('cSqlBox').value;
+// A literal backslash, built rather than typed: an escape in this file would
+// be the very thing under test.
+const BS = String.fromCharCode(92);
+ok('name_canon is added as a generated column',
+   /alter table clients\s+add column if not exists name_canon text\s+generated always as/.test(sql),
+   sql.slice(sql.indexOf('name_canon') - 60, sql.indexOf('name_canon') + 200));
+ok('it is stored, so it can carry an index',
+   /generated always as \([^;]*\) stored;/.test(sql));
+ok('the unique index is on the canonical form, not on name',
+   /create unique index if not exists clients_name_canon_key\s+on clients \(name_canon\)/.test(sql));
+// The whole point of computing it server-side is that it computes the SAME
+// thing as canonClient: trim, collapse runs of whitespace, lowercase. Collapse
+// happens BEFORE the trim, because btrim strips spaces only -- a leading tab
+// trimmed second would otherwise survive as a leading space.
+ok('the expression matches canonClient: collapse, then trim, then lower',
+   sql.indexOf("lower(btrim(regexp_replace(name, '" + BS + "s+', ' ', 'g')))") > -1,
+   sql.slice(sql.indexOf('generated always as'), sql.indexOf('generated always as') + 120));
+// sqlText() returns a template literal, where \s is not an escape sequence and
+// evaluates to a bare "s". Written unescaped, the index would silently be built
+// on a regex that collapses the letter s.
+ok('the whitespace class survived the template literal', sql.indexOf("'" + BS + "s+'") > -1);
+ok("it was not flattened to 's+'", sql.indexOf("'s+'") < 0);
+// A bare create would abort every statement after it on a project that already
+// has duplicates -- the same trap the unbill-log policy is guarded against.
+ok('the index is guarded, so duplicates warn rather than killing the script',
+   /do \$BODY\$[\s\S]*?having count\(\*\) > 1[\s\S]*?create unique index if not exists clients_name_canon_key[\s\S]*?raise warning[\s\S]*?\$BODY\$;/.test(sql));
+ok('and the warning names the duplicates it found', /raise warning[^;]*%/.test(sql));
+
+console.log('\n--- 7. an insert differing only in case heals against the canonical row ---');
+// The index makes this a 409 instead of a silent second row. healClientDup can
+// only resolve it if its lookup asks the question the constraint asks: an exact
+// name=eq. would miss the differently-spelled row and the job would go dead.
+app = await boot();
+net.script.push({ match:'/rest/v1/clients', method:'POST', status:409,
+  body:{ code:'23505',
+         message:'duplicate key value violates unique constraint "clients_name_canon_key"' } });
+net.script.push({ match:'/rest/v1/clients?select=*&name_canon=eq.', method:'GET', status:200,
+  body:[{ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+          contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+          billing_email:'ap@seaford.test', email_cc:null,
+          name_canon:'seaford shipping lines', updated_at:BASE }] });
+// PostgREST answers a PATCH with the whole row (sb sends return=representation),
+// so the merged row is scripted the way the server would really send it.
+net.script.push({ match:'/rest/v1/clients?id=eq.srv-9', method:'PATCH', status:200,
+  body:[{ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+          contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+          billing_email:'ap@seaford.test', email_cc:'accounts@seaford.test',
+          name_canon:'seaford shipping lines', updated_at:MOVED }] });
+
+await app.cliSave({ name:'SEAFORD  SHIPPING LINES', salutation:'', contact_person:'',
+  address:'', billing_email:'', email_cc:'accounts@seaford.test' }, true);
+
+const look = net.calls.find(c => c.method === 'GET' && /clients\?select=\*&name_canon=eq\./.test(String(c.url)));
+ok('the lookup asks for the canonical form', !!look,
+   JSON.stringify(net.calls.filter(c => c.method === 'GET').map(c => c.url)));
+ok('and it carries the trimmed, collapsed, lowercased name', !!look &&
+   String(look.url).indexOf(encodeURIComponent('seaford shipping lines')) > -1, look && look.url);
+ok('the raw spelling is never used as the lookup',
+   !net.calls.some(c => c.method === 'GET' && /clients\?select=\*&name=eq\./.test(String(c.url))),
+   JSON.stringify(net.calls.filter(c => c.method === 'GET').map(c => c.url)));
+ok('the case variant does not survive as a second row',
+   app.clients.filter(c => /seaford/i.test(c.name || '')).length === 1,
+   JSON.stringify(app.clients.map(c => c.name)));
+ok('no loc- row survives', !app.clients.some(c => String(c.id).startsWith('loc-')),
+   JSON.stringify(app.clients.map(c => c.id)));
+// The row was found BY the canonical form of this name, so a different
+// spelling of it is what matched, not what is contested. Escalating it would
+// make every case variant unresolvable -- a stuck queue in place of a silent
+// duplicate, which is the trade this change exists to avoid.
+ok('a different spelling of the same client is not a disagreement',
+   !(app.deadJobs()[0] && /both changed name/.test(app.deadJobs()[0].err || '')),
+   app.deadJobs()[0] && app.deadJobs()[0].err);
+ok('the heal completed, so nothing is waiting in Pending writes',
+   app.deadJobs().length === 0, JSON.stringify(app.deadJobs()));
+ok("the server's spelling is what is kept",
+   (app.clients.find(c => c.id === 'srv-9') || {}).name === 'Seaford Shipping Lines',
+   JSON.stringify(app.clients.map(c => c.name)));
+ok('the cc the server lacked was filled in, not discarded',
+   (app.clients.find(c => c.id === 'srv-9') || {}).email_cc === 'accounts@seaford.test',
+   JSON.stringify(app.clients.find(c => c.id === 'srv-9')));
+ok('and the whole row survived the merge, not just the patched column',
+   (app.clients.find(c => c.id === 'srv-9') || {}).billing_email === 'ap@seaford.test');
 
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
