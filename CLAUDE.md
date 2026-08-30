@@ -184,6 +184,22 @@ rewritten and a billing still matches the client name it was issued under. The
 collapse happens **before** the trim: `btrim` strips spaces only, so a leading
 tab trimmed first would survive the collapse as a leading space.
 
+Non-breaking spaces are covered on both sides, checked rather than assumed:
+Postgres `\s` classifies U+00A0 on this project (**2026-08-31**), and JS `\s` and
+`.trim()` always have, so a name pasted out of Word canonicalises the same either
+way. That classification follows the database's ctype, so it is a property of
+this project rather than a promise of Postgres — re-check it on any new one
+with
+
+```sql
+select lower(btrim(regexp_replace(chr(160)||'A'||chr(160)||'B', '\s+', ' ', 'g'))) = 'a b';
+```
+
+False there means an NBSP name is one client to the app and two rows to the
+constraint — the silent duplicate `name_canon` exists to prevent, arriving
+through a narrower door. Collapsing before the trim is also what makes this
+work: the NBSP becomes a plain space first, which `btrim` can then strip.
+
 `healClientDup` looks the row up **by `name_canon`**, and has to. The
 constraint that produced the 409 is on the canonical form, so an exact
 `name=eq.` lookup misses the very row that caused it, returns false, and the
