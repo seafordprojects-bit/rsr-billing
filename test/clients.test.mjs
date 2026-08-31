@@ -265,6 +265,31 @@ ok('the cc the server lacked was filled in, not discarded',
 ok('and the whole row survived the merge, not just the patched column',
    (app.clients.find(c => c.id === 'srv-9') || {}).billing_email === 'ap@seaford.test');
 
+
+console.log('\n--- 8. clientRec and cliKey partition names identically ---');
+// The app decides what is the same client with clientRec; the server decides it
+// with a unique index keyed on cliKey's rule, computed a second time in SQL. If
+// those two ever disagree, a name is one client on screen and two rows in the
+// table -- the silent duplicate name_canon exists to prevent. Both now go
+// through cliKey, so this is structurally true; this is what keeps it that way.
+app = await boot();
+app.clients.push(app.cliFromServer({ id:'srv-1', name:'Seaford Shipping Lines',
+  billing_email:'ap@seaford.test', updated_at:BASE }));
+const REF = 'Seaford Shipping Lines';
+[REF,
+ 'seaford shipping lines',
+ 'SEAFORD  SHIPPING  LINES',
+ '  Seaford Shipping Lines  ',
+ '\tSeaford Shipping\nLines ',
+ 'Seaford Shipping Line',
+ 'Seaford',
+ ''].forEach(v => {
+  const found = !!app.clientRec(v);
+  const agrees = app.cliKey(v) === app.cliKey(REF);
+  ok('clientRec matches exactly when cliKey agrees: ' + JSON.stringify(v),
+     found === agrees,
+     'clientRec ' + found + ', cliKey ' + JSON.stringify(app.cliKey(v)));
+});
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

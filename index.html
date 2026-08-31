@@ -1643,11 +1643,18 @@ const deadJobs=()=>queue.filter(j=>j.dead);
    All-or-nothing on purpose: a half-applied write is harder to reason about
    in Pending writes than one to redo.                                      */
 const cliNorm=v=>String(v==null?'':v).trim();
-// The canonical form of a client name: trimmed, runs of whitespace collapsed,
-// lowercased. The same comparison clientRec makes inline, and the same thing
-// the unique index in sqlText() computes in SQL -- so a name the app treats as
-// a duplicate is a name the constraint refuses.
-const cliKey=n=>String(n||'').trim().replace(/\s+/g,' ').toLowerCase();
+// Two rules, and only one of them touches case. cliTidy is the SPELLING --
+// whitespace tidied and nothing else -- because that is what gets stored on a
+// billing and printed under Bill To, and the first spelling used has to win.
+// cliKey is the IDENTITY, built on top of it, and is what the unique index in
+// sqlText() computes a second time in SQL: a name the app treats as a duplicate
+// is a name the constraint refuses.
+//
+// Layered rather than written out twice, so the whitespace rule cannot drift
+// between them. It was inline in four places and the display rule in three, all
+// identical, all one edit away from disagreeing.
+const cliTidy=n=>String(n||'').trim().replace(/\s+/g,' ');
+const cliKey=n=>cliTidy(n).toLowerCase();
 // What the row looked like when the server last handed it over. It rides in
 // localStorage with the row and is never sent back -- cliPayload picks only
 // CLI_FIELDS -- so this device's edit can be told from the server's changes.
@@ -2376,12 +2383,12 @@ function cliPayload(c){
 // A client typed as "seaford " must land on the same record as "Seaford";
 // the first spelling used wins so existing billings keep matching.
 function canonClient(name){
-  const t=String(name||'').trim().replace(/\s+/g,' ');
+  const t=cliTidy(name);
   if(!t)return '';
-  const lc=t.toLowerCase();
+  const lc=cliKey(name);
   const known=clients.map(c=>c.name).concat(rows.map(r=>r.client));
-  const hit=known.find(n=>String(n||'').trim().replace(/\s+/g,' ').toLowerCase()===lc);
-  return hit?String(hit).trim().replace(/\s+/g,' '):t;
+  const hit=known.find(n=>cliKey(n)===lc);
+  return hit?cliTidy(hit):t;
 }
 // A saved 0 means due on issue and must survive; only a missing or broken
 // value falls back. Kept in one place so Settings and the sheet agree.
@@ -2390,11 +2397,14 @@ function termsDefault(){
   return (isNaN(n)||n<0)?DEFAULT_CFG.terms:n;
 }
 const clientRec=name=>{
-  const t=String(name||'').trim().replace(/\s+/g,' ').toLowerCase();
-  return clients.find(c=>String(c.name||'').trim().replace(/\s+/g,' ').toLowerCase()===t);
+  const t=cliKey(name);
+  return clients.find(c=>cliKey(c.name)===t);
 };
 // "MV SF Voyager" and "MV SF VOYAGER " are one vessel, not two. Only for
 // comparing; what gets printed is the spelling the first line used.
+// Deliberately its own copy of the rule rather than cliKey: a vessel is not a
+// client, and a change made to client matching must not quietly move which
+// vessels count as one.
 const canonVessel=v=>String(v||'').trim().replace(/\s+/g,' ').toLowerCase();
 const billingEmail=name=>{const c=clientRec(name);return c?(c.billing_email||''):'';};
 const cliSorted=()=>clients.slice().sort((a,b)=>
@@ -2765,9 +2775,9 @@ function comboAttach(inputId,popId,supply,onPick){
 function clientSuggest(q){
   const seen={},names=[];
   uniq(clients.map(c=>c.name).concat(rows.map(r=>r.client))).forEach(n=>{
-    const k=String(n||'').trim().replace(/\s+/g,' ').toLowerCase();
+    const k=cliKey(n);
     if(!k||seen[k])return;
-    seen[k]=1;names.push(String(n).trim().replace(/\s+/g,' '));
+    seen[k]=1;names.push(cliTidy(n));
   });
   return cmbFilter(names,q).map(n=>{
     const rec=clientRec(n);
