@@ -247,7 +247,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // cannot send one client's statement to another client's address.
   try {
     const cl = await fetch(
-      `${SUPABASE_URL}/rest/v1/clients?select=name,billing_email&billing_email=eq.${encodeURIComponent(to)}`,
+      `${SUPABASE_URL}/rest/v1/clients?select=name,billing_email,email_cc&billing_email=eq.${encodeURIComponent(to)}`,
       { headers: svc },
     );
     if (!cl.ok) {
@@ -255,13 +255,32 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json({ ok: false, error: "Could not verify the recipient" }, 500);
     }
     const found = await cl.json();
-    const match = Array.isArray(found) &&
-      found.some((c: { name?: string }) => canonName(c?.name) === canonName(client));
-    if (!match) {
+    const row = Array.isArray(found)
+      ? found.find((c: { name?: string; email_cc?: unknown }) =>
+        canonName(c?.name) === canonName(client))
+      : undefined;
+    if (!row) {
       console.warn(`blocked send to ${to} for client "${client}" by ${senderEmail}`);
       return json({
         ok: false,
         error: "That address is not the billing email on file for this client. Save it against the client first.",
+      }, 403);
+    }
+
+    // (4) and the CC, for the same reason and off the same row. It was exempt,
+    // which left one field an allowlisted sender could point anywhere -- with
+    // the billing PDF attached. Both sides go through cleanEmail, so a stored
+    // value carrying stray whitespace still matches what was typed. Exact and
+    // not case-folded, because the recipient is matched exactly too:
+    // billing_email=eq. is a case-sensitive comparison in Postgres, and two
+    // fields disagreeing about that would be unexplainable from the message.
+    // A client with nothing on file cannot be cc'd at all -- absent is not a
+    // wildcard, it is the answer "nobody".
+    if (cc && cleanEmail(row.email_cc) !== cc) {
+      console.warn(`blocked cc ${cc} for client "${client}" by ${senderEmail}`);
+      return json({
+        ok: false,
+        error: "That CC address is not the one on file for this client. Save it against the client first.",
       }, 403);
     }
   } catch (e) {

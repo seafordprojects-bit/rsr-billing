@@ -28,7 +28,8 @@ const netState = { user: { id:'u1', email:'raffy@rsr.test' }, userOk: true,
                    resendOk: true, resendBody: { id:'msg_1' }, sentPayload: null,
                    resendStatus: 200,
                    senders: ['raffy@rsr.test'], sendersOk: true,
-                   clients: [{ name:'Seaford', billing_email:'billing@seaford.test' }],
+                   clients: [{ name:'Seaford', billing_email:'billing@seaford.test',
+                              email_cc:'accounts@seaford.test' }],
                    clientsOk: true, svcAuth: [],
                    rpcCalls: [], rpcOk: true,
                    rpcBody: { ok:true, send_no:2, change_kind:'decreased', total_delta:-500 } };
@@ -215,6 +216,44 @@ netState.sentPayload = null;
 r = await call({ ...good, cc: 'a@b.test, c@d.test' });
 ok('a cc list is refused too — one address, one message', r.status === 400, String(r.status));
 ok('still nothing sent', netState.sentPayload === null);
+
+
+console.log('\n--- I4. the CC must be the address on file for that client ---');
+// The recipient check exists so the endpoint can only ever mail addresses the
+// app already holds. cc was exempt, so an allowlisted sender could copy a
+// billing -- PDF attached -- to any address at all. Same rule, same layer,
+// same fail-closed shape as every other check in that function.
+netState.sentPayload = null;
+r = await call({ ...good, cc: 'accounts@seaford.test' });
+ok('the cc on file is accepted', r.status === 200, String(r.status));
+
+netState.sentPayload = null;
+r = await call({ ...good, cc: 'someone@else.test' });
+j = await r.json();
+ok('any other address is refused 403', r.status === 403, String(r.status));
+ok('and the reason names the CC', /cc/i.test(j.error), JSON.stringify(j));
+ok('nothing reaches Resend', netState.sentPayload === null,
+   JSON.stringify(netState.sentPayload));
+
+// a client with nothing on file cannot be cc'd at all: absent is not a wildcard
+netState.clients = [{ name:'Seaford', billing_email:'billing@seaford.test',
+                      email_cc:null }];
+netState.sentPayload = null;
+r = await call({ ...good, cc: 'accounts@seaford.test' });
+j = await r.json();
+ok('a cc for a client with none on file is refused', r.status === 403, String(r.status));
+ok('and that reason names the CC too', /cc/i.test(j.error), JSON.stringify(j));
+ok('still nothing reaches Resend', netState.sentPayload === null,
+   JSON.stringify(netState.sentPayload));
+
+// and the ordinary send is untouched by any of it
+r = await call(good);
+ok('the billing itself still sends when no cc is asked for', r.status === 200,
+   String(r.status));
+ok('with no cc field on the message', !('cc' in netState.sentPayload),
+   JSON.stringify(Object.keys(netState.sentPayload)));
+netState.clients = [{ name:'Seaford', billing_email:'billing@seaford.test',
+                      email_cc:'accounts@seaford.test' }];
 
 console.log('\n--- J. authorisation failures fail closed ---');
 netState.sendersOk = false;
