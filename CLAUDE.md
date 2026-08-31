@@ -612,10 +612,13 @@ px).
 - **Backslashes are halved in transit.** A `\\` typed into a heredoc or a
   `node -e` payload arrives as a single `\`, so `'\\s+'` reaches the file
   as `'\s+'` and the JS string then evaluates to `s+`. Same family as the
-  `\n` entry above, and quoting the heredoc does not prevent it. Build the
-  character instead — `const BS=String.fromCharCode(92)` — and concatenate.
-  Three retries in one session: `clients.test.mjs`, the `name_canon` SQL, and
-  the note about it.
+  `\n` entry above, and quoting the heredoc does not prevent it. Reach for
+  `String.raw` when the string is a chunk of source being matched or written:
+  it keeps every backslash exactly as typed, which is what an anchor holding a
+  regex literal needs. Otherwise build the character with
+  `String.fromCharCode(92)` and concatenate.
+  Four retries in one session: `clients.test.mjs`, the `name_canon` SQL, the
+  note about it, and the `cliKey` anchor while folding it.
 - **Never pass a `$` through `String.replace`.** `$&`, `$'` and `` $` `` are
   substitution patterns in the *replacement* — `` $` `` inserts everything before
   the match. `sqlText()` is full of `$BODY$` blocks, so a replacement carrying
