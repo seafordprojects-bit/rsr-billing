@@ -5,7 +5,7 @@ layout, real printing, real focus, real touch. Ordered by risk — if you only
 have twenty minutes, do section 1. If you are setting the app up on a phone
 for the first time, start at section 0.
 
-The suites cover logic, data and wiring — `node test/run.mjs`, 30 suites, 1336
+The suites cover logic, data and wiring — `node test/run.mjs`, 33 suites, 1834
 assertions. They do **not** render, paginate, or lay anything out. Every bug you
 hit that the tests missed was in this category.
 
@@ -619,6 +619,104 @@ as marked was marked only in that browser's local storage.
       others is the failure this check exists for.
 - [ ] The card shows no **Lines differ** badge. If it does, it names the
       field that disagrees — read it, then re-check the query above.
+
+---
+
+## 12. The inactivity lock
+
+Off by default. Turn it on in **Settings → Screen lock** — a window in minutes
+and a passcode, both per-device and neither ever synced. Set it to **1 minute**
+while testing; the real value is yours to choose.
+
+The suite covers the state machine — armed, grace, locked, unlocked — and the
+CSS text. It cannot see a single thing below. `#lock` being `on` proves the JS
+ran, never that anyone can see it or that it stops a finger.
+
+### A. It covers, and it stops taps
+
+- [ ] Arm it at 1 minute, put the phone down, wait. The overlay appears and
+      covers **everything** — header, cards, the floating action bar at the
+      bottom, the tab strip. Nothing of the app shows through at any scroll
+      position.
+- [ ] Try to scroll the page behind it. It must not move.
+- [ ] Tap where a billing card is underneath. Nothing opens. Tap where the
+      **+** button is. Nothing happens. This is the check that matters: an
+      overlay that paints but does not intercept is the exact bug that shipped
+      once with closed sheets at `opacity:0`.
+- [ ] Rotate the phone while locked. Still covered, still centred, the
+      passcode box still reachable above the keyboard.
+- [ ] On the desktop, widen the window to full screen. Still covered.
+
+### B. It does not fire while you are working
+
+This is the half that makes it usable rather than hated.
+
+- [ ] Open the statement sheet, get to the covering-letter review, and read it
+      slowly for **twice** the lock window without touching anything. It must
+      **not** lock. An open sheet is activity — reviewing a letter before
+      sending is exactly the thing that looks like idleness.
+- [ ] Close that sheet without sending. Now wait the full window with nothing
+      open. It locks.
+- [ ] Scroll the Monitoring list every few seconds for longer than the window.
+      It never locks — scrolling counts as being present.
+- [ ] Type into the search box for longer than the window. It never locks.
+
+### C. Nothing is lost — the whole point
+
+- [ ] Compose an email down to the letter review, edit the letter text by hand,
+      then **force the lock**: close the review, wait out the window, and unlock.
+      Reopen the send flow. Verify the billing is still unsent and no number
+      was burned.
+- [ ] Better, if you can catch it: leave the review sheet open and let a real
+      lock happen some other way, then unlock. **The sheet is still open, the
+      edited letter text is still exactly as you typed it, and Send still
+      works.** A lock that reloaded the page would have thrown both away.
+- [ ] Make an offline edit so the badge reads *n queued*, then lock and unlock.
+      The count is unchanged and the queue still drains when you reconnect.
+
+### D. Unlocking
+
+- [ ] The passcode box is focused when the overlay appears, and on the phone
+      the **numeric keypad** comes up, not the full keyboard.
+- [ ] A wrong passcode says so, clears the box, and leaves you locked.
+- [ ] Enter is as good as tapping **Unlock**.
+- [ ] The right passcode returns you to exactly the screen you left.
+- [ ] Afterwards the page scrolls again. If it does not, the body scroll lock
+      has got out of step — that is `scrollLock()` and it is meant to be the
+      only writer.
+- [ ] With a sheet open underneath a lock, press **Escape** on the desktop.
+      Nothing happens — it must not close the sheet under the overlay.
+
+### E. Printing while locked
+
+- [ ] Print a billing, and while the print dialog is open let the lock fire
+      (or set the window to 1 minute first). The printed page and the PDF
+      preview carry **no trace of the overlay** — no dark panel, no passcode
+      box, nothing over the billing. This is what `#lock` in the `@media print`
+      list buys, and it is invisible until it is wrong.
+- [ ] Dismiss the dialog. You land on the lock screen, unlock, and the
+      statement sheet is where you left it.
+
+### F. The shared PC is untouched
+
+- [ ] On the shared computer, **Settings → Screen lock** reads 0 / blank.
+      Leave a browser tab on the app and go and do something else for an hour.
+      Come back: no passcode, nothing changed. Nobody has to opt out of this.
+- [ ] Switch to another tab and back repeatedly. Nothing happens — the lock is
+      on a timer and deliberately ignores tab switching, because a tab switch
+      and a phone going to sleep are the same event with no way to tell them
+      apart.
+
+### G. What it is not
+
+- [ ] Know what you are relying on: the passcode is stored in plain text in
+      that device's `localStorage` and checked on the device, which is what
+      lets it open with no signal. It stops someone picking up an unattended
+      phone. It does not stop someone holding the phone with time and a laptop.
+      There is no limit on wrong attempts, on purpose — a lockout would strand
+      the handset in the field.
+- [ ] It is not the sign-in gate. If the session expires while locked, you
+      unlock and then meet the sign-in screen. Two prompts in a row is correct.
 
 ---
 

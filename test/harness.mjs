@@ -51,7 +51,11 @@ globalThis.__t={
   pdfPlan, pdfDoc, pdfFilename, pdfMoney, pdfText, MARK_INK, words, pesoWords,
   mailSubject, markBilledNow, termsDefault, canonVessel, LETTER_DEFAULT, LETTER_KEYS,
   fmtDate, today, addDays, yy2, money, periodEnds, periodText,
-  get pendingSend(){return pendingSend}
+  get pendingSend(){return pendingSend}, set pendingSend(v){pendingSend=v},
+  show, hide, showGate, hideGate, scrollLock, escClose,
+  get openSheet(){return openSheet},
+  lockArmed, bumpLock, lockTick, showLock, hideLock, doUnlock, lockSync,
+  get locked(){return locked}, get lockAt(){return lockAt}
 };
 `;
 const lastIdx = js.lastIndexOf('})();');

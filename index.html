@@ -459,6 +459,11 @@ header.top{
   background-size:26px 26px
 }
 #gate.on{display:grid}
+/* Above the gate, because a lock is about who is holding the device and it has
+   to cover the sign-in screen too. display, not opacity: a closed overlay left
+   at opacity:0 ate clicks across the whole window once already. */
+#lock{position:fixed;inset:0;z-index:95;background:var(--ink);color:#fff;display:none;place-items:center;padding:24px;overflow-y:auto}
+#lock.on{display:grid}
 .gate-box{width:100%;max-width:340px;text-align:left}
 .gate-box .mark{width:42px;height:42px;font-size:15px;border-radius:10px;margin-bottom:16px}
 .gate-box h2{margin:0;font-size:21px;font-weight:800;letter-spacing:-.02em}
@@ -471,9 +476,9 @@ header.top{
 }
 .gate-box input::placeholder{color:rgba(255,255,255,.32)}
 .gate-box input:focus{border-color:var(--weld);outline:none;background:rgba(255,255,255,.1)}
-#gIn{width:100%;padding:14px;border-radius:11px;background:var(--rsr);color:#fff;font-weight:700;font-size:14.5px;margin-top:4px}
-#gIn[disabled]{opacity:.6}
-#gErr{margin-top:12px;font-size:12.5px;color:#FF9A9A;min-height:17px;line-height:1.4}
+#gIn,#kGo{width:100%;padding:14px;border-radius:11px;background:var(--rsr);color:#fff;font-weight:700;font-size:14.5px;margin-top:4px}
+#gIn[disabled],#kGo[disabled]{opacity:.6}
+#gErr,#kErr{margin-top:12px;font-size:12.5px;color:#FF9A9A;min-height:17px;line-height:1.4}
 #gCfg,#gFor{margin-top:20px;font-size:12px;color:rgba(255,255,255,.5);border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:1px}
 #gFor{margin-right:18px}
 #dropOverlay{position:fixed;inset:0;z-index:80;background:rgba(16,31,46,.88);color:#fff;display:none;place-items:center;padding:24px;text-align:center}
@@ -590,7 +595,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     width:auto;min-width:0;max-width:none;height:auto;
     font-size:12px
   }
-  #app,.fab-bar,.scrim,.sheet,.toast,#dropOverlay,#gate{display:none !important}
+  #app,.fab-bar,.scrim,.sheet,.toast,#dropOverlay,#gate,#lock{display:none !important}
   #printRoot{display:block !important;width:auto;margin:0;padding:0}
   /* @page reserves the margin, so the document takes the full printable width */
   /* @page carries the margin, but the print dialog's Margins dropdown can
@@ -637,6 +642,22 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div id="gErr" role="alert"></div>
     <button id="gFor" type="button">Forgot password</button>
     <button id="gCfg" type="button">Connection settings</button>
+  </div>
+</div>
+
+<!-- Inactivity lock. An overlay and never a reload: pendingSend, the letter
+     half-composed in lBody and any open sheet have to be exactly where they
+     were when it fired. -->
+<div id="lock">
+  <div class="gate-box">
+    <div class="mark">RSR</div>
+    <div class="eb">RSR Engineering Services</div>
+    <h2>Locked</h2>
+    <p id="kMsg">Enter the passcode to carry on. Nothing has been lost.</p>
+    <label for="kCode">Passcode</label>
+    <input id="kCode" type="password" inputmode="numeric" autocomplete="off" placeholder="••••">
+    <button id="kGo" type="button">Unlock</button>
+    <div id="kErr" role="alert"></div>
   </div>
 </div>
 
@@ -1033,6 +1054,13 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="f"><textarea id="cLetter" style="min-height:190px;line-height:1.55"></textarea></div>
     <label class="chk"><input type="checkbox" id="cMarkPrint"><span>Auto-mark billed on print<span class="s">A successful email always marks the billing BILLED. Printing asks first unless this is on.</span></span></label>
 
+    <div class="sect-t">Screen lock</div>
+    <div class="hint" style="margin:-4px 0 9px">Per device, and off until this device turns it on — a shared computer is unaffected. After this many minutes with nothing touched, a passcode covers the app; an open sheet counts as activity, so a letter being reviewed will not lock. The passcode is checked on the device, so it still opens with no signal — it guards an unattended phone, not a determined stranger.</div>
+    <div class="f-row">
+      <div class="f"><label for="cLockMins">Lock after (minutes)</label><input id="cLockMins" type="number" min="0" step="1" inputmode="numeric" placeholder="0 = off"></div>
+      <div class="f"><label for="cLockCode">Passcode</label><input id="cLockCode" type="password" inputmode="numeric" autocomplete="off" placeholder="Blank = off"></div>
+    </div>
+
     <details class="sect" data-sect="company">
       <summary><div class="sect-t sect-h">Company details on statements</div></summary>
     <div class="f"><label for="cCo">Company name</label><input id="cCo"></div>
@@ -1134,6 +1162,11 @@ const DEFAULT_CFG={
   // "cleared on purpose". letterCleared carries the intent, so a device that
   // never touched the box does not publish a row that looks like a clear.
   letter:'',letterCleared:false,autoMarkPrint:false,
+  // Inactivity lock. Per-device like autoMarkPrint and terms, and off unless
+  // this device turns it on, so the shared PC is unaffected until somebody
+  // sets it there. Neither key is in pushSharedSettings: the window is a local
+  // preference and the passcode must never leave the device at all.
+  lockMins:0,lockCode:'',
   banks:[]
 };
 // The covering letter that opens an emailed billing. Held empty in cfg and
@@ -2583,7 +2616,7 @@ function showGate(msg){
   gateOpen=true;
   $('gErr').textContent=msg||'';
   $('gate').classList.add('on');
-  document.body.style.overflow='hidden';
+  scrollLock();
   if(session.email)$('gEmail').value=session.email;
   setSync('off','Signed out');
   setTimeout(()=>{($('gEmail').value?$('gPw'):$('gEmail')).focus();},120);
@@ -2591,7 +2624,7 @@ function showGate(msg){
 function hideGate(){
   gateOpen=false;
   $('gate').classList.remove('on');
-  document.body.style.overflow='';
+  scrollLock();
   $('gPw').value='';$('gErr').textContent='';
 }
 async function doSignIn(){
@@ -2613,7 +2646,7 @@ $('gPw').addEventListener('keydown',e=>{if(e.key==='Enter')doSignIn();});
 $('gEmail').addEventListener('keydown',e=>{if(e.key==='Enter')$('gPw').focus();});
 $('gCfg').onclick=()=>{
   // step 5: reach settings before the first sign-in so URL/key can be set
-  $('gate').classList.remove('on');document.body.style.overflow='';
+  $('gate').classList.remove('on');scrollLock();
   openCfg();
 };
 $('gFor').onclick=async()=>{
@@ -2633,21 +2666,110 @@ async function doSignOut(){
 
 /* ================= sheets ================= */
 let openSheet=null;
+// The one writer of the body scroll lock. The gate, a sheet and the lock
+// overlay all want it, and whichever closed last used to clear it flat --
+// which would let the page scroll behind a lock that was still up. Derived
+// from all three states instead, so there is nothing to get out of step.
+function scrollLock(){
+  document.body.style.overflow=(locked||gateOpen||openSheet)?'hidden':'';
+}
 function show(id){
   if(openSheet)hide();
   openSheet=id;$(id).classList.add('on');$('scrim').classList.add('on');
-  document.body.style.overflow='hidden';
+  scrollLock();
 }
 function hide(){
   cmbHide();                       // a suggestion list must not outlive its sheet
   if(openSheet){$(openSheet).classList.remove('on');openSheet=null;}
-  $('scrim').classList.remove('on');document.body.style.overflow='';
+  $('scrim').classList.remove('on');scrollLock();
   // settings opened from the gate: closing it must not drop us into the app
   if(gateOpen&&!authed())showGate($('gErr').textContent);
 }
 $('scrim').onclick=hide;
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=hide);
-document.addEventListener('keydown',e=>{if(e.key==='Escape')hide();});
+// Escape must not reach a sheet through the lock. The overlay is the only
+// thing on screen, and dismissing what sits under it is not on offer.
+function escClose(){ if(locked)return false; hide(); return true; }
+document.addEventListener('keydown',e=>{if(e.key==='Escape')escClose();});
+
+/* ================= inactivity lock ================= */
+/* A passcode overlay on an idle timer. Deliberately NOT visibilitychange: a
+   desktop tab switch and a phone going to sleep are the same event carrying no
+   reason, so the shared PC would demand a passcode every time somebody glanced
+   at another tab.
+
+   An overlay and never a reload. pendingSend, the letter half-composed in
+   lBody, an open sheet and the queue all have to be exactly where they were --
+   this paints over the app, it does not restart it.
+
+   The passcode is checked HERE, against cfg, and not by resolve_unbill_operator:
+   that needs the network, and a phone waking with no signal has to be able to
+   get back in. Be clear about what it buys -- it stops someone picking up an
+   unattended device, not someone holding it with time to spare. */
+let lockAt=0, locked=false, lockTimer=null;
+const lockMinsOf=()=>{const n=parseInt(cfg.lockMins,10);return (isNaN(n)||n<0)?0:n;};
+const lockCodeOf=()=>String(cfg.lockCode==null?'':cfg.lockCode).trim();
+// Both, or nothing: a window with no passcode would lock a device that then
+// has no way back in, and a passcode with no window never fires.
+const lockArmed=()=>lockMinsOf()>0&&!!lockCodeOf();
+function bumpLock(now){
+  if(!lockArmed()||locked)return;
+  lockAt=(now||Date.now())+lockMinsOf()*60000;
+}
+// `now` is a parameter so the suite can drive the clock; nothing else passes it.
+function lockTick(now){
+  if(!lockArmed()||locked)return false;
+  // An open sheet is activity, not idleness. Reviewing a letter before sending
+  // is exactly the thing that looks like doing nothing, and locking there is
+  // the worst moment on offer. The gate counts too -- somebody is typing.
+  if(openSheet||gateOpen){bumpLock(now);return false;}
+  if(!lockAt||(now||Date.now())<lockAt)return false;
+  showLock();
+  return true;
+}
+function showLock(){
+  if(locked)return;
+  locked=true;
+  $('kCode').value='';$('kErr').textContent='';
+  $('lock').classList.add('on');
+  scrollLock();
+  setTimeout(()=>{try{$('kCode').focus();}catch(e){}},120);
+}
+function hideLock(){
+  locked=false;                     // before bumpLock, which ignores a raised lock
+  $('lock').classList.remove('on');
+  $('kCode').value='';$('kErr').textContent='';
+  scrollLock();
+  bumpLock();
+}
+function kFail(msg){
+  $('kErr').textContent=msg;
+  $('kCode').value='';
+  try{$('kCode').focus();}catch(e){}
+}
+function doUnlock(){
+  const v=String($('kCode').value||'').trim();
+  if(!v){kFail('Enter the passcode.');return;}
+  if(v!==lockCodeOf()){kFail('That passcode is not right.');return;}
+  hideLock();
+}
+// Settings changed, or the app just started: start or stop the timer to match.
+// No timer at all while the feature is off, which is the default everywhere.
+function lockSync(){
+  if(lockTimer){clearInterval(lockTimer);lockTimer=null;}
+  if(!lockArmed()){lockAt=0;if(locked)hideLock();return;}
+  bumpLock();
+  // 15s. The window is measured in minutes, so this is fine enough to be
+  // punctual and coarse enough to cost nothing.
+  lockTimer=setInterval(()=>lockTick(),15000);
+}
+$('kGo').onclick=doUnlock;
+$('kCode').addEventListener('keydown',e=>{if(e.key==='Enter')doUnlock();});
+// Any of these is a person being present. Passive, so scrolling is never held
+// up waiting for this to run.
+['pointerdown','keydown','wheel','touchstart'].forEach(t=>
+  document.addEventListener(t,()=>bumpLock(),{passive:true}));
+lockSync();
 
 /* ---- entry ---- */
 // The sheet always edits one billing group. `id` is a group id when editing;
@@ -5694,6 +5816,8 @@ function openCfg(){
   $('cTerms').value=termsDefault();
   $('cLetter').value=letterTemplate();
   $('cMarkPrint').checked=!!cfg.autoMarkPrint;
+  $('cLockMins').value=lockMinsOf()||'';
+  $('cLockCode').value=cfg.lockCode||'';
   $('cCo').value=cfg.company;$('cAddr').value=cfg.address;$('cContact').value=cfg.contact;
   $('cContactNo').value=cfg.contactNo||'';
   $('cSigner').value=cfg.signer;$('cRole').value=cfg.role;
@@ -5769,6 +5893,9 @@ $('cSave').onclick=async()=>{
   // can actually be fixed
   const lw=letterWarning(letterTemplate(),{contact:'{contact}'});
   cfg.autoMarkPrint=$('cMarkPrint').checked;
+  cfg.lockMins=Math.max(0,parseInt($('cLockMins').value,10)||0);
+  cfg.lockCode=String($('cLockCode').value||'').trim();
+  lockSync();                      // start, stop or re-window the timer
   cfg.hideNoCharge=$('cHideFree').checked;
   saveCfg();pushSharedSettings();$('brandSub').textContent=cfg.company||'RSR Engineering Services';
   hide();
