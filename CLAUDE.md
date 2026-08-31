@@ -294,6 +294,28 @@ copies to reconcile, and the payment details now live on the attachment. One
 consequence worth knowing: the body carries no brand mark, because the mark
 lived in the statement header; the sign-off is the only branding.
 
+**What the function refuses.** `send-statement` authorises in four layers, all
+fail-closed, all before Resend is called, and numbered `(1)`–`(4)` in its own
+source:
+
+1. the caller's JWT belongs to a real user — the gateway's `verify_jwt`, then
+   `/auth/v1/user`. The anon key is explicitly not a session.
+2. that user is on the `billing_senders` allowlist, read with the service key
+   so the table stays unreadable to ordinary sessions.
+3. `to` is the `billing_email` on the row of the client being billed, so the
+   endpoint can only mail addresses the app already holds, and one client's
+   billing cannot reach another client's address.
+4. `cc`, when given, is the `email_cc` on that same row. **Absent means
+   nobody, not anybody** — a client with no CC on file cannot be CC'd at all.
+
+3 and 4 read one fetch: the lookup keeps the row rather than reducing it to a
+boolean, so the CC check costs no extra round trip. Layer 4 landed late, and
+what it closed is worth stating plainly — the billing PDF rides on the message,
+so an allowlisted sender could copy a client's billing to any address at all,
+with `p_cc` in the send log as the only trace. That is attribution after the
+fact, not a control. Each refusal logs its own line, which is how you tell
+which layer fired; see **Debugging a failed send**.
+
 ---
 
 ## Printing
@@ -727,15 +749,17 @@ Before going live:
    (`rsrengineering.services2025@gmail.com`). That is the intended address and
    wants no change.
 
-   **The deployed build matches the tree.** `send-statement` is at version 17,
-   deployed 2026-08-26 17:10 (+08), which carries `9b43989`'s rewrite of the
-   SENDER IDENTITY block. Worth knowing what that closed: v15 fell back to
-   `onboarding@resend.dev` where the tree falls back to `billing@rsrengg.com`,
-   so while the gap stood, clearing `STATEMENT_FROM` would have dropped sending
-   silently back into the sandbox. It now changes nothing — secret and constant
-   name the same address. The general point survives the specific fix: **this
-   function's fallbacks only behave as documented when the deployed version is
-   current**, so check `supabase functions list` before reasoning about them.
+   **The deployed build matches the tree.** `send-statement` is at version 24,
+   deployed **2026-08-31**, which carries `a173727`'s CC allowlist — layer (4)
+   above. Before it, v17 (2026-08-26 17:10 +08) carried `9b43989`'s rewrite of
+   the SENDER IDENTITY block. Worth knowing what that one closed: v15 fell back
+   to `onboarding@resend.dev` where the tree falls back to
+   `billing@rsrengg.com`, so while the gap stood, clearing `STATEMENT_FROM`
+   would have dropped sending silently back into the sandbox. It now changes
+   nothing — secret and constant name the same address. The general point
+   survives the specific fix: **this function's fallbacks only behave as
+   documented when the deployed version is current**, so check
+   `supabase functions list` before reasoning about them.
 
    Everything about who the mail comes from lives in **one marked block** —
    `SENDER IDENTITY` in `supabase/functions/send-statement/index.ts`. It names
@@ -775,8 +799,9 @@ and `inspect` is Postgres only. Logs are the dashboard, in two streams:
 
 Every refusal logs something distinct, so the message identifies the layer:
 `blocked send attempt by …` is the allowlist, `blocked send to … for client …`
-is the recipient check, `resend failed …` is Resend itself. **Nothing in either
-stream** means the request never arrived — the gateway rejected it, and
+is the recipient check, `blocked cc … for client …` is the CC check, and
+`resend failed …` is Resend itself. **Nothing in either stream** means the
+request never arrived — the gateway rejected it, and
 `sb-error-code: UNAUTHORIZED_NO_AUTH_HEADER` is a missing or expired token.
 
 `statement … sent to …` means Resend **accepted** it, which is not delivery.
@@ -857,8 +882,9 @@ in the browser as a real 401 rather than an opaque CORS error.
 
   What it would have meant: the passcode cannot be a parameter of
   `record_billing_send`, because that runs *after* Resend has accepted — a
-  check there fails the logging, not the send. It has to become a fourth
-  authorisation layer inside `send-statement`, before the Resend call, with the
+  check there fails the logging, not the send. It has to become a fifth
+  authorisation layer inside `send-statement` (it was a fourth when this was
+  written; the CC check is now (4)), before the Resend call, with the
   resolved `operator_id`/`operator_name` carried into the RPC. And it has to be
   verified **before `issueBillNos()`**, or a wrong passcode burns a billing
   number the same way an unreachable CDN would — which is the reason
