@@ -978,6 +978,36 @@ function, because the gateway's `verify_jwt` exempts `OPTIONS`. Its 401 for an
 unauthenticated POST still carries the CORS header, so a missing token shows up
 in the browser as a real 401 rather than an opaque CORS error.
 
+### Verified done, 2026-09-01
+
+Observations against the live project and real hardware, not inferences from
+the code. Recorded so they are not re-investigated.
+
+- **The inactivity lock fires on phone hardware.** Walked on the device, with
+  the space-bar test: one keypress bought exactly one further window. It is no
+  longer an unwalked change and should not be re-flagged as one.
+- **Summer Imma is unbill operator id 2**, active since **2026-08-27**. The
+  `billing_unbill_operator` table exists only in the live database — it is not
+  in `sqlText()` — so this is the only written record of who that id belongs to.
+- **`email_cc` is complete end to end.** Column (`sqlText()`), the field in
+  the client form (`data-clf="email_cc"`), push and pull (`CLI_FIELDS`), both
+  conflict paths (`reconcileClient` and `healClientDup` iterate `CLI_FIELDS`),
+  the function's layer (4) check against `clients.email_cc`, the Resend `cc`
+  array, and `cc_emails` written on every send — empty array when there is no
+  CC. Nothing in that chain is missing.
+  **The one thing left:** `cliNorm` is `trim()` only and does not case-fold, so
+  two devices holding the same address in different case register as a genuine
+  disagreement and the whole client write is abandoned with "both changed
+  email_cc". Correct for a name or an address; wrong for an email.
+- **The covering letter's indentation question is closed.** `letterHtml`,
+  `statementEmailHtml` and `STMT_MAIL_CSS` are byte-identical to `c9fa5e4`, the
+  commit that made the letter sit flush left, and no logged send in
+  `drawing_billing_send_log.letter_text` has ever carried a
+  leading-whitespace paragraph. There was no regression to find.
+- **`drawing_billing` holds no mixed-status groups** as of today. The delete
+  and unbill guards fixed on this date are therefore preventive from here, not
+  repairs of a state the data is currently in.
+
 ### Known open items
 
 - **Offline billing numbers are not reconciled.** A number issued during an
