@@ -995,10 +995,10 @@ the code. Recorded so they are not re-investigated.
   the function's layer (4) check against `clients.email_cc`, the Resend `cc`
   array, and `cc_emails` written on every send — empty array when there is no
   CC. Nothing in that chain is missing.
-  **The one thing left:** `cliNorm` is `trim()` only and does not case-fold, so
-  two devices holding the same address in different case register as a genuine
-  disagreement and the whole client write is abandoned with "both changed
-  email_cc". Correct for a name or an address; wrong for an email.
+  **Nothing outstanding since `c8a27b8`**, which case-folds the two email
+  fields (`CLI_EMAIL_FIELDS`) for comparison only — the same address in a
+  different case no longer reads as a conflict. `name` and `address` still
+  compare verbatim, and a new email column must be added to that list.
 - **The covering letter's indentation question is closed.** `letterHtml`,
   `statementEmailHtml` and `STMT_MAIL_CSS` are byte-identical to `c9fa5e4`, the
   commit that made the letter sit flush left, and no logged send in
