@@ -2766,8 +2766,10 @@ function lockSync(){
 $('kGo').onclick=doUnlock;
 $('kCode').addEventListener('keydown',e=>{if(e.key==='Enter')doUnlock();});
 // Any of these is a person being present. Passive, so scrolling is never held
-// up waiting for this to run.
-['pointerdown','keydown','wheel','touchstart'].forEach(t=>
+// up waiting for this to run. `input` is not redundant beside `keydown`:
+// paste, autofill and a context-menu paste all fire input and no key event,
+// so editing the covering letter that way used to count as idleness.
+['pointerdown','keydown','wheel','touchstart','input'].forEach(t=>
   document.addEventListener(t,()=>bumpLock(),{passive:true}));
 lockSync();
 

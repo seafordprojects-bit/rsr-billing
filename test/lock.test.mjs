@@ -78,6 +78,21 @@ ok('activity pushes the deadline out', app.lockAt === T + 9 * MIN, String(app.lo
 ok('so the old deadline passes harmlessly', app.lockTick(T + 5 * MIN) === false);
 ok('and the new one still bites', app.lockTick(T + 9 * MIN) === true);
 
+console.log('\n--- C2. a real event reaches the deadline ---');
+// Everything above calls bumpLock() directly. The app never does: it hangs the
+// bump off passive listeners on document, which the harness stubbed as a
+// no-op -- so the wiring between an actual event and lockAt was the one part
+// of this never exercised. `input` is the one worth pinning: paste, autofill
+// and a context-menu paste fire it and no key event at all, so editing the
+// covering letter that way used to read as idleness.
+app = boot({ lockMins: 5, lockCode: '2468' });
+app.bumpLock(T);                        // a deadline in 1970, so any move shows
+const t0 = Date.now();
+app.fireDoc('input');
+ok('an input event moves the deadline a full window out',
+   app.lockAt >= t0 + 5 * MIN && app.lockAt <= Date.now() + 5 * MIN,
+   'lockAt - now - window = ' + (app.lockAt - t0 - 5 * MIN));
+
 console.log('\n--- D. an open sheet is activity, not idleness ---');
 // reviewing a letter before sending is exactly the thing that looks like doing
 // nothing, and locking the operator out mid-review is the worst possible moment

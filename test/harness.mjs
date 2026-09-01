@@ -163,12 +163,28 @@ class El {
 const els = new Map();
 const el = id => { if(!els.has(id)) els.set(id, new El(id)); return els.get(id); };
 
+// Document-level listeners used to register into a no-op, so the passive
+// activity listeners the inactivity lock installs could not be observed at
+// all -- the suite had to call bumpLock() directly and the wiring between a
+// real event and the deadline was never exercised. Record them by type;
+// app.fireDoc(type) plays them back. Element and window listeners are
+// unchanged: recording is additive, so nothing fires unless a suite asks.
+const docOn = new Map();
+const fireDoc = (type, ev) => {
+  (docOn.get(type) || []).forEach(fn => fn(ev || { type }));
+};
+
 globalThis.document = {
   activeElement: null,
   getElementById: el,
   createElement: () => new El('created'),
   querySelectorAll: () => [],
-  addEventListener(){},
+  addEventListener(type, fn){
+    if (typeof fn !== 'function') return;
+    if (!docOn.has(type)) docOn.set(type, []);
+    docOn.get(type).push(fn);
+  },
+  removeEventListener(){},
   head: { appendChild(){} },
   body: { style:{} },
 };
@@ -234,6 +250,10 @@ globalThis.__loadApp = () => {
   // to accumulate, an older closure fires first and overwrites what the
   // current one is about to read.
   for (const node of els.values()) node._on = {};
+  // Same reason, one level up: a reload re-registers every document listener
+  // too, and a stale closure's bumpLock would write to the previous app's
+  // lockAt while the current one is being asserted on.
+  docOn.clear();
   globalThis.document.activeElement = null;
   if (globalThis.__seedOK !== true) {
     let c = {};
@@ -244,5 +264,8 @@ globalThis.__loadApp = () => {
     }
   }
   (0,eval)(js);
+  // Attached here, not in the hook: the hook is evaluated inside index.html's
+  // IIFE and every name in it must exist there. fireDoc is the harness's own.
+  globalThis.__t.fireDoc = fireDoc;
   return globalThis.__t;
 };
