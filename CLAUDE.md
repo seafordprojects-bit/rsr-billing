@@ -338,11 +338,39 @@ not sheet state — so a lock that reloaded would silently destroy a send in
 review. `lock.test.mjs` section G asserts the `pendingSend` that comes back is
 the *same object*.
 
-**An open sheet is activity, not idleness.** Reviewing a letter before sending
-is exactly the thing that looks like doing nothing, and locking there is the
-worst moment on offer — so a tick with a sheet open pushes the deadline out
-rather than firing, and closing the sheet starts the full window again. The
-sign-in gate suppresses it too: somebody is typing.
+**An open sheet is not activity. Interaction is, wherever it occurs.** A sheet
+being open is a fact about the screen, not evidence of a person — so `lockTick`
+fires over an open sheet like anything else, and what holds the lock off is
+`bumpLock`, driven by the passive document listeners. Those fire from inside a
+sheet exactly as from anywhere else, so reviewing a letter *and touching it*
+keeps the device unlocked; leaving it up and walking away no longer does.
+
+This replaces the opposite rule, and the correction is the whole point.
+`lockTick` used to read `if(openSheet||gateOpen){bumpLock(now);return false;}`,
+on the reasoning that locking someone out mid-review is the worst moment on
+offer. It is — but "a letter open on the desk" and "a phone in a pocket with
+the letter still up" are the same state, and the branch could not tell them
+apart. It re-armed the deadline every 15s tick for as long as the sheet stayed
+up, so on a device with `lockMins` set the lock **never fired at all**. The
+gate is not special either: `#lock` is z-index 95 above `#gate` at 90 precisely
+so the overlay can cover sign-in, and passcode-then-sign-in is the intended
+shape.
+
+The listener list is `pointerdown`, `keydown`, `wheel`, `touchstart` and
+`input`. `input` is not redundant beside `keydown`: paste, autofill and a
+context-menu paste fire it and no key event at all, so a letter edited that way
+would otherwise read as idleness.
+
+**The harness records document listeners now** — `document.addEventListener`
+was a no-op stub, so every one of those listeners registered into a void and
+the suite could only ever call `bumpLock()` directly. It keeps a Map by event
+type and `app.fireDoc(type)` plays them back, which is what lets
+`lock.test.mjs` section D assert that a tap inside a sheet is what keeps it
+unlocked. Do not go back to assuming that stub is inert: a document-level
+listener is testable, and a behaviour that hangs off one should be tested.
+What is still *not* proven in the harness is the browser propagation path —
+that a real event inside a sheet bubbles to `document` — because there is no
+layout and no real dispatch. That is `MANUAL-TEST.md` section 12.
 
 **The passcode is checked locally**, against `cfg`, and not by
 `resolve_unbill_operator`. That RPC needs the network and serialises on a
@@ -377,9 +405,12 @@ wants the body held and it goes in that expression, not in a new assignment.
 
 Escape is `escClose()`, which returns false while locked instead of closing the
 sheet underneath. The decision is a named function rather than an inline
-handler because `document.addEventListener` is a **no-op in the harness** — as
-an inline handler none of it could be tested at all. Same reason `lockTick(now)`
-takes an optional clock: the suite drives it, nothing in the app passes it.
+handler because `document.addEventListener` **used to be a no-op in the
+harness** — as an inline handler none of it could be tested at all. That is no
+longer true (the stub records handlers; see the lock section above), so the
+extraction is no longer forced — but keep it: the *decision* is worth naming
+whether or not a test can reach it. Same reason `lockTick(now)` takes an
+optional clock: the suite drives it, nothing in the app passes it.
 
 ---
 

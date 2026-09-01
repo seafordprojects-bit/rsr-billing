@@ -2719,10 +2719,11 @@ function bumpLock(now){
 // `now` is a parameter so the suite can drive the clock; nothing else passes it.
 function lockTick(now){
   if(!lockArmed()||locked)return false;
-  // An open sheet is activity, not idleness. Reviewing a letter before sending
-  // is exactly the thing that looks like doing nothing, and locking there is
-  // the worst moment on offer. The gate counts too -- somebody is typing.
-  if(openSheet||gateOpen){bumpLock(now);return false;}
+  // An open sheet is NOT activity, and neither is an open gate. Interaction
+  // is, wherever it happens -- the passive listeners further down bump lockAt
+  // from anywhere in the document, a sheet included. Suppressing on openSheet
+  // was how this never fired: a covering letter left open on a phone in a
+  // pocket re-armed its own deadline every tick, for as long as it stayed up.
   if(!lockAt||(now||Date.now())<lockAt)return false;
   showLock();
   return true;

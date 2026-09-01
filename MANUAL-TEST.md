@@ -647,19 +647,53 @@ ran, never that anyone can see it or that it stops a finger.
       passcode box still reachable above the keyboard.
 - [ ] On the desktop, widen the window to full screen. Still covered.
 
-### B. It does not fire while you are working
+### B. An open sheet is not activity; interaction is
 
-This is the half that makes it usable rather than hated.
+**This section inverted on 2026-09-01 and the old expectation was a bug.** It
+used to say an open sheet must never lock. `lockTick` suppressed on
+`openSheet`, which re-armed the deadline every 15s tick for as long as the
+sheet stayed up — so on a phone with the lock armed it **never fired at all**,
+which is how this was found. What holds the lock off now is touching the
+device, and the passive `document` listeners carry that from inside a sheet.
 
-- [ ] Open the statement sheet, get to the covering-letter review, and read it
-      slowly for **twice** the lock window without touching anything. It must
-      **not** lock. An open sheet is activity — reviewing a letter before
-      sending is exactly the thing that looks like idleness.
-- [ ] Close that sheet without sending. Now wait the full window with nothing
-      open. It locks.
+**On a real phone, not the desktop.** The harness has no layout and no real
+event dispatch, so it can prove `bumpLock` is wired to a recorded listener and
+nothing more. That a genuine touch inside a sheet's DOM actually bubbles to
+`document` is proven **here and only here** — everything else about it is
+proven by reading the source.
+
+Do these three back to back with the window at **1 minute**:
+
+- [ ] **Untouched, it locks.** Get to the covering-letter review, put the phone
+      down without touching the screen, and wait out the window. It **locks**,
+      over the open sheet. Unlock, and the letter is still there, still edited
+      (that is section C).
+- [ ] **Typing, it does not.** Same sheet again. Type a word into the letter
+      every 30 seconds or so for **twice** the window. It must **never** lock.
+      One character is enough — it is `keydown` that counts, not how much
+      you wrote.
+- [ ] **Pasting, it does not.** Same sheet. Copy some text, then paste into the
+      letter with the **long-press → Paste** menu — no keyboard, no key event —
+      every 30 seconds for twice the window. It must **never** lock. This is
+      the one to actually perform rather than assume: paste, autofill and
+      dictation fire `input` and no key event at all, which is why `input` is
+      in the listener list. If this locks and typing did not, `input` has been
+      dropped from that list.
+- [ ] Autofill counts too, if your phone offers it: tap the sign-in gate's
+      password field, let the password manager fill it, and confirm the window
+      restarted rather than running down from before the fill.
+
+Then the ordinary cases:
+
 - [ ] Scroll the Monitoring list every few seconds for longer than the window.
       It never locks — scrolling counts as being present.
 - [ ] Type into the search box for longer than the window. It never locks.
+- [ ] Leave the app on Monitoring, untouched, for the window. It locks.
+- [ ] **The gate is not special.** Sign out to raise the sign-in gate, then
+      leave it untouched for the window. It **locks over the gate** — `#lock`
+      is z-index 95 and `#gate` 90, so the overlay covers sign-in. Unlock with
+      the passcode and you land back on the sign-in screen. Two prompts in a
+      row is correct, not a bug.
 
 ### C. Nothing is lost — the whole point
 
@@ -667,10 +701,13 @@ This is the half that makes it usable rather than hated.
       then **force the lock**: close the review, wait out the window, and unlock.
       Reopen the send flow. Verify the billing is still unsent and no number
       was burned.
-- [ ] Better, if you can catch it: leave the review sheet open and let a real
-      lock happen some other way, then unlock. **The sheet is still open, the
-      edited letter text is still exactly as you typed it, and Send still
-      works.** A lock that reloaded the page would have thrown both away.
+- [ ] Now the direct version, which section B already puts you in: leave the
+      review sheet open with the letter edited, do not touch it, and let the
+      lock fire over it. Unlock. **The sheet is still open, the edited letter
+      text is still exactly as you typed it, and Send still works.** A lock
+      that reloaded the page would have thrown both away. This used to be
+      unreachable — an open sheet could not lock — so it was the one claim in
+      this file nothing could exercise.
 - [ ] Make an offline edit so the badge reads *n queued*, then lock and unlock.
       The count is unchanged and the queue still drains when you reconnect.
 

@@ -93,23 +93,45 @@ ok('an input event moves the deadline a full window out',
    app.lockAt >= t0 + 5 * MIN && app.lockAt <= Date.now() + 5 * MIN,
    'lockAt - now - window = ' + (app.lockAt - t0 - 5 * MIN));
 
-console.log('\n--- D. an open sheet is activity, not idleness ---');
-// reviewing a letter before sending is exactly the thing that looks like doing
-// nothing, and locking the operator out mid-review is the worst possible moment
+console.log('\n--- D. an open sheet is not activity; interaction is ---');
+// This section used to assert the opposite, and that is what kept the lock
+// from ever firing on the phone: lockTick suppressed on `openSheet`, so a
+// covering letter left open bumped its own deadline every 15s tick and the
+// window never elapsed. Being open is not evidence of a person. Touching the
+// thing is, and the passive document listeners carry that from inside a sheet
+// exactly as they do from anywhere else.
 app = boot({ lockMins: 5, lockCode: '2468' });
 app.bumpLock(T);
-app.show('sheetCfg');
-ok('a tick past the deadline does not lock while a sheet is open',
-   app.lockTick(T + 60 * MIN) === false, String(app.locked));
-ok('the deadline was pushed to the tick instead', app.lockAt === T + 65 * MIN,
-   String(app.lockAt - T));
-app.hide();
-ok('once it closes the window runs again', app.lockTick(T + 70 * MIN) === true);
+app.show('sheetLetter');
+ok('an untouched sheet does not hold the lock off',
+   app.lockTick(T + 60 * MIN) === true, String(app.locked));
+ok('and the sheet is still open underneath the overlay',
+   app.openSheet === 'sheetLetter', String(app.openSheet));
 
+// the same sheet, with somebody actually working in it
+app = boot({ lockMins: 5, lockCode: '2468' });
+app.show('sheetLetter');
+app.fireDoc('pointerdown');             // a tap landing inside the sheet
+const dTap = app.lockAt;
+ok('a tap inside a sheet moves the deadline a window out',
+   dTap > Date.now() && dTap <= Date.now() + 5 * MIN, String(dTap - Date.now()));
+ok('so a tick inside that window does not lock', app.lockTick(dTap - 1) === false);
+ok('and one past it does', app.lockTick(dTap) === true);
+
+// a paste into the letter: input fires, no key event does
+app = boot({ lockMins: 5, lockCode: '2468' });
+app.show('sheetLetter');
+app.fireDoc('input');
+ok('a paste into an open letter keeps it unlocked',
+   app.lockTick(app.lockAt - 1) === false && app.locked === false);
+
+// the gate is not special either. #lock is z-index 95 and #gate 90, so the
+// overlay covers sign-in; passcode then sign-in, two prompts, is the shape.
 app = boot({ lockMins: 5, lockCode: '2468' });
 app.bumpLock(T);
 app.showGate('x');
-ok('the sign-in gate suppresses it too', app.lockTick(T + 60 * MIN) === false);
+ok('the sign-in gate no longer suppresses it', app.lockTick(T + 60 * MIN) === true);
+ok('and the gate is still up beneath the lock', el('gate').classList.contains('on'));
 app.hideGate();
 
 console.log('\n--- E. locked ---');
@@ -125,10 +147,11 @@ console.log('\n--- E2. Escape does not reach the sheet underneath ---');
 app = boot({ lockMins: 5, lockCode: '2468' });
 app.show('sheetCfg');
 app.bumpLock(T);
-ok('a sheet keeps it open', app.lockTick(T + 60 * MIN) === false &&
-   app.openSheet === 'sheetCfg' && app.locked === false);
-app.showLock();
-ok('forced locked over an open sheet', app.locked === true);
+ok('an untouched sheet locks like anything else', app.lockTick(T + 60 * MIN) === true &&
+   app.openSheet === 'sheetCfg' && app.locked === true);
+app.showLock();                         // the `if(locked)return` guard
+ok('raising an already-raised lock is a no-op', app.locked === true &&
+   el('lock').classList.contains('on'));
 ok('Escape is swallowed', app.escClose() === false);
 ok('and the sheet underneath is still open', app.openSheet === 'sheetCfg',
    String(app.openSheet));
