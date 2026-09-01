@@ -118,6 +118,25 @@ app.openUnbill('gb');           // it is DRAFT now
 ok('refused', !el('sheetUnbill').classList.contains('on'));
 ok('with a reason', /billed/i.test(el('toast').textContent), el('toast').textContent);
 
+console.log('\n--- 8b. a PARTLY billed billing can still be unbilled ---');
+// The guard used to read g.status, the rolled-up value, which takes the
+// least-advanced line -- so one DRAFT line among billed ones made the whole
+// billing unrefusable here while delete refused it too and said 'unbill it
+// first'. Both doors shut on the one billing that needed the way out.
+app = await boot();
+app.rows.find(r => r.id === 'u2').status = 'DRAFT';
+app.rows.find(r => r.id === 'u2').billed_date = null;
+ok('the group rolls up to DRAFT', app.groupById('gb').status === 'DRAFT',
+   app.groupById('gb').status);
+app.openUnbill('gb');
+ok('the sheet still opens', el('sheetUnbill').classList.contains('on'));
+app.hide();
+// an all-PAID billing has no billed line and is still refused, unchanged
+app = await boot();
+app.rows.forEach(r => { r.status = 'PAID'; r.paid_date = '2026-08-26'; });
+app.openUnbill('gb');
+ok('a paid billing is still refused', !el('sheetUnbill').classList.contains('on'));
+
 console.log('\n--- 9. a billed billing cannot be deleted either ---');
 // rsr_dwg_delete_guard raises on DELETE of a BILLED row, so queueing one buys
 // a dead write and a row that disappears locally while still on the server.

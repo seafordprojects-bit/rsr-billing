@@ -277,6 +277,63 @@ ok('PAID beside BILLED reads as BILLED', gPaid.status === 'BILLED', String(gPaid
 ok('paid_date still carried from the line that has one', gPaid.paid_date === '2026-08-26',
    String(gPaid.paid_date));
 
+console.log('\n--- P. a partly billed billing is not deleted at all ---');
+// eDelete guarded on g.status, which is the ROLLED-UP status and takes the
+// least-advanced line. One BILLED line among drafts therefore read as DRAFT,
+// cleared the guard, and the loop deleted the drafts while deleteRow refused
+// the billed one. What survived was a one-line billing still carrying the
+// group's code and bill_no -- a billing issued to a client for three lines now
+// reading as one, under the number already sent. The refusal toast was
+// overwritten in the same tick, so the user was told "Billing deleted".
+const partRows = [
+  mk({ id:'p-billed', group_id:'g-part', status:'BILLED', billed_date:'2026-08-24',
+       line_no:0, drawing_title:'Billed Line' }),
+  mk({ id:'p-d1', group_id:'g-part', status:'DRAFT', line_no:1, drawing_title:'Draft One' }),
+  mk({ id:'p-d2', group_id:'g-part', status:'DRAFT', line_no:2, drawing_title:'Draft Two' })];
+app = reset(partRows);
+const gPart = app.allGroups()[0];
+ok('the rollup still reads DRAFT', gPart.status === 'DRAFT', String(gPart.status));
+ok('and the group has all three lines', gPart.count === 3, String(gPart.count));
+app.openEntry(gPart.id);
+await el('eDelete').onclick();
+ok('nothing was deleted', app.rows.length === 3, String(app.rows.length));
+ok('the billed line is untouched', app.rows.some(r => r.id === 'p-billed'));
+ok('and both draft siblings survive',
+   app.rows.filter(r => r.status === 'DRAFT').length === 2,
+   String(app.rows.filter(r => r.status === 'DRAFT').length));
+ok('the message does not claim it deleted anything',
+   !/deleted/i.test(el('toast').textContent), el('toast').textContent);
+ok('and it names why', /billed/i.test(el('toast').textContent), el('toast').textContent);
+
+// PAID is deliberately deletable: rsr_dwg_delete_guard allows it, so the group
+// guard must test for a BILLED line and not merely for "not all DRAFT"
+const paidRows = [
+  mk({ id:'q1', group_id:'g-paid', status:'PAID', billed_date:'2026-08-24',
+       paid_date:'2026-08-26', line_no:0 }),
+  mk({ id:'q2', group_id:'g-paid', status:'PAID', billed_date:'2026-08-24',
+       paid_date:'2026-08-26', line_no:1 })];
+app = reset(paidRows);
+app.openEntry(app.allGroups()[0].id);
+await el('eDelete').onclick();
+ok('an all-paid billing still deletes', app.rows.length === 0, String(app.rows.length));
+
+console.log('\n--- P2. a refused line removal is not reported as saved ---');
+// same ignored return value, milder outcome: the line survives (deleteRow
+// refuses it) but the save said "Changes saved" over a removal that never
+// happened, so the user believes the line is gone.
+app = reset(partRows);
+app.openEntry(app.allGroups()[0].id);
+const bi = app.mlines.findIndex(l => String(l.id) === 'p-billed');
+ok('the billed line is offered in the editor', bi > -1, String(bi));
+app.mlines.splice(bi, 1);
+app.renderML();
+await el('eSave').onclick();
+ok('the billed line is still there', app.rows.some(r => r.id === 'p-billed'));
+ok('and the save does not report plain success',
+   !/^Changes saved$/.test(el('toast').textContent), el('toast').textContent);
+ok('it says what was refused', /billed/i.test(el('toast').textContent), el('toast').textContent);
+
+
 console.log('\n--- O. every line agrees after a group write ---');
 app = reset();
 app.openEntry(null, 'DW');

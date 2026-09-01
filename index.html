@@ -2539,7 +2539,14 @@ let unbillGid='';
 function openUnbill(gid){
   const g=groupById(gid);
   if(!g){toast('That billing is no longer here',true);return;}
-  if(g.status!=='BILLED'){toast('Only a billed billing can be unbilled',true);return;}
+  // Any billed line, not the rolled-up status. A billing with one BILLED line
+  // among drafts rolls up to DRAFT, so this used to refuse it -- while delete
+  // refused it too and said "unbill it first". Both doors shut on exactly the
+  // billing that needed the way out. An all-PAID billing still has no BILLED
+  // line and is still refused, which is unchanged.
+  if(!g.lines.some(r=>r.status==='BILLED')){
+    toast('Only a billed billing can be unbilled',true);return;
+  }
   unbillGid=gid;
   $('ubWhich').innerHTML='<b>'+esc(g.bill_no||g.code)+'</b> · '+esc(g.client||'')+
     ' · '+money(g.total)+' · '+g.count+' line'+(g.count===1?'':'s');
@@ -3156,28 +3163,56 @@ $('eSave').onclick=async()=>{
   });
   hide();
   // lines only come and go while the billing is still a draft
+  let refused=0;
   if(draft){
     const gone=g.lines.filter(r=>!keep[r.id]);
-    for(const r of gone)await deleteRow(r.id);
+    // deleteRow refuses a BILLED line, and `draft` here is the rolled-up
+    // status, so a partly billed billing reaches this loop. Ignoring the
+    // return value reported "Changes saved" over a removal that never
+    // happened: the line was still there next time the sheet opened and
+    // nothing had said why.
+    for(const r of gone){ if(!(await deleteRow(r.id)))refused++; }
     if(fresh.length)await saveBatch(fresh);
   }
   await rememberClient(client);
   render();
-  toast('Changes saved');
+  toast(refused
+    ? 'Changes saved, but '+refused+' billed line'+(refused===1?'':'s')+
+      ' could not be removed — unbill the billing first'
+    : 'Changes saved',!!refused);
 };
 
 $('eDelete').onclick=async()=>{
   if(!editingId)return;
   const g=groupById(editingId);if(!g)return;
-  // asked before the confirm, so nobody is invited to agree to something the
-  // server will refuse a moment later
-  if(g.status==='BILLED'){
-    toast('A billed billing cannot be deleted — unbill it first',true);return;
+  // Asked of the LINES, not of g.status. The rolled-up status is the
+  // least-advanced line -- right for "how far along is this billing", wrong for
+  // "will every line accept a delete". One BILLED line among drafts read as
+  // DRAFT, cleared this guard, and the loop then deleted the drafts and left
+  // the billed one behind, still carrying the group's code and bill_no: a
+  // billing issued for three lines reading as one, under the number already
+  // sent. PAID is deliberately not named here -- rsr_dwg_delete_guard allows
+  // it and so does deleteRow, so an all-paid billing still deletes.
+  // Asked before the confirm, so nobody is invited to agree to something that
+  // will be refused a moment later.
+  const billedLines=g.lines.filter(r=>r.status==='BILLED').length;
+  if(billedLines){
+    toast(billedLines===g.count
+      ? 'A billed billing cannot be deleted — unbill it first'
+      : billedLines+' of its '+g.count+' lines are already billed — unbill it first',true);
+    return;
   }
   if(!confirm('Delete billing '+(g.code||'')+' and all '+g.count+' of its lines?'))return;
   hide();
-  for(const r of g.lines)await deleteRow(r.id);
-  toast('Billing deleted');
+  // Collect what actually happened. deleteRow returns false for a line it
+  // refuses, and ignoring that is how a partial delete came to report success:
+  // the per-row refusal toast is rewritten by the final one in the same tick,
+  // so the only visible outcome was "Billing deleted".
+  let gone=0,kept=0;
+  for(const r of g.lines){ if(await deleteRow(r.id))gone++; else kept++; }
+  toast(kept
+    ? gone+' line'+(gone===1?'':'s')+' deleted, '+kept+' refused — the billing is still here'
+    : 'Billing deleted', !!kept);
 };
 
 /* ---- import from PDF ---- */
