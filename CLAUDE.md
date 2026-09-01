@@ -85,6 +85,75 @@ The client's copy carries the billing number only. Tracking codes are internal
 and appear in Monitoring. There are tests asserting no `RSR-…` string reaches
 the printed or emailed document.
 
+### Duplicate tracking codes — detected, not prevented
+
+The two numbering systems are protected differently, and the asymmetry is
+deliberate. `bill_no` is claimed by compare-and-swap (below) because the client
+sees it. **`code` has no such protection and is not getting one.** `nextCode` is
+a max-scan of the local cache and the guard at the save path checks that same
+cache, so a second device can mint a code this one has never seen, and nothing
+rejects it on arrival: there is no unique index on `code`, and there cannot
+easily be one while the lines of a group deliberately share it.
+
+Four options for preventing it were weighed; the one taken is **detection**:
+
+- `dupCodes(gs)` finds two distinct group ids carrying one code. It runs over
+  **groups, not rows** — `groupsFrom` has already collapsed by `group_id`, so a
+  shared code there is by construction two different billings.
+- It is called **once in `render()`**, not in `pull()`, and is **not cached**.
+  Unlike `sendMap` it needs no network, and `saveBatch`, `deleteRow`, `eSave`
+  and `markGroup` all mutate `rows` and re-render without a sync — a cache
+  would go stale on every local write.
+- It cannot live in `groupOf`: that sees one group's rows, and a shared code is
+  a property of the corpus.
+- **Both colliding cards are badged**, in crimson `.badge.dup`, forked from the
+  amber `.badge.mixed` rather than sharing it. Lines disagreeing inside one
+  billing and two billings colliding are different kinds of problem and must
+  not read alike. Badging only one would imply its partner was fine, and you
+  cannot decide which to re-mint without seeing both.
+- **`setGroupCode(g,code)` mirrors `setGroupBillNo`** — one queued PATCH per
+  line, because a code is a group field repeated on every line. A half-applied
+  re-mint needs no special handling: `code` is in `GROUP_FIELDS`, so it shows
+  as `Lines differ · code` until the rest of the jobs drain.
+- **Older wins.** `bornOf(g)` is the earliest `created_at` across the group's
+  lines. `created_at` is stamped by Postgres and `FIELDS` never sends it, so it
+  is one clock and no device skew can reorder two devices' billings — the same
+  tiebreak `groupOf` already uses to keep `head` stable. A group still queued
+  locally has no `created_at`, sorts last, and cannot have won: it never landed.
+  The **re-mint action appears only on the newer side**, and `remintCode`
+  re-checks anyway, because the card may predate the sync that changed the
+  answer.
+
+**This is convergent, not airtight.** It gives a duplicate a bounded life
+instead of a permanent silent one. It does not prevent the collision, and the
+re-mint can itself race a third device that has not synced — `nextCode` clears
+everything in the local cache and nothing more. The next scan catches that too.
+Do not read a clean Monitoring screen as proof no duplicate exists.
+
+**Rewind-born reuse is largely invisible to this scan, by construction.**
+Deleting rows rewinds `nextCode`, because it is a high-water mark over what
+survives — that is what lets a test-data cleanup hand back `-001`. But the
+previous holder is *gone*, so there are never two live groups to compare and
+nothing to detect. What the scan sees is concurrent duplication; what it misses
+is a code reissued after its original was deleted. The one case it does catch
+is a **partial** delete, which is how `eDelete` could leave an orphan holding a
+code while `max` dropped below it — fixed now, but older data may carry it, so
+the scan is worth trusting on history as well as on new arrivals.
+
+If reuse-across-time ever needs catching, the evidence is in
+`drawing_billing_send_log`: its `lines` snapshot is `to_jsonb(b)` built
+server-side and retains whatever code each line carried when it was sent. That
+costs adding the heaviest column in that table to a fetch `refreshSendMap`
+already makes.
+
+**Re-minting an already-sent billing is safe**, and this was checked rather
+than assumed: `drawing_billing_send_log` has `gid`, `bill_no` and `send_no` and
+**no `code` column**, its constraint is `unique (gid, send_no)`, `refreshSendMap`
+selects no code, and `historyFor` / `sendLogFor` key on `gid`. Nothing in
+`renderStatement`, `stmtFacts`, `pdfPlan`, `composeLetter`, `letterVars`,
+`mailSubject` or `statementEmailHtml` reads `code` at all. The one real cost is
+that a code written down on paper no longer finds its billing in search.
+
 ### Claiming a billing number
 
 Claimed **once per group**, then stored. Reprints reuse it and the counter does

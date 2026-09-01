@@ -38,6 +38,7 @@ globalThis.__t={
   get settings(){return settings}, applySettings, queueSetting, pushSharedSettings,
   migrateSettings, claimBillNo, raiseBillNo, normaliseTypes,
   allGroups, groupById, groupsFrom, groupOf, groupIdOf, migrateGroups, markGroup,
+  dupCodes, bornOf, setGroupCode, remintCode,
   GROUP_FIELDS, firstDate, rankOf, sendLogFor, refreshSendMap, historyLines, historyFor, dayOf,
   loadHistory, ensureHistory, historyChanged,
   get histMap(){return histMap}, set histMap(v){histMap=v},

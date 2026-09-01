@@ -236,6 +236,11 @@ header.top{
 .revgone{font-family:var(--mono);font-size:10.5px;color:var(--slate);font-style:italic}
 .badge.free{color:var(--slate)}
 .badge.mixed{color:var(--weld);background:rgba(224,122,24,.07);letter-spacing:.08em}
+/* Forked from .mixed deliberately. Lines disagreeing inside one billing is
+   an amber housekeeping note; two billings sharing a tracking code is a
+   collision between records and reads in the brand crimson, so the two are
+   never mistaken for each other on a crowded card. */
+.badge.dup{color:var(--rsr);background:rgba(200,30,35,.07);letter-spacing:.08em}
 .row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
 .act{
   display:inline-flex;align-items:center;justify-content:center;
@@ -1438,6 +1443,38 @@ function groupsFrom(list){
   return order.map(k=>groupOf(by.get(k)));
 }
 const allGroups=()=>groupsFrom(rows);
+// Two distinct group ids carrying one tracking code. nextCode is a max-scan of
+// the local cache and 3102 only checks that same cache, so a second device can
+// mint a code this one has never seen and nothing rejects it on arrival --
+// there is no unique index on `code`, and there cannot easily be one while the
+// lines of a group deliberately share it.
+//
+// Detection, not prevention: this is convergent rather than airtight. A
+// duplicate has a bounded life instead of being permanent and silent, and a
+// re-mint can itself race a third device, which the next sync catches again.
+//
+// Over GROUPS, not rows: groupsFrom has already collapsed by group_id, so a
+// shared code here is by construction two different billings. A raw-row scan
+// would have to rebuild that set itself.
+function dupCodes(gs){
+  const by=new Map();
+  (gs||[]).forEach(g=>{
+    const c=String(g.code||'').trim();
+    if(!c)return;
+    if(!by.has(c))by.set(c,[]);
+    by.get(c).push(g.id);
+  });
+  const out=new Map();
+  by.forEach((ids,c)=>{ if(ids.length>1)out.set(c,ids); });
+  return out;
+}
+// When a group first reached the server. created_at is stamped by Postgres --
+// FIELDS never sends it -- so this is one clock and no amount of device skew
+// can reorder two devices' billings. Same tiebreak groupOf already uses to
+// keep `head` stable across a sync. A group still queued locally has no
+// created_at at all and sorts last, which is right: it has not landed, so it
+// cannot have won the race.
+const bornOf=g=>String(firstDate((g&&g.lines)||[],'created_at')||'9999');
 const groupById=gid=>{
   const mine=rows.filter(r=>groupIdOf(r)===String(gid));
   return mine.length?groupOf(mine):null;
@@ -1956,6 +1993,20 @@ function visible(){
 let expanded={};
 function render(){
   const vis=visible();
+  // Cross-group, so it cannot live in groupOf: that sees one group's rows and
+  // a shared code is a property of the corpus. Deliberately not cached and
+  // deliberately not in pull() -- unlike sendMap this needs no network, and
+  // saveBatch, deleteRow, eSave and markGroup all mutate rows and re-render
+  // without a sync, so a cache would go stale on every local write.
+  const all=allGroups();
+  const dups=dupCodes(all);
+  const byId=new Map(all.map(g=>[g.id,g]));
+  // older wins, so only the newer side is offered the re-mint
+  const keeper=new Map();
+  dups.forEach((ids,code)=>{
+    const peers=ids.map(id=>byId.get(id)).filter(Boolean);
+    if(peers.length)keeper.set(code,peers.reduce((a,b)=>bornOf(b)<bornOf(a)?b:a).id);
+  });
 
   // totals over current filter (status chip ignored so the three cells stay comparable)
   const q=filters.q.trim().toLowerCase();
@@ -2033,6 +2084,9 @@ function render(){
   }
   L.innerHTML=vis.map(g=>{
     const open=!!expanded[g.id];
+    const dupIds=dups.get(String(g.code||'').trim());
+    const dupN=dupIds?dupIds.length-1:0;
+    const dupMine=dupN&&keeper.get(String(g.code||'').trim())!==g.id;
     const meta=[];
     if(g.vessel)meta.push(`<span><b>${esc(g.vessel)}</b></span>`);
     meta.push(`<span class="m">${fmtDate(g.bill_date)}</span>`);
@@ -2089,13 +2143,14 @@ function render(){
         <span class="badge ${esc(g.status)}">${esc(g.status)}</span>
         ${g.allFree?`<span class="badge free">No charge</span>`:''}
         ${g.mixed&&g.mixed.length?`<span class="badge mixed">Lines differ · ${esc(g.mixed.join(', '))}</span>`:''}
+        ${dupN?`<span class="badge dup" title="Another billing carries this tracking code. Codes are internal — the client's copy shows the billing number only.">Code shared with ${dupN} other billing${dupN===1?'':'s'}</span>`:''}
         <span class="row-amt">${money(g.total)}</span>
       </div>
       <div class="row-title">${esc(g.client||'No client')}</div>
       <div class="row-meta">${meta.join('')}<button type="button" class="gtoggle" data-exp="${esc(g.id)}">${g.count} item${g.count===1?'':'s'} <span class="ar">${open?'▴':'▾'}</span></button></div>
       ${open?`<div class="glines">${lines}</div>`:''}
       ${open?historyLines(g):''}
-      <div class="row-acts">${acts}<button class="act ghost" data-edit="${esc(g.id)}">Edit</button></div>
+      <div class="row-acts">${acts}${dupMine?`<button class="act" data-remint="${esc(g.id)}">Re-mint code</button>`:''}<button class="act ghost" data-edit="${esc(g.id)}">Edit</button></div>
     </article>`;
   }).join('');
 }
@@ -4182,6 +4237,41 @@ async function setGroupBillNo(g,no){
   for(const r of g.lines){r.bill_no=no;saveRow(r,false);}
   g.bill_no=no;
 }
+// The same shape, for the same reason: a code is a group field repeated on
+// every line, so changing it means touching them all. One queued PATCH per
+// line, like every other group write. A half-applied re-mint needs no special
+// handling -- `code` is in GROUP_FIELDS, so it surfaces as `Lines differ ·
+// code` on the card until the rest of the jobs drain.
+async function setGroupCode(g,code){
+  for(const r of g.lines){r.code=code;saveRow(r,false);}
+  g.code=code;
+}
+// Give this billing the next free code, because another one already has this.
+// Older wins: the group whose earliest line reached the server first keeps the
+// code. The card only offers this on the newer side, so pressing it is always
+// the right way round -- but the check is repeated here because the card may
+// have been rendered before the sync that changed the answer.
+async function remintCode(gid){
+  const g=groupById(gid);
+  if(!g){toast('That billing is no longer here',true);return;}
+  const code=String(g.code||'').trim();
+  const peers=allGroups().filter(x=>x.id!==g.id&&String(x.code||'').trim()===code);
+  if(!peers.length){toast('Nothing else carries that code now');render();return;}
+  if(peers.every(p=>bornOf(p)>bornOf(g))){
+    toast('This is the older billing — re-mint the other one',true);return;
+  }
+  // nextCode reads the local cache, which after the sync that revealed the
+  // clash holds both groups, so max+1 clears everything currently visible. It
+  // can still race a third device that has not synced; that is the convergence
+  // this whole mechanism accepts, and the next scan catches it.
+  const fresh=nextCode(g.bill_date,typeOf(g));
+  if(!confirm('Give billing '+code+' the new code '+fresh+'?\n\n'+
+              'Tracking codes are internal — the client’s copy carries the billing '+
+              'number only, so nothing already sent changes.'))return;
+  await setGroupCode(g,fresh);
+  persist();render();
+  toast('Re-minted as '+fresh);
+}
 function pickTotal(){
   $('sTotal').textContent=money(pickedRows().reduce((s,g)=>s+g.total,0));
   refreshBillNo();
@@ -6097,6 +6187,7 @@ $('list').addEventListener('click',e=>{
   const ub=e.target.closest('[data-unbill]');if(ub){openUnbill(ub.dataset.unbill);return;}
   const sd=e.target.closest('[data-send]');if(sd){openStmtFor(sd.dataset.send);return;}
   const mk=e.target.closest('[data-mark]');if(mk){markGroup(mk.dataset.gid,mk.dataset.mark);return;}
+  const rm=e.target.closest('[data-remint]');if(rm){remintCode(rm.dataset.remint);return;}
 });
 window.addEventListener('online',()=>pull(true));
 
