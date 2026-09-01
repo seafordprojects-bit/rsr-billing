@@ -37,11 +37,27 @@ const make = async (app, titles, o={}) => {
   await el('eSave').onclick();
   return app.allGroups()[0];
 };
+// Set the fields AFTER app.openStmt(), never before, and rebuild the picker.
+// openStmt() rebuilds the whole sheet: it rewrites the client options, resets
+// sTerms to termsDefault(), and -- the one that bites -- resets the range to
+// the current month, `sFrom = today's 1st` and `sTo = today`. Anything set
+// before the call is thrown away. groups.test.mjs:199 has the right order.
+//
+// This was inverted until 2026-09-01 and it did not look like a date bug. The
+// range fell back to the current month, the 2026-08-21 fixture sat outside it,
+// stmtCandidates() returned nothing, and every pickedRows() read was empty --
+// so issueBillNos() had nothing to issue, sNoReset stayed hidden, confirm()
+// never fired and line 110 dereferenced a null `asked`, aborting the suite
+// before it could report. It passed only between 21 and 31 August 2026, the
+// window where the month-to-date default happens to contain the fixture date,
+// which is why it went green when written and silently died on 1 September.
 const openStmt = (app) => {
+  app.openStmt();
   el('sClient').value = 'Seaford';
   el('sFrom').value = '2026-01-01'; el('sTo').value = '2026-12-31';
   el('sType').value = ''; el('sTerms').value = '30'; el('sVat').value = '0';
-  app.openStmt();
+  app.buildPick();          // openStmt built one already, against its own range
+  app.refreshBillNo(true);  // and the number is derived from the picks
 };
 const type = (v) => { el('sNo').value = v; el('sNo').fire('input', {}); };
 
