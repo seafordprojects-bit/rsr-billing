@@ -3,7 +3,7 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = process.argv[2] || path.join(ROOT, 'index.html');
 const FN_SRC = path.join(ROOT, 'supabase', 'functions', 'send-statement', 'index.ts');
-import { net } from './harness.mjs';
+import { net, mnlToday, codeStamp, monthFirst } from './harness.mjs';
 import fs from 'node:fs';
 
 let pass = 0, fail = 0;
@@ -15,6 +15,12 @@ const el = id => document.getElementById(id);
 const html = fs.readFileSync(SRC, 'utf8');
 const KEYS = ['rsr_dwg_cfg_v1','rsr_dwg_rows_v1','rsr_dwg_queue_v1','rsr_dwg_session_v1',
               'rsr_dwg_catalog_v1','rsr_dwg_clients_v1','rsr_dwg_shared_v1'];
+// Fixtures ride the Manila clock, never a written-out month: a code is
+// stamped with the month the sheet was opened in, so a literal agrees with
+// the app for one month a year. See the note in harness.mjs.
+const TODAY = mnlToday();
+const MM = codeStamp();                 // MMYYYY, as it appears in a code
+const DW1 = 'RSR-DW-' + MM + '-001';
 const reset = (rows) => {
   KEYS.forEach(k => globalThis.localStorage.removeItem(k));
   globalThis.localStorage.setItem('rsr_dwg_cfg_v1', JSON.stringify({ seededDW:true }));
@@ -30,7 +36,7 @@ let app = reset();
 
 console.log('\n--- A. one code for the whole billing ---');
 app.openEntry(null, 'DW');
-batch('Seaford', 'MV SF Voyager', '2026-08-21', '10000');
+batch('Seaford', 'MV SF Voyager', TODAY, '10000');
 app.mlines[0].title = 'General Arrangement Plan';
 app.mlines.push({ id:null, title:'Construction Plan', ref:'', qty:1, rate:'' });
 app.mlines.push({ id:null, title:'Capacity Plan',     ref:'', qty:1, rate:'' });
@@ -40,7 +46,7 @@ await el('eSave').onclick();
 ok('four line records created', app.rows.length === 4, String(app.rows.length));
 const codes = new Set(app.rows.map(r => r.code));
 ok('all four share one code', codes.size === 1, [...codes].join(','));
-ok('the code is the next in the run', [...codes][0] === 'RSR-DW-082026-001', [...codes][0]);
+ok('the code is the next in the run', [...codes][0] === DW1, [...codes][0]);
 ok('all share one group id', new Set(app.rows.map(app.groupIdOf)).size === 1);
 ok('lines keep their own record ids', new Set(app.rows.map(r => r.id)).size === 4);
 ok('lines carry no separate code of their own',
@@ -55,8 +61,8 @@ ok('client and vessel on the group',
    gs[0].client === 'Seaford' && gs[0].vessel === 'MV SF Voyager');
 app.render();
 ok('card shows the shared code once',
-   (el('list').innerHTML.match(/RSR-DW-082026-001/g) || []).length === 1,
-   String((el('list').innerHTML.match(/RSR-DW-082026-001/g) || []).length));
+   el('list').innerHTML.split(DW1).length - 1 === 1,
+   String(el('list').innerHTML.split(DW1).length - 1));
 ok('card shows the group total', el('list').innerHTML.includes('40,000'));
 ok('card shows the line count', /4 items/.test(el('list').innerHTML));
 
@@ -72,8 +78,8 @@ ok('each line title listed',
 app.expanded = {};
 
 console.log('\n--- D. the monthly run counts billings, not lines ---');
-ok('next code is 002, not 005', app.nextCode('2026-08-21','DW') === 'RSR-DW-082026-002',
-   app.nextCode('2026-08-21','DW'));
+ok('next code is 002, not 005', app.nextCode(TODAY,'DW') === 'RSR-DW-' + MM + '-002',
+   app.nextCode(TODAY,'DW'));
 
 console.log('\n--- E. status acts on the group ---');
 gs = app.allGroups();
@@ -99,7 +105,7 @@ for (const n of ['Docking Plan','Hull Survey','Tailshaft Cert'])
   await app.catSave({ name:n, doc_type:'DC', drawing_no:'', default_rate:2000,
                       sort_order:0, active:true }, true);
 el('kClient').value = 'Seaford'; el('kVessel').value = 'MV X';
-el('kDate').value = '2026-08-21'; el('kRate').value = '2000'; el('kType').value = 'DC';
+el('kDate').value = TODAY; el('kRate').value = '2000'; el('kType').value = 'DC';
 app.openCat('DC');
 await el('kCommit').onclick();
 ok('three lines', app.rows.length === 3, String(app.rows.length));
@@ -110,17 +116,17 @@ ok('code is a DC code', app.rows[0].code.startsWith('RSR-DC-'), app.rows[0].code
 console.log('\n--- H. a single quick add is a group of one ---');
 app = reset();
 app.openEntry(null, 'UT');
-batch('Seaford', '', '2026-08-21', '5000');
+batch('Seaford', '', TODAY, '5000');
 app.mlines[0].title = 'UTG Report';
 await el('eSave').onclick();
 const g1 = app.allGroups()[0];
 ok('one group of one line', app.allGroups().length === 1 && g1.count === 1);
-ok('still gets a tracking code', g1.code === 'RSR-UT-082026-001', g1.code);
+ok('still gets a tracking code', g1.code === 'RSR-UT-' + MM + '-001', g1.code);
 
 console.log('\n--- I. editing a DRAFT can add and remove lines ---');
 app = reset();
 app.openEntry(null, 'DW');
-batch('Seaford', '', '2026-08-21', '1000');
+batch('Seaford', '', TODAY, '1000');
 app.mlines[0].title = 'Keep Me';
 app.mlines.push({ id:null, title:'Remove Me', ref:'', qty:1, rate:'' });
 app.renderML();
@@ -142,7 +148,7 @@ ok('still one group', app.allGroups().length === 1);
 ok('removed line is gone', !app.rows.some(r => r.drawing_title === 'Remove Me'));
 ok('added line is there', app.rows.some(r => r.drawing_title === 'Brand New Line'));
 ok('kept line kept its record id', app.rows.some(r => r.id === keptId));
-ok('code unchanged by the edit', g2.code === 'RSR-DW-082026-001', g2.code);
+ok('code unchanged by the edit', g2.code === DW1, g2.code);
 ok('new line joined the same group', new Set(app.rows.map(app.groupIdOf)).size === 1);
 
 console.log('\n--- J. lines lock once BILLED ---');
@@ -189,20 +195,20 @@ ok('code is no longer unique per row',
 console.log('\n--- L. statement builder picks groups ---');
 app = reset();
 app.openEntry(null, 'DW');
-batch('Seaford', '', '2026-08-21', '1000');
+batch('Seaford', '', TODAY, '1000');
 app.mlines[0].title = 'Line One';
 app.mlines.push({ id:null, title:'Line Two', ref:'', qty:1, rate:'' });
 app.renderML();
 await el('eSave').onclick();
 
 el('sClient').value = 'Seaford';
-el('sFrom').value = '2026-08-01'; el('sTo').value = '2026-08-31';
+el('sFrom').value = monthFirst(); el('sTo').value = TODAY;
 el('sType').value = ''; el('sTerms').value = '30'; el('sVat').value = '0';
 const cands = app.stmtCandidates();
 ok('candidates are groups', cands.length === 1 && cands[0].count === 2,
    JSON.stringify(cands.map(c => c.count)));
 app.buildPick();
-ok('picker lists the group code', el('sPick').innerHTML.includes('RSR-DW-082026-001'));
+ok('picker lists the group code', el('sPick').innerHTML.includes(DW1));
 ok('picker shows the line count', /2 items/.test(el('sPick').innerHTML));
 ok('picker total is the group total', el('sTotal').textContent.includes('2,000'),
    el('sTotal').textContent);
@@ -212,11 +218,15 @@ el('sNo').value = 'BILLDWG-26-001';
 app.renderStatement(cands);
 const doc = el('printRoot').innerHTML;
 // the client's copy carries the billing number only; tracking stays in Monitoring
+// Both of these assert an ABSENCE, so a stale literal does not fail -- it
+// passes for the wrong reason. From 2026-09-01 they were looking for a code
+// the app could no longer emit, and would have gone on passing with the
+// tracking code printed in full on the client's copy.
 ok('no tracking code on the client copy',
-   (doc.match(/RSR-DW-082026-001/g) || []).length === 0,
-   String((doc.match(/RSR-DW-082026-001/g) || []).length));
+   doc.split(DW1).length - 1 === 0,
+   String(doc.split(DW1).length - 1));
 ok('and none on the line rows',
-   !/<span class="sub">[^<]*RSR-DW-082026-001/.test(doc));
+   !new RegExp('<span class="sub">[^<]*' + DW1).test(doc));
 ok('lines still numbered 1.0 and 2.0', doc.includes('>1.0<') && doc.includes('>2.0<'));
 ok('both line titles listed', /Line One/.test(doc) && /Line Two/.test(doc));
 ok('total is the group total', /2,000\.00/.test(doc));
@@ -270,7 +280,7 @@ ok('paid_date still carried from the line that has one', gPaid.paid_date === '20
 console.log('\n--- O. every line agrees after a group write ---');
 app = reset();
 app.openEntry(null, 'DW');
-batch('Seaford', 'MV SF Voyager', '2026-08-21', '10000');
+batch('Seaford', 'MV SF Voyager', TODAY, '10000');
 app.mlines[0].title = 'Line One';
 app.mlines.push({ id:null, title:'Line Two',   ref:'', qty:1, rate:'' });
 app.mlines.push({ id:null, title:'Line Three', ref:'', qty:1, rate:'' });

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = process.argv[2] || path.join(ROOT, 'index.html');
-import { net } from './harness.mjs';
+import { net, yy2 } from './harness.mjs';
 import fs from 'node:fs';
 
 let pass = 0, fail = 0;
@@ -282,8 +282,11 @@ ok('the function was called', !!sent);
 ok('the per-send edit is what went out', sent.html.includes('Kindly find'), '');
 ok('and the Settings template is untouched',
    app.letterTemplate() === app.LETTER_DEFAULT);
+// the number here is minted by the app, so its year follows the clock and a
+// literal '26' becomes wrong at midnight on 1 January
 ok('the subject names the billing and vessel',
-   /^Billing BILLDWG-26-\d+ — MV SF Voyager — /.test(sent.subject), sent.subject);
+   new RegExp('^Billing BILLDWG-' + yy2() + '-\\d+ — MV SF Voyager — ').test(sent.subject),
+   sent.subject);
 ok('the billing is now BILLED', app.allGroups()[0].status === 'BILLED',
    app.allGroups()[0].status);
 ok('with billed_date set to today',

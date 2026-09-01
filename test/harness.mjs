@@ -203,6 +203,32 @@ globalThis.localStorage = {
   removeItem: k => store.delete(k),
 };
 
+/* ---------------- the app's clock, for fixtures ---------------- */
+// today() in the app is MNL.format(new Date()) -- the Manila day, not the
+// device's -- and a tracking code stamps the month of the date it was made
+// with. A suite that writes `RSR-DW-082026-001` therefore agrees with the app
+// for one month and disagrees for every other, which is what put nine
+// assertions red on 2026-09-01 and made two more vacuous. Derive fixture dates
+// and expected codes from here; never spell a month or a year out.
+//
+// One subtlety worth knowing before writing a fixture: a billing's tracking
+// code is NOT stamped from its bill_date. openEntry() fills #eCode from
+// nextCode(today(), type) when the sheet opens, and only #eDate's change event
+// recomputes it -- which the stub does not fire on a bare `.value =`. So a row
+// saved through the sheet carries TODAY's month in its code whatever date the
+// test typed. Give fixtures TODAY and the two agree.
+const MNL_YMD = new Intl.DateTimeFormat('en-CA',
+  { timeZone:'Asia/Manila', year:'numeric', month:'2-digit', day:'2-digit' });
+export const mnlToday = () => MNL_YMD.format(new Date());
+// the two-digit year a billing number runs on: BILLDWG-<yy>-001
+export const yy2 = () => mnlToday().slice(2, 4);
+// MMYYYY, the stamp inside a tracking code: RSR-DW-<stamp>-001
+export const codeStamp = (ymd) => {
+  const d = String(ymd || mnlToday()).slice(0, 10).split('-');
+  return d[1] + d[0];
+};
+export const monthFirst = (ymd) => String(ymd || mnlToday()).slice(0, 8) + '01';
+
 /* ---------------- controllable fetch ---------------- */
 // net.script lets a suite make one specific request fail the way the real
 // server would: push {match, status, body} and the next request whose URL

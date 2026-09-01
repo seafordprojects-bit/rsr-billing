@@ -1,4 +1,4 @@
-import { net } from './harness.mjs';
+import { net, mnlToday, codeStamp } from './harness.mjs';
 import fs from 'node:fs';
 
 let pass = 0, fail = 0;
@@ -20,6 +20,11 @@ const batch = (client, vessel, date, rate) => {
   el('eClient').value = client; el('eVessel').value = vessel;
   el('eDate').value = date;     el('eRate').value = rate;
 };
+
+// Fixtures ride the Manila clock, never a written-out month: a tracking code
+// is stamped with the month the sheet was opened in. See harness.mjs.
+const TODAY = mnlToday();
+const MM = codeStamp();                 // MMYYYY, as it appears in a code
 
 console.log('\n--- A. multi mode only where the type is fixed ---');
 app.openEntry(null, 'DW');
@@ -43,7 +48,7 @@ ok('editing a billing uses the same line list', el('multiWrap').hidden === false
 console.log('\n--- B. one filled line behaves like the old single add ---');
 app = reset();
 app.openEntry(null, 'DW');
-batch('Seaford', 'MV SF Voyager', '2026-08-21', '1500');
+batch('Seaford', 'MV SF Voyager', TODAY, '1500');
 line(0, 'title', 'Shell Expansion Plan');
 line(0, 'ref', 'SE-01');
 await el('eSave').onclick();
@@ -57,12 +62,12 @@ ok('client and vessel from the batch fields',
    one.client === 'Seaford' && one.vessel === 'MV SF Voyager');
 ok('created as DRAFT', one.status === 'DRAFT');
 ok('type from the tab', one.doc_type === 'DW');
-ok('code sequenced', one.code === 'RSR-DW-082026-001', one.code);
+ok('code sequenced', one.code === 'RSR-DW-' + MM + '-001', one.code);
 
 console.log('\n--- C. several lines, one record each ---');
 app = reset();
 app.openEntry(null, 'DC');
-batch('Seaford', 'MV SF Voyager', '2026-08-21', '2000');
+batch('Seaford', 'MV SF Voyager', TODAY, '2000');
 line(0, 'title', 'Docking Plan');
 app.mlines.push({ title:'Hull Survey Cert', ref:'HS-1', qty:2, rate:'' });
 app.mlines.push({ title:'Tailshaft Cert',   ref:'',     qty:1, rate:5000 });
@@ -77,7 +82,7 @@ await el('eSave').onclick();
 ok('one record per line', app.rows.length === 3, String(app.rows.length));
 const codes = app.rows.map(r => r.code).sort();
 ok('the three lines share one DC code',
-   new Set(codes).size === 1 && codes[0] === 'RSR-DC-082026-001', codes.join(',')); 
+   new Set(codes).size === 1 && codes[0] === 'RSR-DC-' + MM + '-001', codes.join(',')); 
 ok('qty respected per line', app.rows.some(r => r.qty === 2));
 ok('per-line rate overrides the batch', app.rows.some(r => r.rate === 5000));
 ok('unset rates fall back to the batch',
@@ -91,7 +96,7 @@ ok('queued through the same saveBatch path',
 console.log('\n--- D. empty lines are ignored, a title is required ---');
 app = reset();
 app.openEntry(null, 'DW');
-batch('Seaford', '', '2026-08-21', '1500');
+batch('Seaford', '', TODAY, '1500');
 app.mlines.push(mlEmpty()); app.mlines.push(mlEmpty());
 function mlEmpty(){ return { title:'', ref:'', qty:1, rate:'' }; }
 line(0, 'title', 'Only Real Line');
@@ -101,13 +106,13 @@ ok('blank lines skipped', app.rows.length === 1, String(app.rows.length));
 
 app = reset();
 app.openEntry(null, 'DW');
-batch('Seaford', '', '2026-08-21', '1500');
+batch('Seaford', '', TODAY, '1500');
 await el('eSave').onclick();
 ok('nothing created with no titled line', app.rows.length === 0, String(app.rows.length));
 
 app = reset();
 app.openEntry(null, 'DW');
-batch('', '', '2026-08-21', '1500');
+batch('', '', TODAY, '1500');
 line(0, 'title', 'X');
 await el('eSave').onclick();
 ok('client is still required', app.rows.length === 0, String(app.rows.length));
@@ -129,7 +134,7 @@ ok('sole row is protected from removal',
 console.log('\n--- F. promoting typed lines into the catalog ---');
 app = reset();
 app.openEntry(null, 'UT');
-batch('Seaford', 'MV SF Voyager', '2026-08-21', '1200');
+batch('Seaford', 'MV SF Voyager', TODAY, '1200');
 line(0, 'title', 'UTG Hull Survey');
 app.mlines.push({ title:'UTG Tank Top', ref:'UT-2', qty:1, rate:1800 });
 app.renderML();
@@ -149,14 +154,14 @@ ok('ref carried into the catalog',
 
 console.log('\n--- G. promoting twice does not duplicate ---');
 app.openEntry(null, 'UT');
-batch('Seaford', '', '2026-08-21', '1200');
+batch('Seaford', '', TODAY, '1200');
 line(0, 'title', 'UTG Hull Survey');       // same name, same type
 el('mlToCat').checked = true;
 await el('eSave').onclick();
 ok('no duplicate catalog entry', app.catalog.length === 2, String(app.catalog.length));
 
 app.openEntry(null, 'DW');
-batch('Seaford', '', '2026-08-21', '1200');
+batch('Seaford', '', TODAY, '1200');
 line(0, 'title', 'UTG Hull Survey');       // same name, different type
 el('mlToCat').checked = true;
 await el('eSave').onclick();
@@ -166,7 +171,7 @@ ok('same name under another type is a separate item',
 console.log('\n--- H. unchecked means nothing is promoted ---');
 app = reset();
 app.openEntry(null, 'DW');
-batch('Seaford', '', '2026-08-21', '1500');
+batch('Seaford', '', TODAY, '1500');
 line(0, 'title', 'Not For Catalog');
 el('mlToCat').checked = false;
 await el('eSave').onclick();
