@@ -244,8 +244,11 @@ globalThis.confirm = (m) => { asked = m; return false; };
 el('sNo').value = '';
 await el('sPrint').onclick();
 ok('printing two billings asks first', !!asked, String(asked));
+// Guarded: an unrecorded confirm leaves `asked` null, and an unguarded
+// .includes() there aborts the whole suite instead of failing this line --
+// which is what billfield.test.mjs did until 2026-09-01.
 ok('the warning names both codes',
-   app.pickedRows().every(x => asked.includes(x.code)), asked);
+   !!asked && app.pickedRows().every(x => asked.includes(x.code)), String(asked));
 ok('it says one document is normally one billing',
    /normally one billing/.test(asked), asked);
 ok('declining issues nothing',

@@ -39,15 +39,23 @@ const original = app.rows[0];
 app.openEntry(null, 'DW');
 el('eClient').value = 'Seaford'; el('eVessel').value = 'MV X';
 let sug = app.titleSuggest('Shell Expansion Plan');
+// The first assertion guarded and the four below it did not, so an empty
+// suggester failed once and then aborted the suite on the next line.
 ok('a revision entry is offered first', sug[0] && sug[0].value && sug[0].value.rev === true,
    JSON.stringify(sug[0] && sug[0].label));
-ok('labelled with the next revision', sug[0].label === 'Shell Expansion Plan — Rev 1',
-   sug[0].label);
-ok('hint says it was billed before', /billed 1 time before/.test(sug[0].sub), sug[0].sub);
+ok('labelled with the next revision',
+   !!sug[0] && sug[0].label === 'Shell Expansion Plan — Rev 1',
+   sug[0] && sug[0].label);
+ok('hint says it was billed before',
+   !!sug[0] && /billed 1 time before/.test(sug[0].sub), sug[0] && sug[0].sub);
 ok('hint carries the prior code and date',
+   !!(sug[0] && sug[0].subLines && sug[0].subLines[0]) &&
    sug[0].subLines[0].includes(original.code) && sug[0].subLines[0].includes('Aug 2026'),
-   sug[0].subLines[0]);
-ok('and marks it as the original', /original/.test(sug[0].subLines[0]), sug[0].subLines[0]);
+   sug[0] && sug[0].subLines && sug[0].subLines[0]);
+ok('and marks it as the original',
+   !!(sug[0] && sug[0].subLines && sug[0].subLines[0]) &&
+   /original/.test(sug[0].subLines[0]),
+   sug[0] && sug[0].subLines && sug[0].subLines[0]);
 
 console.log('\n--- another client or vessel is not a revision ---');
 el('eClient').value = 'Other Co';
@@ -62,7 +70,12 @@ console.log('\n--- 2. picking it labels the line and links the original ---');
 app.mlines = [app.mlBlank()];
 app.renderML();
 sug = app.titleSuggest('Shell Expansion Plan');
-app.mlApply(0, sug[0].value);
+// Asserted, not silently guarded: nothing to pick is a real failure. mlApply
+// no-ops on a falsy candidate, so the three assertions below still run and
+// report on their own terms instead of the suite dying here.
+ok('there is still a revision to pick', !!(sug[0] && sug[0].value),
+   JSON.stringify(sug.map(s => s && s.label)));
+app.mlApply(0, sug[0] && sug[0].value);
 ok('title gains the rev label', app.mlines[0].title === 'Shell Expansion Plan — Rev 1',
    app.mlines[0].title);
 ok('rev number recorded', app.mlines[0].rev_no === 1, String(app.mlines[0].rev_no));
@@ -80,21 +93,28 @@ console.log('\n--- revisions increment off prior revisions ---');
 app.openEntry(null, 'DW');
 el('eClient').value = 'Seaford'; el('eVessel').value = 'MV X';
 sug = app.titleSuggest('Shell Expansion Plan');
-ok('next is Rev 2', sug[0].label === 'Shell Expansion Plan — Rev 2', sug[0].label);
+// Assert once that there is a suggestion, then read it through s0/subs. Every
+// line below indexed sug[0] directly, so an empty suggester aborted the suite
+// here and section 5 never ran at all.
+ok('a further revision is offered', !!sug[0], JSON.stringify(sug.map(x => x && x.label)));
+const s0 = sug[0] || {};
+const subs = s0.subLines || [];
+ok('next is Rev 2', s0.label === 'Shell Expansion Plan — Rev 2', s0.label);
+const sugTyped = app.titleSuggest('Shell Expansion Plan — Rev 1');
 ok('typing the revised title also finds it',
-   app.titleSuggest('Shell Expansion Plan — Rev 1')[0].label === 'Shell Expansion Plan — Rev 2',
-   app.titleSuggest('Shell Expansion Plan — Rev 1')[0].label);
+   !!sugTyped[0] && sugTyped[0].label === 'Shell Expansion Plan — Rev 2',
+   sugTyped[0] && sugTyped[0].label);
 
 console.log('\n--- 5. the hint lists the whole history ---');
-ok('two prior billings listed', sug[0].subLines.length === 2,
-   JSON.stringify(sug[0].subLines));
-ok('hint counts them', /billed 2 times before/.test(sug[0].sub), sug[0].sub);
-ok('newest first', sug[0].subLines[0].includes('Sep 2026'), sug[0].subLines[0]);
+ok('two prior billings listed', subs.length === 2, JSON.stringify(subs));
+ok('hint counts them', /billed 2 times before/.test(String(s0.sub)), s0.sub);
+ok('newest first', !!subs[0] && subs[0].includes('Sep 2026'), subs[0]);
 ok('each entry carries a code and a date',
-   sug[0].subLines.every(l => /RSR-DW-\d{6}-\d{3}/.test(l) && /20\d\d/.test(l)),
-   JSON.stringify(sug[0].subLines));
-ok('the revision is labelled Rev 1', sug[0].subLines[0].includes('Rev 1'), sug[0].subLines[0]);
-ok('the first is labelled original', sug[0].subLines[1].includes('original'), sug[0].subLines[1]);
+   subs.length > 0 &&
+   subs.every(l => /RSR-DW-\d{6}-\d{3}/.test(l) && /20\d\d/.test(l)),
+   JSON.stringify(subs));
+ok('the revision is labelled Rev 1', !!subs[0] && subs[0].includes('Rev 1'), subs[0]);
+ok('the first is labelled original', !!subs[1] && subs[1].includes('original'), subs[1]);
 
 console.log('\n--- 3. Monitoring shows the revision and links back ---');
 app = reset();

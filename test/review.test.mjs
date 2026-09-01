@@ -130,16 +130,28 @@ const orig = app.rows[0];
 app.openEntry(null, 'DW');
 el('eClient').value='Seaford'; el('eVessel').value='MV X';
 app.mlines = [app.mlBlank()];
-app.mlApply(0, app.titleSuggest('Shell Plan')[0].value);
+// Asserted rather than guarded: an empty suggester is a real failure and has
+// to be reported as one. A bare `[0].value` aborted the suite instead, and a
+// silent guard would skip the rest of the section without saying why.
+// mlApply no-ops on a falsy candidate, so the section still runs and the
+// assertions below fail on their own terms.
+const sugRev = app.titleSuggest('Shell Plan');
+ok('a prior billing offers a revision to pick', !!(sugRev[0] && sugRev[0].value),
+   JSON.stringify(sugRev.map(s => s && s.label)));
+app.mlApply(0, sugRev[0] && sugRev[0].value);
 el('eDate').value='2026-09-01'; el('eRate').value='1000';
 await el('eSave').onclick();
 app.openEntry(null, 'DW');
 el('eClient').value='Seaford'; el('eVessel').value='MV X';
+// captured once: three calls that each indexed [0] were three chances to abort
+const sugRev2 = app.titleSuggest('Shell Plan — Rev 1');
+ok('a revision of a revision is offered', !!sugRev2[0],
+   JSON.stringify(sugRev2.map(s => s && s.label)));
 ok('a revision of a revision is Rev 2',
-   app.titleSuggest('Shell Plan — Rev 1')[0].label === 'Shell Plan — Rev 2',
-   app.titleSuggest('Shell Plan — Rev 1')[0].label);
+   !!sugRev2[0] && sugRev2[0].label === 'Shell Plan — Rev 2',
+   sugRev2[0] && sugRev2[0].label);
 ok('and the base title is not doubled up',
-   !/Rev 1 — Rev/.test(app.titleSuggest('Shell Plan — Rev 1')[0].label));
+   !!sugRev2[0] && !/Rev 1 — Rev/.test(sugRev2[0].label));
 
 const rev = app.rows.find(r => r.rev_no === 1);
 await app.deleteRow(orig.id);
