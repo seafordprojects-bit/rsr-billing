@@ -126,6 +126,48 @@ ok("the list shows the server's value, not mine",
    seaford(app).billing_email === 'rsrengineering.services2025@gmail.com',
    seaford(app).billing_email);
 
+console.log('\n--- 3b. the same address in a different case is not a conflict ---');
+// cliNorm trimmed but did not case-fold, so AP@Seaford.test and
+// ap@seaford.test read as two devices disagreeing -- and a clash abandons the
+// WHOLE write, so an unrelated address correction in the same save was thrown
+// away too. Case is still meaningful in a name and an address; only the two
+// email fields fold.
+app = await boot();
+app.clients.push(app.cliFromServer({ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+  contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+  billing_email:'ap@seaford.test', updated_at:BASE }));
+net.script.push({ match:'updated_at=eq.', method:'PATCH', status:200, body:[] });
+net.script.push({ match:'/rest/v1/clients?select=*&id=eq.', method:'GET', status:200,
+  body:[{ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',
+          contact_person:'Ashford Chua', address:'BREDCO 3, Bacolod City',
+          billing_email:'AP@Seaford.test', updated_at:MOVED }] });
+
+// the PC recased the email; this device recased it differently AND corrected
+// the address. Only the address is a real change.
+await app.cliSave(Object.assign({}, seaford(app),
+  { billing_email:'Ap@Seaford.Test', address:'BREDCO 4, Bacolod City' }), false);
+
+ok('a case-only email difference is not a conflict', app.deadJobs().length === 0,
+   JSON.stringify(app.deadJobs().map(j => j.err)));
+ok('so the rest of the write still merged',
+   seaford(app).address === 'BREDCO 4, Bacolod City', seaford(app).address);
+ok('the queue cleared without asking', app.queue.length === 0, 'queue=' + app.queue.length);
+ok("the server's spelling of the email is kept",
+   seaford(app).billing_email === 'AP@Seaford.test', seaford(app).billing_email);
+// and the fold is scoped to the two email fields, asserted directly rather
+// than implied: case is meaningful under Bill To, so a name or an address
+// differing only in case is still a real edit and must still be surfaced.
+ok('billing_email folds', app.cliNorm('AP@Seaford.test','billing_email') ===
+                          app.cliNorm('ap@seaford.test','billing_email'));
+ok('email_cc folds', app.cliNorm('AP@Seaford.test','email_cc') ===
+                     app.cliNorm('ap@seaford.test','email_cc'));
+ok('name does not fold', app.cliNorm('Seaford','name') !== app.cliNorm('SEAFORD','name'),
+   app.cliNorm('Seaford','name') + ' vs ' + app.cliNorm('SEAFORD','name'));
+ok('address does not fold', app.cliNorm('Bacolod','address') !== app.cliNorm('BACOLOD','address'),
+   app.cliNorm('Bacolod','address') + ' vs ' + app.cliNorm('BACOLOD','address'));
+ok('and it still trims', app.cliNorm('  ap@seaford.test  ','billing_email') === 'ap@seaford.test',
+   JSON.stringify(app.cliNorm('  ap@seaford.test  ','billing_email')));
+
 console.log('\n--- 4. a job queued before this shipped has no base, so it asks ---');
 app = await boot();
 app.clients.push(app.cliFromServer({ id:'srv-9', name:'Seaford Shipping Lines', salutation:'Mr. Chua',

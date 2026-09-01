@@ -1712,7 +1712,20 @@ const deadJobs=()=>queue.filter(j=>j.dead);
    guessed at -- the whole write is abandoned and put in front of a person.
    All-or-nothing on purpose: a half-applied write is harder to reason about
    in Pending writes than one to redo.                                      */
-const cliNorm=v=>String(v==null?'':v).trim();
+// Comparison only -- never what is stored: both merge paths patch with the
+// raw job value, so the spelling a user typed is what reaches the server.
+//
+// Case is meaningful in a name and an address -- "Seaford" is not "SEAFORD"
+// under Bill To -- so those compare verbatim. An email address is not case
+// sensitive in practice, and comparing one verbatim made AP@Seaford.test and
+// ap@seaford.test read as two devices disagreeing. That abandons the WHOLE
+// client write, including every field that would have merged cleanly, and
+// puts it in Pending writes over a difference nobody made.
+const CLI_EMAIL_FIELDS=['billing_email','email_cc'];
+const cliNorm=(v,k)=>{
+  const t=String(v==null?'':v).trim();
+  return CLI_EMAIL_FIELDS.indexOf(k)<0?t:t.toLowerCase();
+};
 // Two rules, and only one of them touches case. cliTidy is the SPELLING --
 // whitespace tidied and nothing else -- because that is what gets stored on a
 // billing and printed under Bill To, and the first spelling used has to win.
@@ -1763,7 +1776,7 @@ async function reconcileClient(job){
   if(!srv)throw cliErr('That client no longer exists on the server.',404);
   const patch={},clash=[];
   CLI_FIELDS.forEach(k=>{
-    const base=cliNorm(job.base[k]),mine=cliNorm(job.data[k]),theirs=cliNorm(srv[k]);
+    const base=cliNorm(job.base[k],k),mine=cliNorm(job.data[k],k),theirs=cliNorm(srv[k],k);
     if(mine===base||mine===theirs)return;            // untouched, or already agreed
     if(theirs===base){patch[k]=job.data[k];return;}  // only this device moved it
     clash.push(k+' — yours "'+job.data[k]+'", server "'+srv[k]+'"');
@@ -1802,7 +1815,7 @@ async function healClientDup(job){
     // is never patched: the server's spelling is the one its billings already
     // carry. Without this every case variant would clash on the name itself.
     if(k==='name')return;
-    const mine=cliNorm(job.data[k]),theirs=cliNorm(srv[k]);
+    const mine=cliNorm(job.data[k],k),theirs=cliNorm(srv[k],k);
     if(!mine||mine===theirs)return;
     if(!theirs){patch[k]=job.data[k];return;}
     clash.push(k+' — yours "'+job.data[k]+'", server "'+srv[k]+'"');
