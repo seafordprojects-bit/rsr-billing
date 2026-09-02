@@ -236,7 +236,7 @@ export const monthFirst = (ymd) => String(ymd || mnlToday()).slice(0, 8) + '01';
 // server would: push {match, status, body} and the next request whose URL
 // contains `match` gets that response. Entries are consumed once unless
 // `keep` is true.
-export const net = { mode:'offline', calls:[], nextId:1, script:[] };
+export const net = { mode:'offline', calls:[], nextId:1, script:[], catalogUnique:null };
 const scripted = (url, method) => {
   const i = net.script.findIndex(s =>
     String(url).indexOf(s.match) > -1 && (!s.method || s.method === method));
@@ -262,10 +262,37 @@ globalThis.fetch = async (url, opts={}) => {
     return { ok:hit.status<400, status:hit.status, json:async()=>body,
              text:async()=>JSON.stringify(body) };
   }
-  // online: echo inserts back with a server id
   let body = null;
   if (typeof opts.body === 'string') { try { body = JSON.parse(opts.body); } catch { body = null; } }
   const rows = Array.isArray(body) ? body : body ? [body] : [];
+
+  // Opt-in simulation of drawing_catalog's real unique constraint on
+  // (name, doc_type) -- off by default, so no suite that reuses a fixture
+  // name across sections is affected. A suite exercising the seed race sets
+  // net.catalogUnique = new Map() first: a plain insert of a name+type
+  // already in the map 409s like the live database, and an ignore-duplicates
+  // upsert (the seed path's Prefer header + on_conflict) is silently
+  // absorbed instead, exactly what maybeSeedCatalog relies on.
+  if (net.catalogUnique && method === 'POST' &&
+      String(url).split('?')[0].endsWith('drawing_catalog')) {
+    const ignoreDup = /resolution=ignore-duplicates/.test((opts.headers||{}).Prefer || '');
+    const out = [];
+    for (const r of rows) {
+      const key = String(r.name) + '|' + String(r.doc_type);
+      if (net.catalogUnique.has(key)) {
+        if (ignoreDup) continue; // absorbed: no row returned for this one
+        return { ok:false, status:409, json:async()=>({
+          message:'duplicate key value violates unique constraint "drawing_catalog_name_doctype_key"',
+          code:'23505' }), text:async()=>'' };
+      }
+      const srv = Object.assign({}, r, { id: 'srv-' + (net.nextId++) });
+      net.catalogUnique.set(key, srv);
+      out.push(srv);
+    }
+    return { ok:true, status:201, json:async()=>out, text:async()=>JSON.stringify(out) };
+  }
+
+  // online: echo inserts back with a server id
   const out = rows.map(r => Object.assign({}, r, { id: 'srv-' + (net.nextId++) }));
   return { ok:true, status:200, json:async()=>out, text:async()=>JSON.stringify(out) };
 };
