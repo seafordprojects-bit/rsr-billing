@@ -1008,6 +1008,41 @@ the code. Recorded so they are not re-investigated.
   and unbill guards fixed on this date are therefore preventive from here, not
   repairs of a state the data is currently in.
 
+### Verified done, 2026-09-03
+
+- **The `drawing_catalog` seed race is fixed, in `a57468d`.**
+  `maybeSeedCatalog()` guarded re-seeding with local-only state only —
+  `cfg.seededDW` plus the in-memory `catalog` array — so a fresh device or
+  profile booting from an empty local cache would re-attempt all 18
+  `MARINA_DW` inserts, race the unique constraint on `(name, doc_type)`
+  against whichever device got there first, and land all 18 as dead jobs in
+  Pending writes. Fixed with a server-side existence check before the loop
+  (narrows the race, cannot close it alone — the check and the loop are
+  still two steps) plus an `on_conflict=name,doc_type` +
+  `ignore-duplicates` upsert on the seed path specifically, so a losing race
+  silently no-ops instead of 409ing. `promoteToCatalog` and the manual "+ add
+  catalog item" button are unaffected — a real duplicate there still
+  surfaces as an error, which is the right behavior for someone adding an
+  item on purpose. `seed.test.mjs` sections G/H pin it, including a genuine
+  two-closure concurrent-boot simulation — a single shared closure cannot
+  race itself here, since `catSave`'s local push happens synchronously
+  before the first `await`.
+- **Anon table grants revoked, confirmed against the live project.**
+  `INSERT`/`UPDATE`/`DELETE` removed from the anon role on `app_settings`,
+  `clients`, `drawing_billing`, `drawing_billing_unbill_log` and
+  `drawing_catalog`; `SELECT` stays, since RLS already restricts it to
+  authenticated. `billing_senders` and `billing_unbill_operator` had every
+  anon grant removed outright — the app never needs the anon role to touch
+  either. Verified via `information_schema.role_table_grants`. Every
+  affected table was confirmed RLS-enabled with authenticated-only policies
+  via `pg_policies` *before* the revoke, so this closes a defense-in-depth
+  gap rather than a real hole — anon could not have read or written any of
+  it while RLS held, so treat this as a hardening, not evidence something
+  was previously exposed. Live-tested post-revoke: a signed-in write still
+  succeeds, and the pre-sign-in queued-write-then-flush-on-signin path
+  (`pushSharedSettings`, queued while offline or before auth, flushed once
+  signed in) still drains correctly.
+
 ### Known open items
 
 - **Offline billing numbers are not reconciled.** A number issued during an
@@ -1070,6 +1105,18 @@ the code. Recorded so they are not re-investigated.
   Recording rather than fixing, because the DDL was never captured anywhere and
   reconstructing it from `pg_get_functiondef` is a task in itself. Until then,
   **a second project cannot be stood up from this repo alone.**
+- **`drawing_catalog_name_doctype_key` is the same undocumented-migration
+  pattern as the unbill subsystem above.** The unique constraint enforcing
+  one `drawing_catalog` row per `(name, doc_type)` was added by hand
+  directly on the live database, not via a migration in this repo. Grepping
+  `index.html` for it — or for any column list matching it — returns no
+  hits, and `sqlText()` creates no such constraint. Treat it as ground truth
+  from the live database, not something this repo's history can confirm or
+  reproduce: a fresh project stood up from `sqlText()` alone would have no
+  such protection on `drawing_catalog`. Nothing here currently depends on
+  detecting that gap — `maybeSeedCatalog`'s ignore-duplicates upsert would
+  simply behave as an ordinary insert until the constraint exists — but it
+  is the same blind spot the unbill note above describes.
 - **Parked: requiring an operator passcode to send.** Proposed 2026-08-29 and
   not built — **separate logins are the chosen answer instead**, so each person
   sends as themselves and `sent_by_email` already attributes it. Recorded
