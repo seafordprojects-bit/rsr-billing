@@ -1042,6 +1042,17 @@ the code. Recorded so they are not re-investigated.
   succeeds, and the pre-sign-in queued-write-then-flush-on-signin path
   (`pushSharedSettings`, queued while offline or before auth, flushed once
   signed in) still drains correctly.
+- **A signed-out user cannot reach real data through the Monitoring or
+  Create Billing tabs — confirmed, not just assumed.** Two cases, both by
+  design: with no project configured (`online()` false), `boot()` never
+  calls `showGate()` and the tabs are fully interactive — but that is the
+  documented local-only sandbox, rendering only whatever is in this
+  device's own `localStorage`, since nothing has ever synced with a
+  server. With a project configured but not signed in, `showGate()`
+  (`index.html:6263`) raises the opaque, full-viewport `#gate` overlay
+  (`z-index:90`, `display:none`→`grid`, no `pointer-events` override)
+  before the user can touch anything, and it fully blocks clicks on the
+  tab bar underneath until sign-in succeeds. Nothing here needs fixing.
 
 ### Known open items
 
