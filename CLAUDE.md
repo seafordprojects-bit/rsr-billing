@@ -1042,17 +1042,28 @@ the code. Recorded so they are not re-investigated.
   succeeds, and the pre-sign-in queued-write-then-flush-on-signin path
   (`pushSharedSettings`, queued while offline or before auth, flushed once
   signed in) still drains correctly.
-- **A signed-out user cannot reach real data through the Monitoring or
-  Create Billing tabs — confirmed, not just assumed.** Two cases, both by
-  design: with no project configured (`online()` false), `boot()` never
-  calls `showGate()` and the tabs are fully interactive — but that is the
-  documented local-only sandbox, rendering only whatever is in this
-  device's own `localStorage`, since nothing has ever synced with a
-  server. With a project configured but not signed in, `showGate()`
-  (`index.html:6263`) raises the opaque, full-viewport `#gate` overlay
-  (`z-index:90`, `display:none`→`grid`, no `pointer-events` override)
-  before the user can touch anything, and it fully blocks clicks on the
-  tab bar underneath until sign-in succeeds. Nothing here needs fixing.
+- **The no-project local-only sandbox is gone, on purpose.** Until today,
+  `boot()` left the Monitoring/Create Billing tabs fully interactive with
+  no project configured at all (`online()` false) — a deliberate,
+  documented, tested onboarding path from the commit that introduced the
+  gate (`308f07d`, "local-only mode when no project is configured, so the
+  app still works offline"): draft billings with zero setup, configure
+  Supabase whenever you're ready, everything queued syncs up. It was
+  removed after an explicit decision to close it anyway, because it let a
+  device be used with no project configured **and** no sign-in enforced at
+  all — the tab bar is now blocked in every case until both a project is
+  configured *and* the user is signed in. `showGate(msg, noProject)`
+  (`index.html:2723`) grew a `noProject` mode: the credentials block
+  (`#gCreds`) hides since there's nothing to sign in to yet, the message
+  reads "Set up your Supabase project to continue," and only **Connection
+  settings** stays reachable. `boot()`'s `!online()` branch
+  (`index.html:6267-6273`) now calls `showGate(null,true)` instead of
+  leaving the app open. `maybeSeedCatalog()` still runs quietly in this
+  state — the queue is primed for whenever a project does exist, unrelated
+  to whether the tabs are reachable. `gate.test.mjs` section A was
+  inverted to match (it used to assert the gate stayed *down*); the copy at
+  the old `.note` banner and `cWhoSub` that promised "everything stays on
+  this device" was also rewritten, since it's no longer true.
 
 ### Known open items
 

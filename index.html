@@ -639,13 +639,15 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="eb">RSR Engineering Services</div>
     <h2>RSR Billing</h2>
     <p id="gMsg">Sign in to open the billing records.</p>
-    <label for="gEmail">Email</label>
-    <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" autocapitalize="off" spellcheck="false">
-    <label for="gPw">Password</label>
-    <input id="gPw" type="password" autocomplete="current-password" placeholder="••••••••">
-    <button id="gIn" type="button">Sign in</button>
-    <div id="gErr" role="alert"></div>
-    <button id="gFor" type="button">Forgot password</button>
+    <div id="gCreds">
+      <label for="gEmail">Email</label>
+      <input id="gEmail" type="email" autocomplete="username" inputmode="email" placeholder="you@example.com" autocapitalize="off" spellcheck="false">
+      <label for="gPw">Password</label>
+      <input id="gPw" type="password" autocomplete="current-password" placeholder="••••••••">
+      <button id="gIn" type="button">Sign in</button>
+      <div id="gErr" role="alert"></div>
+      <button id="gFor" type="button">Forgot password</button>
+    </div>
     <button id="gCfg" type="button">Connection settings</button>
   </div>
 </div>
@@ -1003,10 +1005,10 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     </button>
   </div>
   <div class="sheet-body">
-    <div class="note">Paste your Supabase project URL and <b>anon</b> key, then sign in with a Supabase Auth account. Until a project is set, everything stays on this device only.</div>
+    <div class="note">Paste your Supabase project URL and <b>anon</b> key, then sign in with a Supabase Auth account. Both are required before the app can be used.</div>
     <div class="sect-t">Account</div>
     <div class="chk" style="cursor:default">
-      <span style="flex:1"><span id="cWho">Not signed in</span><span class="s" id="cWhoSub">Records are local to this device.</span></span>
+      <span style="flex:1"><span id="cWho">Not signed in</span><span class="s" id="cWhoSub">Set up a project below, then sign in.</span></span>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:8px"><button class="act" id="cSignOut" hidden>Sign out</button><button class="act" id="cSignIn" hidden>Sign in</button></div>
     <div class="sect-t">Supabase</div>
@@ -2718,14 +2720,25 @@ function markGroup(gid,status){
 
 /* ================= sign-in gate ================= */
 let gateOpen=false;
-function showGate(msg){
+// noProject is the "no Supabase project configured yet" state: there is
+// nothing to sign in to, so the credentials block is pointless and stays
+// hidden -- Connection settings is the only reachable action.
+function showGate(msg,noProject){
   gateOpen=true;
-  $('gErr').textContent=msg||'';
+  $('gMsg').textContent=noProject
+    ?'Set up your Supabase project to continue.'
+    :'Sign in to open the billing records.';
+  $('gErr').textContent=noProject?'':(msg||'');
+  $('gCreds').hidden=!!noProject;
   $('gate').classList.add('on');
   scrollLock();
-  if(session.email)$('gEmail').value=session.email;
-  setSync('off','Signed out');
-  setTimeout(()=>{($('gEmail').value?$('gPw'):$('gEmail')).focus();},120);
+  if(noProject){
+    setSync('off','Not configured');
+  }else{
+    if(session.email)$('gEmail').value=session.email;
+    setSync('off','Signed out');
+    setTimeout(()=>{($('gEmail').value?$('gPw'):$('gEmail')).focus();},120);
+  }
 }
 function hideGate(){
   gateOpen=false;
@@ -5998,7 +6011,7 @@ function openCfg(){
   $('cSqlBox').value=sqlText();
   const who=authed();
   $('cWho').textContent=who?(session.email||'Signed in'):'Not signed in';
-  $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Records are local to this device.');
+  $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Set up a project below, then sign in.');
   $('cSignOut').hidden=!who;
   $('cSignIn').hidden=who||!cfg.url;
   // Signed out, there is nothing to configure yet except how to reach a
@@ -6251,11 +6264,12 @@ window.addEventListener('online',()=>pull(true));
   setTab('mon');
   render();
 
-  // No project set: local-only device mode, no sign-in to enforce.
+  // No project set: blocked, same as being signed out, until one is
+  // configured. Seeding still runs quietly in the background so the queue
+  // is already primed once a project exists to flush it to.
   if(!online()){
-    setSync('off','Local only');
     await maybeSeedCatalog();
-    if(!cfg.url&&!rows.length)setTimeout(openCfg,500);
+    showGate(null,true);
     return;
   }
 

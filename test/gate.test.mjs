@@ -6,6 +6,7 @@ const ok = (name, cond, extra='') => {
   else { fail++; console.log('  FAIL  ' + name + (extra ? '  -> ' + extra : '')); }
 };
 const gateOn = () => document.getElementById('gate').classList.contains('on');
+const el = id => document.getElementById(id);
 const reset = () => { for (const k of [...Object.keys({})]) {} };
 const clearLS = () => ['rsr_dwg_cfg_v1','rsr_dwg_rows_v1','rsr_dwg_queue_v1','rsr_dwg_session_v1']
   .forEach(k => globalThis.localStorage.removeItem(k));
@@ -16,12 +17,17 @@ const setSession = (expiresInMs) => globalThis.localStorage.setItem('rsr_dwg_ses
                    expires_at: Date.now() + expiresInMs, email:'raffy@rsr.test' }));
 const settle = () => new Promise(r => setTimeout(r, 20));
 
-console.log('\n--- A. no project configured: local-only, gate stays down ---');
+console.log('\n--- A. no project configured: blocked, only Connection settings reachable ---');
 clearLS();
 document.getElementById('gate').classList.remove('on');
 let app = globalThis.__loadApp();
 await settle();
-ok('gate hidden so the device can be used offline', gateOn() === false);
+ok('gate shown -- nothing is reachable without a project', gateOn() === true);
+ok('credentials are pointless with no project to sign in to, so hidden',
+   el('gCreds').hidden === true);
+ok('the message explains what to do next',
+   el('gMsg').textContent === 'Set up your Supabase project to continue.');
+ok('Connection settings stays reachable', el('gCfg').hidden === false);
 
 console.log('\n--- B. project configured, never signed in: gate blocks the app ---');
 clearLS(); setCfg();
@@ -30,6 +36,10 @@ net.mode = 'offline';
 app = globalThis.__loadApp();
 await settle();
 ok('gate shown', gateOn() === true);
+ok('credentials are back, there is a project to sign in to',
+   el('gCreds').hidden === false);
+ok('the message asks for sign-in, not project setup',
+   el('gMsg').textContent === 'Sign in to open the billing records.');
 
 console.log('\n--- C. valid unexpired session: straight into the app ---');
 clearLS(); setCfg(); setSession(60 * 60 * 1000);
