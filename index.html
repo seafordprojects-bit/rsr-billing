@@ -1012,10 +1012,11 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="sect-t">Supabase</div>
     <div class="f"><label for="cUrl">Project URL</label><input id="cUrl" class="mono-in" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"></div>
     <div class="f"><label for="cKey">Anon key</label><input id="cKey" class="mono-in" placeholder="eyJhbGciOi…" autocomplete="off" spellcheck="false"></div>
-    <div class="f"><label for="cTable">Table name</label><input id="cTable" class="mono-in" value="drawing_billing"></div>
+    <div class="f" id="cTableWrap"><label for="cTable">Table name</label><input id="cTable" class="mono-in" value="drawing_billing"></div>
     <div style="display:flex;gap:8px;margin-bottom:8px"><button class="act" id="cTest">Test connection</button><button class="act" id="cSql">Show SQL</button></div>
     <div class="f" id="sqlWrap" hidden><textarea id="cSqlBox" readonly class="mono-in" style="min-height:210px;font-size:11px;line-height:1.5"></textarea><div class="hint">Copy this into Supabase → SQL Editor → Run. Safe to re-run on an existing table.</div></div>
 
+    <div id="cfgFull">
     <div class="sect-t">PDF attachments</div>
     <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. The SQL below creates this bucket <b>private</b> — attachments open through a link that is signed for one hour when you tap them, so the files are never public.</div></div>
 
@@ -1081,6 +1082,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     </details>
     <div class="sect-t">Backup</div>
     <div style="display:flex;gap:8px"><button class="act" id="cExport">Export JSON</button><button class="act" id="cCsv">Export CSV</button></div>
+    </div>
   </div>
   <div class="sheet-foot">
     <button class="btn-ghost" data-close>Close</button>
@@ -5999,6 +6001,14 @@ function openCfg(){
   $('cWhoSub').textContent=who?'Records sync with Supabase under this account.':(cfg.url?'Sign in to reach the Supabase records.':'Records are local to this device.');
   $('cSignOut').hidden=!who;
   $('cSignIn').hidden=who||!cfg.url;
+  // Signed out, there is nothing to configure yet except how to reach a
+  // project and sign in -- every section past that (including the schema
+  // panel, which only means anything once a table exists to query) stays
+  // hidden until authed() is true.
+  $('cTableWrap').hidden=!who;
+  $('cSql').hidden=!who;
+  if(!who)$('sqlWrap').hidden=true;
+  $('cfgFull').hidden=!who;
   $('cPayee').value=cfg.payee||'';
   $('cRemit').value=cfg.remitEmail||'';
   renderTypes();renderCatMgr();renderCliMgr();renderBanks();renderDeadJobs();
