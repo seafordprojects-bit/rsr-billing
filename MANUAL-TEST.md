@@ -5,7 +5,7 @@ layout, real printing, real focus, real touch. Ordered by risk — if you only
 have twenty minutes, do section 1. If you are setting the app up on a phone
 for the first time, start at section 0.
 
-The suites cover logic, data and wiring — `node test/run.mjs`, 33 suites, 1834
+The suites cover logic, data and wiring — `node test/run.mjs`, 38 suites, 1990
 assertions. They do **not** render, paginate, or lay anything out. Every bug you
 hit that the tests missed was in this category.
 
@@ -818,3 +818,36 @@ psql windows), same month:
 Device-minted codes are outside this: a phone minting the same code
 offline still collides, and that is the detected-not-prevented case the
 Monitoring `Code shared with…` badge exists for.
+
+## Drydocking ingress — live, after deploying receive-drydock-job
+
+Order matters: the function calls the RPC by name, so the SQL goes first.
+
+1. Settings → Show SQL → run in the SQL editor. Then:
+   `select to_regprocedure('public.receive_drydock_job(jsonb)');` — not null.
+   And, as proof the grant loop did its job:
+   `select has_function_privilege('anon', 'public.receive_drydock_job(jsonb)', 'execute');`
+   and the same for `authenticated` — both **false**; for `service_role` — true.
+2. Settings → catalogue → add `Drydocking document`, type Drydocking Cert,
+   default rate = the flat per-document rate. Without it every received line
+   is 0 and the badge says "N unpriced".
+3. `supabase secrets set DRYDOCK_INGRESS_SECRET=<long random>` then
+   `supabase functions deploy receive-drydock-job --no-verify-jwt`
+   (`supabase/config.toml` already says `verify_jwt = false`; pass the flag
+   anyway — a forgotten config edit must not silently re-enable it).
+4. curl with a wrong secret → 403. curl with the secret and a test payload
+   (a fresh `dispatch_id`, a fresh `draft_id`, `client` "Ingress Test", two
+   `documents` with titles and page counts, `sent_at` now) → 200 with
+   `created:true`. The same payload again → 200 with `created:false` and the
+   same `group_id`. curl with no `x-drydock-secret` at all → 403, not 401:
+   a 401 means the JWT gate is still on (step 3).
+5. Open the app, sync: a DRAFT Drydocking Cert billing with the `From
+   drydocking` badge, "Emailed <today> · <confirmed_by>", and two lines at
+   the flat rate. Delete it (a DRAFT delete is allowed) and the
+   `Ingress Test` client.
+6. Hand the secret and the URL
+   `https://<billing ref>.supabase.co/functions/v1/receive-drydock-job`
+   to the drydocking Cloud Run config (`BILLING_FUNCTION_URL`,
+   `BILLING_INGRESS_SECRET`). Until the drydocking side sends the full
+   payload (documents, client_address, …), this function answers 400 and
+   that side records the reason on its dispatch row.
