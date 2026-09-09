@@ -5713,6 +5713,154 @@ drop policy if exists rsr_dwg_sendlog_read on drawing_billing_send_log;
 create policy rsr_dwg_sendlog_read on drawing_billing_send_log
   for select to authenticated using (true);
 
+-- ---------------------------------------------------------------
+-- Drydocking jobs arrive from the drydocking app (its Cloud Run
+-- service POSTs to the receive-drydock-job Edge Function after the
+-- documents were emailed). One receipt per dispatch: dispatch_id is
+-- the idempotency key, so a retry answers with the group it already
+-- made instead of billing the client twice. payload is what arrived,
+-- unpriced names the titles no DC catalogue row priced (rate 0).
+-- Readable by signed-in users, written only by the RPC below.
+-- ---------------------------------------------------------------
+create table if not exists billing_drydock_receipt (
+  dispatch_id  uuid primary key,
+  draft_id     uuid not null,
+  group_id     text not null,
+  payload      jsonb not null,
+  unpriced     jsonb not null default '[]'::jsonb,
+  received_at  timestamptz not null default now()
+);
+alter table billing_drydock_receipt enable row level security;
+drop policy if exists rsr_dwg_ddreceipt_read on billing_drydock_receipt;
+create policy rsr_dwg_ddreceipt_read on billing_drydock_receipt
+  for select to authenticated using (true);
+
+-- receive_drydock_job: one transaction turns a received job into a DRAFT
+-- DC billing. Order matters: the receipt insert goes first, so a retry
+-- that loses the race finds the row and returns created:false with
+-- nothing else touched. The client row is filled where blank and never
+-- overwritten (the app's own reconcile rule). The tracking code is the
+-- same max-scan nextCode() performs on the device, run here against the
+-- table -- detected-not-prevented duplicates apply exactly as they do
+-- for two devices. drawing_no stays null: it is the billing's own
+-- reference column, never the project number, which goes in remarks.
+-- Rate: the active DC catalogue row named like the title, else the
+-- active DC row named Drydocking document, else 0 and recorded unpriced.
+-- Granted to service_role only (the Edge Function's key): no browser
+-- session may fabricate a job. See the grant loop below.
+create or replace function public.receive_drydock_job(p jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $BODY$
+declare
+  v_dispatch  uuid;
+  v_draft     uuid;
+  v_gid       text;
+  v_existing  text;
+  v_client    text;
+  v_canon     text;
+  v_vessel    text;
+  v_sent      timestamptz;
+  v_date      date;
+  v_prefix    text;
+  v_max       int;
+  v_code      text;
+  v_generic   numeric(12,2);
+  v_rate      numeric(12,2);
+  v_doc       jsonb;
+  v_i         int := 0;
+  v_title     text;
+  v_pages     int;
+  v_unpriced  jsonb := '[]'::jsonb;
+  v_remarks   text;
+  v_cli       uuid;
+  v_addr      text;
+  v_email     text;
+begin
+  if jsonb_typeof(p->'documents') is distinct from 'array'
+     or jsonb_array_length(p->'documents') = 0 then
+    return jsonb_build_object('ok', false, 'reason', 'documents must be a non-empty list');
+  end if;
+  v_client := btrim(regexp_replace(coalesce(p->>'client', ''), '\\s+', ' ', 'g'));
+  if v_client = '' then
+    return jsonb_build_object('ok', false, 'reason', 'client is required');
+  end if;
+  v_dispatch := (p->>'dispatch_id')::uuid;
+  v_draft    := (p->>'draft_id')::uuid;
+  v_gid      := 'dd-' || v_dispatch::text;
+
+  insert into public.billing_drydock_receipt (dispatch_id, draft_id, group_id, payload)
+  values (v_dispatch, v_draft, v_gid, p)
+  on conflict (dispatch_id) do nothing;
+  if not found then
+    select group_id into v_existing from public.billing_drydock_receipt where dispatch_id = v_dispatch;
+    return jsonb_build_object('ok', true, 'created', false, 'group_id', v_existing);
+  end if;
+
+  v_canon := lower(v_client);
+  v_addr  := nullif(btrim(coalesce(p->>'client_address', '')), '');
+  v_email := nullif(btrim(coalesce(p->>'client_email', '')), '');
+  select id into v_cli from public.clients where name_canon = v_canon limit 1;
+  if v_cli is null then
+    insert into public.clients (name, address, billing_email)
+    values (v_client, v_addr, v_email) returning id into v_cli;
+  else
+    update public.clients
+       set address       = coalesce(nullif(address, ''), v_addr),
+           billing_email = coalesce(nullif(billing_email, ''), v_email)
+     where id = v_cli
+       and ((nullif(address, '') is null and v_addr is not null)
+         or (nullif(billing_email, '') is null and v_email is not null));
+  end if;
+
+  v_vessel := btrim(coalesce(p->>'vessel', ''));
+  v_sent   := coalesce((p->>'sent_at')::timestamptz, now());
+  v_date   := (v_sent at time zone 'Asia/Manila')::date;
+  v_prefix := coalesce(nullif(p->>'code_root', ''), 'RSR') || '-DC-' || to_char(v_date, 'MMYYYY') || '-';
+  select coalesce(max(substring(code from length(v_prefix) + 1)::int), 0) into v_max
+    from public.drawing_billing
+   where code like v_prefix || '%'
+     and substring(code from length(v_prefix) + 1) ~ '^[0-9]+$';
+  v_code := v_prefix || lpad((v_max + 1)::text, 3, '0');
+
+  v_remarks := 'Drydocking documents emailed ' || to_char(v_date, 'FMMonth FMDD, YYYY')
+            || ', confirmed by ' || btrim(coalesce(p->>'confirmed_by', ''))
+            || '. Project ' || btrim(coalesce(p->>'project_no', '')) || '.';
+
+  select default_rate into v_generic from public.drawing_catalog
+   where doc_type = 'DC' and active and lower(btrim(name)) = 'drydocking document'
+     and default_rate is not null
+   order by sort_order limit 1;
+
+  for v_doc in select value from jsonb_array_elements(p->'documents') loop
+    v_i := v_i + 1;
+    v_title := btrim(coalesce(v_doc->>'title', ''));
+    v_pages := nullif(v_doc->>'pages', '')::int;
+    select default_rate into v_rate from public.drawing_catalog
+     where doc_type = 'DC' and active and lower(btrim(name)) = lower(v_title)
+       and default_rate is not null
+     order by sort_order limit 1;
+    if v_rate is null then v_rate := v_generic; end if;
+    if v_rate is null then
+      v_rate := 0;
+      v_unpriced := v_unpriced || to_jsonb(v_title);
+    end if;
+    insert into public.drawing_billing
+      (group_id, line_no, code, doc_type, bill_date, client, vessel, drawing_no,
+       drawing_title, qty, rate, status, remarks, pages, billable)
+    values
+      (v_gid, v_i, v_code, 'DC', v_date, v_client, v_vessel, null,
+       v_title, 1, v_rate, 'DRAFT', v_remarks, v_pages, true);
+  end loop;
+
+  update public.billing_drydock_receipt set unpriced = v_unpriced where dispatch_id = v_dispatch;
+  return jsonb_build_object('ok', true, 'created', true, 'group_id', v_gid, 'code', v_code,
+                            'lines', v_i, 'unpriced', v_unpriced);
+end
+$BODY$;
+
 -- The unbill log was written by unbill_group and read by nobody: RLS on with
 -- no policy at all, so only a security-definer function could reach it. The
 -- card's history shows unbills beside sends now, which needs it readable.
@@ -5908,7 +6056,8 @@ begin
     'public.resolve_unbill_operator(text)',
     'public.set_unbill_passcode(text,text)',
     'public.record_billing_send(text,text,text,text[],uuid,text,text,text,numeric)',
-    'public.billing_line_diff(jsonb,jsonb)'
+    'public.billing_line_diff(jsonb,jsonb)',
+    'public.receive_drydock_job(jsonb)'
   ] loop
     if to_regprocedure(f) is not null then
       -- from public FIRST, and it is the one that matters. create function
@@ -5921,7 +6070,14 @@ begin
       execute 'revoke execute on function ' || f || ' from public';
       execute 'revoke execute on function ' || f || ' from anon';
       -- explicit, so a revoke of PUBLIC can never take the app down with it
-      execute 'grant execute on function ' || f || ' to authenticated';
+      if f = 'public.receive_drydock_job(jsonb)' then
+        -- the drydocking ingress: only the Edge Function's service key,
+        -- never a browser session
+        execute 'revoke execute on function ' || f || ' from authenticated';
+        execute 'grant execute on function ' || f || ' to service_role';
+      else
+        execute 'grant execute on function ' || f || ' to authenticated';
+      end if;
     end if;
   end loop;
 end
