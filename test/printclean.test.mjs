@@ -50,6 +50,7 @@ const doc = el('printRoot').innerHTML;
 ok('the tracking code is nowhere on the document', !doc.includes(g.code), g.code);
 ok('no RSR- code of any shape', !/RSR-(DW|UT|DC|DWG)-\d/.test(doc),
    (doc.match(/RSR-[A-Z]+-\d+-\d+/) || [''])[0]);
+ok('no From drydocking badge or receipt meta on the client copy', doc.indexOf('From drydocking') < 0 && doc.indexOf('badge dd') < 0 && doc.indexOf('Emailed ') < 0);
 ok('no TRACKING box in the meta strip', !/>Tracking</.test(doc));
 ok('the billing number is shown', doc.includes('BILLDWG-26-001'));
 ok('the meta strip keeps period, terms and due',

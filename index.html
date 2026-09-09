@@ -241,6 +241,7 @@ header.top{
    collision between records and reads in the brand crimson, so the two are
    never mistaken for each other on a crowded card. */
 .badge.dup{color:var(--rsr);background:rgba(200,30,35,.07);letter-spacing:.08em}
+.badge.dd{color:#0a4b78;background:rgba(10,75,120,.08);letter-spacing:.08em}
 .row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
 .act{
   display:inline-flex;align-items:center;justify-content:center;
@@ -1492,6 +1493,29 @@ const groupById=gid=>{
 // on every keystroke in the filter box, so it cannot await a lookup; it reads
 // this, and refreshSendMap fills it after a sync or a send.
 let sendMap={};
+// Received drydocking jobs (billing_drydock_receipt), keyed by group id.
+// Decoration exactly like sendMap: refreshed after each sync, never holds
+// the sync open, a failure keeps the last map. confirmed_by / sent_at are
+// lifted from the stored payload for the card's meta line. NEVER rendered
+// into the statement or the email -- drydock.test.mjs and printclean assert
+// that, the same rule that keeps tracking codes off the client's copy.
+let receiptMap={};
+async function refreshReceiptMap(){
+  if(!online()||!authed())return receiptMap;
+  try{
+    const r=await sb('billing_drydock_receipt?select=dispatch_id,group_id,received_at,unpriced,payload&order=received_at.desc');
+    const m={};
+    (r||[]).forEach(row=>{
+      if(!row||!row.group_id)return;
+      const p=row.payload||{};
+      m[row.group_id]={dispatch_id:row.dispatch_id,group_id:row.group_id,received_at:row.received_at,
+                       unpriced:Array.isArray(row.unpriced)?row.unpriced:[],
+                       confirmed_by:p.confirmed_by||'',sent_at:p.sent_at||''};
+    });
+    receiptMap=m;
+  }catch(e){/* table not created yet, or offline: keep the last map */}
+  return receiptMap;
+}
 // One query for every billing rather than one per card. It reduces client
 // side because PostgREST has no distinct-on: the rows come back newest first
 // and the first one seen for a gid wins. That is sends x billings rows for
@@ -1966,6 +1990,7 @@ async function pull(quiet){
     setSync(queue.length?'off':'ok',queue.length?queue.length+' queued':'Synced');
     // the badge is decoration, so it must not hold the sync open or fail it
     refreshSendMap().then(render,()=>{});
+    refreshReceiptMap().then(render,()=>{});
     return true;
   }catch(err){
     setSync('err','Offline');
@@ -2145,6 +2170,12 @@ function render(){
           bad.length===1?'total differs':'totals differ'} · ${esc(which)}</span>`);
       }
     }
+    // Received from drydocking: when the documents went out and who
+    // authorised the send over there. Meta only -- never on the document.
+    const rc=receiptMap[g.id];
+    if(rc){
+      meta.push(`<span class="m" title="${esc(rc.dispatch_id||'')}">Emailed ${esc(fmtDate(String(rc.sent_at||'').slice(0,10)))}${rc.confirmed_by?' · '+esc(rc.confirmed_by):''}</span>`);
+    }
     let acts='';
     // The send dialog was reachable only from the FAB, which opens on the
     // current month -- so an older billing was simply not in its picker, which
@@ -2177,6 +2208,7 @@ function render(){
         ${g.allFree?`<span class="badge free">No charge</span>`:''}
         ${g.mixed&&g.mixed.length?`<span class="badge mixed">Lines differ · ${esc(g.mixed.join(', '))}</span>`:''}
         ${dupN?`<span class="badge dup" title="Another billing carries this tracking code. Codes are internal — the client's copy shows the billing number only.">Code shared with ${dupN} other billing${dupN===1?'':'s'}</span>`:''}
+        ${receiptMap[g.id]?`<span class="badge dd" title="Received from the drydocking app; the documents were already emailed to the client.">From drydocking${receiptMap[g.id].unpriced.length?' · '+esc(String(receiptMap[g.id].unpriced.length))+' unpriced':''}</span>`:''}
         <span class="row-amt">${money(g.total)}</span>
       </div>
       <div class="row-title">${esc(g.client||'No client')}</div>
