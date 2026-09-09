@@ -845,6 +845,11 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
    `supabase functions deploy receive-drydock-job --no-verify-jwt`
    (`supabase/config.toml` already says `verify_jwt = false`; pass the flag
    anyway — a forgotten config edit must not silently re-enable it).
+   Prove the JWT gate is OFF empirically, not from a listing: a plain GET to
+   the function URL must answer `{"ok":false,"error":"Use POST"}` — that
+   is the function's own code; a 401 means the gateway refused it first.
+   (`supabase functions list` on CLI 2.115.0 prints no VERIFY JWT column,
+   so it cannot tell you. Live run 2026-09-10.)
 4. curl with a wrong secret → 403. curl with the secret and a test payload
    (a fresh `dispatch_id`, a fresh `draft_id`, `client` "Ingress Test", two
    `documents` with titles and page counts, `sent_at` now) → 200 with
