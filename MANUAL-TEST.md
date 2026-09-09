@@ -823,7 +823,12 @@ Monitoring `Code shared with…` badge exists for.
 
 Order matters: the function calls the RPC by name, so the SQL goes first.
 
-1. Settings → Show SQL → run in the SQL editor. Then:
+1. **Check the page is fresh first.** There is no service worker, but the
+   browser cache still served an old `index.html` once (2026-09-10): Show SQL
+   gave the previous script and `to_regprocedure` came back null. Clear
+   site data (or hard-reload) and confirm the Settings SQL box mentions
+   `receive_drydock_job` before copying.
+   Then Settings → Show SQL → run in the SQL editor. Then:
    `select to_regprocedure('public.receive_drydock_job(jsonb)');` — not null.
    And, as proof the grant loop did its job:
    `select has_function_privilege('anon', 'public.receive_drydock_job(jsonb)', 'execute');`
