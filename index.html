@@ -2172,9 +2172,11 @@ function render(){
     }
     // Received from drydocking: when the documents went out and who
     // authorised the send over there. Meta only -- never on the document.
+    // sent_at is an instant: dayOf() for the Manila day, never a UTC slice
+    // (a 22:20Z send is the NEXT day here; sendlog guards the same rule).
     const rc=receiptMap[g.id];
     if(rc){
-      meta.push(`<span class="m" title="${esc(rc.dispatch_id||'')}">Emailed ${esc(fmtDate(String(rc.sent_at||'').slice(0,10)))}${rc.confirmed_by?' · '+esc(rc.confirmed_by):''}</span>`);
+      meta.push(`<span class="m" title="${esc(rc.dispatch_id||'')}">Emailed ${esc(rc.sent_at?fmtDate(dayOf(rc.sent_at)):'')}${rc.confirmed_by?' · '+esc(rc.confirmed_by):''}</span>`);
     }
     let acts='';
     // The send dialog was reachable only from the FAB, which opens on the

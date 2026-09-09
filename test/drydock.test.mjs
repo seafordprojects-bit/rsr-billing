@@ -57,8 +57,19 @@ const ddCard = cardFor(html, GID), handCard = cardFor(html, 'hand1');
 ok('the received group carries the From drydocking badge', !!ddCard && /badge dd/.test(ddCard) && /From drydocking/.test(ddCard),
    ddCard ? ddCard.slice(0, 200) : 'card not rendered');
 ok('its meta names who confirmed and the emailed date', /Emailed/.test(ddCard) && /Raffy J\. Ramirez/.test(ddCard));
+// sent_at is an instant; the card must show the MANILA day (dayOf), not a
+// UTC date slice -- 10:20Z on the 9th is the 9th in Manila...
+ok('...and the emailed date is the Manila day', /Emailed 09 Sep 2026/.test(ddCard), (ddCard.match(/Emailed [^<]*/) || [''])[0]);
 ok('a hand-entered DC group has no badge and no receipt meta', !!handCard && !/badge dd/.test(handCard) && !/Emailed /.test(handCard),
    handCard ? '' : 'hand card not rendered');
+
+// ...but a late-evening UTC send is the NEXT Manila day
+net.script.push({ match:'billing_drydock_receipt', method:'GET', status:200, body:[
+  { dispatch_id:'11111111-1111-4111-8111-111111111111', group_id:GID, received_at:'2026-09-09T22:21:00Z', unpriced:[],
+    payload:{ confirmed_by:'Raffy J. Ramirez', sent_at:'2026-09-09T22:20:00Z' } } ] });
+await app.refreshReceiptMap(); app.render();
+const late = cardFor(el('list').innerHTML, GID);
+ok('a late-evening UTC send reads as the next Manila day (10 Sep, not 09 Sep)', /Emailed 10 Sep 2026/.test(late), (late.match(/Emailed [^<]*/) || [''])[0]);
 
 console.log('\n--- C. unpriced count on the badge ---');
 net.script.push({ match:'billing_drydock_receipt', method:'GET', status:200, body:[
