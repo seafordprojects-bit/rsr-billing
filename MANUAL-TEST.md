@@ -836,6 +836,11 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
 2. Settings → catalogue → add `Drydocking document`, type Drydocking Cert,
    default rate = the flat per-document rate. Without it every received line
    is 0 and the badge says "N unpriced".
+   **Check the name landed** (`select name, doc_type, default_rate from
+   drawing_catalog where doc_type = 'DC'`): on the live run (2026-09-10) the
+   row saved twice as the placeholder "New document" with the rate and type
+   correct; fixed by SQL. A wrong name here prices every received line at
+   0. The name-field commit path is an open item, not yet investigated.
 3. `supabase secrets set DRYDOCK_INGRESS_SECRET=<long random>` then
    `supabase functions deploy receive-drydock-job --no-verify-jwt`
    (`supabase/config.toml` already says `verify_jwt = false`; pass the flag
