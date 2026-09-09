@@ -1,3 +1,7 @@
 # the full-resolution brand artwork stays out of the repo; tools/mkicon.py
 # regenerates the inlined mark from it
 rsr-logo-*.png
+
+# tests only: pglite for the RPC suite (node test/rpc.test.mjs)
+node_modules/
+package-lock.json
