@@ -782,3 +782,39 @@ Then the ordinary cases:
 5. **The type list, payment details and counters live in Supabase; the project
    URL, key and session stay per-device.** A new device needs the URL and key
    entered once before anything syncs.
+
+
+## Drydocking ingress — two jobs in the same month cannot share a tracking code
+
+**The automated suites cannot prove this.** `test/rpc.test.mjs` runs on
+pglite, which is a single connection, so it can never interleave two
+transactions. A green gate says nothing about concurrency here; do not read
+it as coverage. There is deliberately no text-presence assertion for the
+lock either — a check that only proves the line exists would look like
+coverage without being any.
+
+What `receive_drydock_job` does: before its max-scan for the next
+`RSR-DC-MMYYYY-###`, it takes `pg_advisory_xact_lock(hashtext('rsr-code:'
+|| prefix))`, released at commit. A second call for the same month waits,
+then its own scan sees the first job's row. Today's real protection is
+weaker and lives elsewhere: the only caller is the drydocking Cloud Run
+service at max-instances 1 / concurrency 1, so jobs arrive one at a time
+by that service's deployment setting, not by anything in this database.
+
+Check it once against the live project, two SQL-editor sessions (or two
+psql windows), same month:
+
+1. Session A: `begin;` then
+   `select public.receive_drydock_job('{"dispatch_id":"<fresh uuid A>","draft_id":"<uuid>","client":"Lock Test","documents":[{"title":"Transmittal","pages":1}]}'::jsonb);`
+   Leave the transaction OPEN — do not commit yet.
+2. Session B: the same call with `<fresh uuid B>`. It must **hang**.
+   If it returns immediately, the lock is not being taken.
+3. Session A: `commit;` — session B now returns, and its `code` must be
+   A's code plus one, never equal to it.
+4. Delete both DRAFT groups (`delete from drawing_billing where group_id
+   in ('dd-<uuid A>','dd-<uuid B>')`, and the two receipt rows) and the
+   `Lock Test` client.
+
+Device-minted codes are outside this: a phone minting the same code
+offline still collides, and that is the detected-not-prevented case the
+Monitoring `Code shared with…` badge exists for.

@@ -5819,6 +5819,12 @@ begin
   v_sent   := coalesce((p->>'sent_at')::timestamptz, now());
   v_date   := (v_sent at time zone 'Asia/Manila')::date;
   v_prefix := coalesce(nullif(p->>'code_root', ''), 'RSR') || '-DC-' || to_char(v_date, 'MMYYYY') || '-';
+  -- Serialise server-side minting for this month: READ COMMITTED lets two
+  -- concurrent calls both read max = N and both insert N+1, and there is no
+  -- unique index on code (groups share it, by design). The lock is released
+  -- at commit, and the waiting call's own scan then sees the first row.
+  -- Device-minted codes stay outside this: detected, not prevented.
+  perform pg_advisory_xact_lock(hashtext('rsr-code:' || v_prefix));
   select coalesce(max(substring(code from length(v_prefix) + 1)::int), 0) into v_max
     from public.drawing_billing
    where code like v_prefix || '%'
