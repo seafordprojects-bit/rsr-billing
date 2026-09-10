@@ -890,6 +890,13 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
    "completed by" fragment. The completer comes from the dispatch row's
    snapshot, so a re-complete on the drydocking side never changes what an
    earlier send's line says.
+   **A retried job arrives with the ORIGINAL `sent_at`.** When the ingress
+   was down at send time, the drydocking side re-POSTs the same payload on a
+   later Cloud Run wake-up (no pg_cron there); `sent_at` is the row's
+   `emailed_at`, written when the email was accepted, so "Emailed <date>"
+   on the card is the day the client got the documents, not the day billing
+   heard. Nothing changes on this side: the receipt table's `dispatch_id`
+   makes the retry idempotent (`created:false`, same `group_id`).
    Seen on the live run (2026-09-11): the card's No charge and the SQL rows;
    the rendered statement itself was NOT viewed -- the drydock suite's
    statement assertion and the review before every send cover it.
