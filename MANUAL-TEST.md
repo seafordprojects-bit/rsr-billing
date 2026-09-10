@@ -870,6 +870,15 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
    Vessel and a `Docking Plan` with no pages, the card shows that line as
    No charge, the total excludes it, and the statement prints `No Charge`
    on that line.
+   Seen on the live run (2026-09-11): the card's No charge and the SQL rows;
+   the rendered statement itself was NOT viewed -- the drydock suite's
+   statement assertion and the review before every send cover it.
+   **Count after every cleanup delete.** A delete that matches zero rows is
+   still a successful statement: on the live run two DRAFT lines from an
+   earlier smoke survived a "successful" delete and a count caught them.
+   After the three deletes: `select count(*) from drawing_billing where
+   group_id like 'dd-%'` and the same on billing_drydock_receipt and the
+   test client must all be 0 before moving on.
 6. Hand the secret and the URL
    `https://<billing ref>.supabase.co/functions/v1/receive-drydock-job`
    to the drydocking Cloud Run config (`BILLING_FUNCTION_URL`,
