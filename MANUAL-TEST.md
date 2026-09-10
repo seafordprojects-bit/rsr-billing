@@ -910,6 +910,10 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
    `https://<billing ref>.supabase.co/functions/v1/receive-drydock-job`
    to the drydocking Cloud Run config (`BILLING_FUNCTION_URL`,
    `BILLING_INGRESS_SECRET`). Done 2026-09-11; the drydocking side now sends
-   documents (with billable flags) and client_address. Still not sent:
-   completed_by / completed_at (the attribution join), and a row that parks
-   at emailed_billing_pending is never retried (no retry branch yet).
+   documents (with billable flags), client_address, and completed_by /
+   completed_at (the completer sentence in remarks). A row that parks at
+   emailed_billing_pending on the drydocking side is retried on Cloud Run's
+   ten-minute Cloud Scheduler tick and after every real send, with the
+   ORIGINAL `sent_at`; proven live 2026-09-10 (parked 11:32, recovered
+   13:10, the card's emailed date read 11:32). Nothing is carried forward
+   from the ingress work on this side.
