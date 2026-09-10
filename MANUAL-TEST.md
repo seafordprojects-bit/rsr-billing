@@ -870,6 +870,12 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
    Vessel and a `Docking Plan` with no pages, the card shows that line as
    No charge, the total excludes it, and the statement prints `No Charge`
    on that line.
+   **Address, on the smoke and on the first real send:** the smoke payload's
+   `client_address` carries `\n` between its lines (curl -d @file keeps them
+   as JSON `\n` escapes). Afterwards Settings → Client records shows the test
+   client's address on three lines, and the statement's Bill To block prints
+   them one under the other. A one-line address there means the flattening
+   cleaner is back in front of the address field.
    Seen on the live run (2026-09-11): the card's No charge and the SQL rows;
    the rendered statement itself was NOT viewed -- the drydock suite's
    statement assertion and the review before every send cover it.
@@ -882,6 +888,7 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
 6. Hand the secret and the URL
    `https://<billing ref>.supabase.co/functions/v1/receive-drydock-job`
    to the drydocking Cloud Run config (`BILLING_FUNCTION_URL`,
-   `BILLING_INGRESS_SECRET`). Until the drydocking side sends the full
-   payload (documents, client_address, …), this function answers 400 and
-   that side records the reason on its dispatch row.
+   `BILLING_INGRESS_SECRET`). Done 2026-09-11; the drydocking side now sends
+   documents (with billable flags) and client_address. Still not sent:
+   completed_by / completed_at (the attribution join), and a row that parks
+   at emailed_billing_pending is never retried (no retry branch yet).

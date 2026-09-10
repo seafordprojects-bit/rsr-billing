@@ -419,7 +419,14 @@ recorded. Transmittal is never in the list (it is the cover, not a
 deliverable); Shell Expansion Plan and Docking Plan are in it with no page
 count (hardcopy). `cfg.hideNoCharge` would hide that line from the
 statement -- it is per-device and must stay off where billings are printed
-(MANUAL-TEST.md). `drawing_no` stays null — it is the billing's own
+(MANUAL-TEST.md). `client_address` is Ships Data's Company Address on the
+drydocking side (the yard confirmed Transmitted To is always that party),
+snapshotted on the dispatch row at completion; the function keeps its line
+breaks with an address-specific cleaner (CR stripped, spaces collapsed within
+a line, blank lines dropped, 6 lines x 120), and the RPC fills a client's
+BLANK address with it and never overwrites one. Bill To reads the client
+record by name, so that fill is the only reason a received billing prints an
+address. `drawing_no` stays null — it is the billing's own
 reference column — and the project number rides in `remarks` with the emailed
 date and who confirmed the send. Granted to `service_role` only.
 
