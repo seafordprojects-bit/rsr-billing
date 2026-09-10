@@ -1867,11 +1867,19 @@ async function healClientDup(job){
 // Two overlapping flushes send every job twice -- a save and the startup
 // pull() can land together -- and for a compare-and-swap that means the
 // second pass races the first and adopts whatever the echo happens to hold.
-let flushing=false;
+// A second caller gets the IN-FLIGHT pass, never nothing: pull() awaits
+// flushQueue before it fetches, and when this returned undefined mid-flush
+// the pull went ahead, fetched rows the in-flight PATCH had not reached,
+// replaced the local objects, and the next edit PATCHed the stale field
+// back over the server (2026-09-10: a catalogue name reverted twice; any
+// field, and any billing line, could). Guard on the operation, and hand
+// the operation back.
+let flushing=null;
 async function flushQueue(){
-  if(!online()||!queue.length||flushing)return;
-  flushing=true;
-  try{ await flushPass(); }finally{ flushing=false; }
+  if(!online()||!queue.length)return;
+  if(flushing)return flushing;
+  flushing=flushPass().finally(()=>{flushing=null;});
+  return flushing;
 }
 async function flushPass(){
   // what this pass actually completed. Everything else -- failed, dead, or
@@ -4156,7 +4164,11 @@ $('cCatAdd').onclick=async()=>{
   const item={name:'New document',doc_type:DEF_TYPE,drawing_no:'',default_rate:null,sort_order:max+1,active:true};
   await catSave(item,true);
   renderCatMgr();
-  const f=$('cCatList').querySelector('[data-cf="name"][data-ci="'+item.id+'"]');
+  // the flush replaces the array entry with the server's object, so `item`
+  // still carries the loc- id and never matched the painted row: find the
+  // saved row by its sort_order (unique among current items)
+  const saved=catalog.find(c=>Number(c.sort_order)===item.sort_order)||item;
+  const f=$('cCatList').querySelector('[data-cf="name"][data-ci="'+saved.id+'"]');
   if(f){f.focus();f.select();}
 };
 
