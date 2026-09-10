@@ -5887,12 +5887,16 @@ begin
       v_rate := 0;
       v_unpriced := v_unpriced || to_jsonb(v_title);
     end if;
+    -- billable: false is the yard's listed-but-not-charged line (Drydocking
+    -- List of Vessel); absent means charged. The app prints No Charge and
+    -- zeroes the amount; the catalogue rate is still recorded on the line.
     insert into public.drawing_billing
       (group_id, line_no, code, doc_type, bill_date, client, vessel, drawing_no,
        drawing_title, qty, rate, status, remarks, pages, billable)
     values
       (v_gid, v_i, v_code, 'DC', v_date, v_client, v_vessel, null,
-       v_title, 1, v_rate, 'DRAFT', v_remarks, v_pages, true);
+       v_title, 1, v_rate, 'DRAFT', v_remarks, v_pages,
+       coalesce((v_doc->>'billable')::boolean, true));
   end loop;
 
   update public.billing_drydock_receipt set unpriced = v_unpriced where dispatch_id = v_dispatch;

@@ -126,6 +126,17 @@ if (db) {
   const rec6 = await db.query('select unpriced from billing_drydock_receipt where dispatch_id = $1', ['88888888-8888-4888-8888-888888888888']);
   ok('the receipt records the unpriced titles', rec6.rows.length === 1 && rec6.rows[0].unpriced.length === 3);
 
+  console.log('\n--- I. billable: false lands on the line, absent means true, rate still recorded ---');
+  await db.exec("update drawing_catalog set active = true where doc_type = 'DC'");
+  const r7 = await wrap(() => call(db, JOB({ dispatch_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    documents: [ { title:'Certificate of Drydocking', pages:1 }, { title:'Drydocking List of Vessel', pages:1, billable:false }, { title:'Docking Plan', billable:true } ] })));
+  const l7 = r7.group_id ? await lines(db, r7.group_id) : [];
+  ok('List of Vessel line is billable=false, the others true (absent = true)',
+     l7.length === 3 && l7.map(r => r.billable).join() === 'true,false,true', JSON.stringify(l7.map(r => [r.drawing_title, r.billable])));
+  ok('the no-charge line still records the catalogue rate (the app zeroes the amount; the rate is the record)',
+     l7.length === 3 && Number(l7[1].rate) === 2500, l7[1] ? String(l7[1].rate) : 'no line');
+  ok('a hardcopy item with no pages inserts with pages null', l7.length === 3 && l7[2].pages === null);
+
   console.log('\n--- H. refused payloads and roles ---');
   const bad = await wrap(() => call(db, JOB({ dispatch_id: '99999999-9999-4999-8999-999999999999', documents: [] })));
   ok('empty documents is refused, nothing written', bad.ok === false && /documents/.test(bad.reason) &&

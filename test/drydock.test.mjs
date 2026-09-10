@@ -20,8 +20,13 @@ const REMARKS = 'Drydocking documents emailed September 9, 2026, confirmed by Ra
 const line = (gid, n, code, title) => ({ id:'srv-'+gid+'-'+n, group_id:gid, line_no:n, code, doc_type:'DC', bill_date:TODAY,
   client:'Seaford Shipping Lines, Inc.', vessel:'MV "SF RISER"', drawing_no:null, drawing_title:title, qty:1, rate:2500,
   status:'DRAFT', remarks:REMARKS, billable:true, created_at:'2026-09-09T10:21:00Z' });
-const ROWS = [ line(GID, 1, 'RSR-DC-'+MM+'-001', 'Transmittal'), line(GID, 2, 'RSR-DC-'+MM+'-001', 'Load Line Certificate'),
-               Object.assign(line('hand1', 1, 'RSR-DC-'+MM+'-002', 'Typed by hand'), { remarks: '' }) ];
+// the second line is the yard's listed-but-not-charged document, as the RPC now stores it
+const ROWS = [ line(GID, 1, 'RSR-DC-'+MM+'-001', 'Load Line Certificate'),
+               Object.assign(line(GID, 2, 'RSR-DC-'+MM+'-001', 'Drydocking List of Vessel'), { billable:false }),
+               // its own client: the DOM stub reads input:checked from the picker MARKUP
+               // (every candidate ticked), not the live property openStmtFor unticks, so a
+               // same-client sibling would ride into the statement under the harness
+               Object.assign(line('hand1', 1, 'RSR-DC-'+MM+'-002', 'Typed by hand'), { remarks: '', client: 'Hand Entered Co.' }) ];
 KEYS.forEach(k => globalThis.localStorage.removeItem(k));
 globalThis.localStorage.setItem('rsr_dwg_cfg_v1', JSON.stringify({ seededDW:true, url:'https://proj.supabase.co', key:'anon' }));
 globalThis.localStorage.setItem('rsr_dwg_rows_v1', JSON.stringify(ROWS));
@@ -83,6 +88,9 @@ console.log('\n--- D. never on the document ---');
 app.openStmtFor(GID);
 app.renderStatement(app.pickedRows());
 const doc = el('printRoot').innerHTML;        // the statement renders into <div id="printRoot">
+ok('the List of Vessel line is on the statement as No Charge and the total is the other line alone',
+   /Drydocking List of Vessel/.test(doc) && /No Charge/.test(doc) && /2,500\.00/.test(doc) && !/5,000\.00/.test(doc),
+   (doc.match(/No Charge|[0-9],[0-9]{3}\.[0-9]{2}/g) || []).join(' '));
 ok('the statement carries the lines but no From drydocking badge or receipt meta',
    /Load Line Certificate/.test(doc) && doc.indexOf('From drydocking') < 0 && doc.indexOf('badge dd') < 0 && doc.indexOf('Emailed ') < 0,
    /Load Line Certificate/.test(doc) ? '' : 'statement has no lines');
