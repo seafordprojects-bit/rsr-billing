@@ -411,7 +411,15 @@ prefix and mints `RSR-DC-MMYYYY-###` by the same max-scan `nextCode` runs on a
 device; prices each document from the DC catalogue (exact title, else the row
 named `Drydocking document` — the flat rate, editable in Settings without a
 deploy — else 0 and the title lands in the receipt's `unpriced`); and inserts
-one DRAFT line per document. `drawing_no` stays null — it is the billing's own
+one DRAFT line per document. Each document carries `billable` (absent = true).
+The drydocking side sends false for exactly one title, Drydocking List of
+Vessel, which the yard lists without charging; it lands in
+`drawing_billing.billable` and prints as `No Charge` with the rate still
+recorded. Transmittal is never in the list (it is the cover, not a
+deliverable); Shell Expansion Plan and Docking Plan are in it with no page
+count (hardcopy). `cfg.hideNoCharge` would hide that line from the
+statement -- it is per-device and must stay off where billings are printed
+(MANUAL-TEST.md). `drawing_no` stays null — it is the billing's own
 reference column — and the project number rides in `remarks` with the emailed
 date and who confirmed the send. Granted to `service_role` only.
 

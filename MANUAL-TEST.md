@@ -860,6 +860,16 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
    drydocking` badge, "Emailed <today> · <confirmed_by>", and two lines at
    the flat rate. Delete it (a DRAFT delete is allowed) and the
    `Ingress Test` client.
+   **`Leave no-charge lines off the billing` must stay UNTICKED on the device
+   that prints.** It is a per-device Settings tick (`cfg.hideNoCharge`, off by
+   default, never synced). Ticking it hides every no-charge line from the
+   statement -- and the Drydocking List of Vessel line arrives as no-charge
+   on purpose: the yard's statement lists it without an amount. Check the
+   tick on each printing device once, and after any Settings clean-up.
+   With a payload whose `documents` include a `billable:false` List of
+   Vessel and a `Docking Plan` with no pages, the card shows that line as
+   No charge, the total excludes it, and the statement prints `No Charge`
+   on that line.
 6. Hand the secret and the URL
    `https://<billing ref>.supabase.co/functions/v1/receive-drydock-job`
    to the drydocking Cloud Run config (`BILLING_FUNCTION_URL`,
