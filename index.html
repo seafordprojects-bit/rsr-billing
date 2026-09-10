@@ -5470,6 +5470,12 @@ async function pdfRender(plan){
 /* ---- settings ---- */
 // The bucket name is configurable, so the script is generated against
 // whatever is in the Storage bucket field rather than a hard-coded name.
+// Bump with EVERY change to sqlText(). The script ends with `select SQL_REV as
+// sqltext_applied`: the Supabase SQL editor shows only the last statement's
+// result, so the pane reads this stamp when -- and only when -- this script's
+// tail actually ran. A full run once reported success and changed nothing
+// (2026-09-11, editor-tab residue); the stamp is the tell. MANUAL-TEST.md.
+const SQL_REV='2026-09-11.completer-remarks';
 function sqlText(){
   const b=(($('cBucket')&&$('cBucket').value.trim())||cfg.bucket||'drawings').replace(/[^\w\-]/g,'');
   return `-- RSR Billing — run once in Supabase SQL Editor
@@ -6194,7 +6200,11 @@ create policy rsr_dwg_storage_authed on storage.objects
 
 -- Check what ended up on storage.objects across the whole project:
 -- select policyname, roles, qual from pg_policies
---  where schemaname = 'storage' and tablename = 'objects';`;
+--  where schemaname = 'storage' and tablename = 'objects';
+
+-- LAST statement on purpose: the editor's result pane shows only the last
+-- result. If it does not read this stamp, this script's tail did not run.
+select '${SQL_REV}' as sqltext_applied;`;
 }
 
 // Which settings panel was last open. One localStorage key, no dependency:

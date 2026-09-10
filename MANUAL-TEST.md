@@ -828,7 +828,13 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
    gave the previous script and `to_regprocedure` came back null. Clear
    site data (or hard-reload) and confirm the Settings SQL box mentions
    `receive_drydock_job` before copying.
-   Then Settings → Show SQL → run in the SQL editor. Then:
+   Then Settings → Show SQL → run in the SQL editor. **Use a NEW query tab,
+   confirm `create or replace function public.receive_drydock_job` appears
+   exactly once in it, press Ctrl+A, Run.** The result pane must read
+   `sqltext_applied = <the SQL_REV stamp in index.html>` -- it is the last
+   statement, so any other result means the tail of THIS script did not run
+   (2026-09-11: a full run reported success and left the function untouched;
+   residue in the tab or a selection). Then:
    `select to_regprocedure('public.receive_drydock_job(jsonb)');` — not null.
    And, as proof the grant loop did its job:
    `select has_function_privilege('anon', 'public.receive_drydock_job(jsonb)', 'execute');`

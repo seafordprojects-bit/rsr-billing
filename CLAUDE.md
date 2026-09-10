@@ -668,6 +668,9 @@ When you add a column or table:
 
 1. Edit `sqlText()` — add `create table if not exists` and/or
    `alter table … add column if not exists`. Never a bare `alter`.
+   **Bump `SQL_REV`** (the constant above `sqlText()`): the script ends with
+   `select SQL_REV as sqltext_applied`, and the editor's result pane reading
+   that stamp is the only proof the tail of the script you pasted actually ran.
 2. Add the field to `FIELDS` (billing rows), `CAT_FIELDS`, `CLI_FIELDS` or
    `GROUP_FIELDS` as appropriate, and to the relevant `payloadOf`.
 3. Tell the user to re-run the SQL before the change syncs. For a column the
