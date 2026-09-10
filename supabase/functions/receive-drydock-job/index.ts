@@ -23,6 +23,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // the RPC canonicalises the client name the same way (collapse, trim, lower)
 const cleanText = (v: unknown, max: number) =>
   String(v ?? "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+// A postal address is the one field where line breaks are content: billing
+// prints Bill To across the typed lines (statement and PDF both split on
+// \n). It never reaches an HTTP header, so \n is safe here; \r and tabs are
+// not content and go, spaces collapse within a line, blank lines drop, and
+// the shape is capped so a pasted document cannot become an address.
+const cleanAddress = (v: unknown): string =>
+  String(v ?? "").replace(/\r/g, "").split("\n")
+    .map((l) => l.replace(/[\t ]+/g, " ").trim().slice(0, 120))
+    .filter(Boolean).slice(0, 6).join("\n");
 // constant-time compare, the same intent as the drydocking server's secretOk
 function secretOk(a: string, b: string): boolean {
   if (!a || !b || a.length !== b.length) return false;
@@ -78,7 +87,7 @@ export function validate(body: unknown): { ok: true; job: Job } | { ok: false; e
   return { ok: true, job: {
     dispatch_id: dispatch_id.toLowerCase(), draft_id: draft_id.toLowerCase(),
     source: cleanText(b.source, 40) || "drydocking", project_no: cleanText(b.project_no, 60),
-    vessel: cleanText(b.vessel, 120), client, client_address: cleanText(b.client_address, 300),
+    vessel: cleanText(b.vessel, 120), client, client_address: cleanAddress(b.client_address),
     client_email: cleanText(b.client_email, 254), documents,
     sent_at: isoOrNull(b.sent_at), email_provider_id: cleanText(b.email_provider_id, 120),
     confirmed_by: cleanText(b.confirmed_by, 120), confirmed_at: isoOrNull(b.confirmed_at),

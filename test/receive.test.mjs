@@ -71,6 +71,21 @@ for (const [label, over, re] of [
   const w = mod.validate(JOB({ dispatch_id: '11111111-1111-4111-8111-111111111111'.toUpperCase(), sent_at: 'yesterday' }));
   ok('validate() lowercases ids and drops an unparseable timestamp to null rather than refusing the job',
      w.ok && w.job.dispatch_id === '11111111-1111-4111-8111-111111111111' && w.job.sent_at === null, JSON.stringify(w));
+  // the address is the one field where line breaks are content: Bill To prints across them
+  const ad = mod.validate(JOB({ client_address: ' 1st Street\r\n  North   Reclamation\tArea \n\n Cebu City ' }));
+  ok('validate() keeps address line breaks: \\r stripped, spaces collapsed within a line, empty lines dropped',
+     ad.ok && ad.job.client_address === '1st Street\nNorth Reclamation Area\nCebu City', JSON.stringify(ad.ok ? ad.job.client_address : ad));
+  const many = mod.validate(JOB({ client_address: Array.from({ length: 9 }, (_, i) => 'line ' + (i + 1)).join('\n') }));
+  ok('validate() caps the address at 6 lines', many.ok && many.job.client_address.split('\n').length === 6 && /line 6$/.test(many.job.client_address),
+     JSON.stringify(many.ok ? many.job.client_address : many));
+  const long = mod.validate(JOB({ client_address: 'x'.repeat(200) + '\nshort' }));
+  ok('validate() caps each address line at 120 characters', long.ok && long.job.client_address.split('\n')[0].length === 120 && long.job.client_address.endsWith('\nshort'),
+     JSON.stringify(long.ok ? long.job.client_address.length : long));
+  // a stray CR mid-line is removed, not turned into a space or a break: only LF breaks lines
+  const cr = mod.validate(JOB({ client_address: 'Unit\r7\r\nMain St' }));
+  ok('validate() strips a CR wherever it is (mid-line too); only LF breaks address lines',
+     cr.ok && cr.job.client_address === 'Unit7\nMain St', JSON.stringify(cr.ok ? cr.job.client_address : cr));
+  ok('validate() still flattens header bytes in NON-address fields (vessel)', mod.validate(JOB({ vessel: 'MV\r\nX' })).job.vessel === 'MV X');
   const bl = mod.validate(JOB({ documents: [{ title:'Certificate of Drydocking', pages:1 }, { title:'Drydocking List of Vessel', pages:1, billable:false }, { title:'Docking Plan' }] }));
   ok('validate() carries billable through: absent -> true, false -> false, and a hardcopy item with no pages is accepted',
      bl.ok && bl.job.documents.map(d => d.billable).join() === 'true,false,true' && bl.job.documents[2].pages === null,
