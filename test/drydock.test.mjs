@@ -16,7 +16,7 @@ const KEYS = ['rsr_dwg_cfg_v1','rsr_dwg_rows_v1','rsr_dwg_queue_v1','rsr_dwg_ses
               'rsr_dwg_catalog_v1','rsr_dwg_clients_v1','rsr_dwg_shared_v1'];
 const TODAY = mnlToday(), MM = codeStamp();
 const GID = 'dd-11111111-1111-4111-8111-111111111111';
-const REMARKS = 'Drydocking documents emailed September 9, 2026, confirmed by Raffy J. Ramirez. Project 25-016.';
+const REMARKS = 'Drydocking documents emailed September 9, 2026, confirmed by Raffy J. Ramirez. Transmittal completed by Raffy J. Ramirez on September 9, 2026. Project 25-016.';
 const line = (gid, n, code, title) => ({ id:'srv-'+gid+'-'+n, group_id:gid, line_no:n, code, doc_type:'DC', bill_date:TODAY,
   client:'Seaford Shipping Lines, Inc.', vessel:'MV "SF RISER"', drawing_no:null, drawing_title:title, qty:1, rate:2500,
   status:'DRAFT', remarks:REMARKS, billable:true, created_at:'2026-09-09T10:21:00Z' });

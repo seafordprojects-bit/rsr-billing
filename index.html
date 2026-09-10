@@ -5877,9 +5877,18 @@ begin
      and substring(code from length(v_prefix) + 1) ~ '^[0-9]+$';
   v_code := v_prefix || lpad((v_max + 1)::text, 3, '0');
 
+  -- remarks are internal (Monitoring search and the Edit sheet only; never
+  -- on the statement, the PDF or the letter), so naming yard staff is safe.
+  -- The completer sentence appears only when the drydocking side sent one:
+  -- rows born before that snapshot existed carry no name and no date.
   v_remarks := 'Drydocking documents emailed ' || to_char(v_date, 'FMMonth FMDD, YYYY')
-            || ', confirmed by ' || btrim(coalesce(p->>'confirmed_by', ''))
-            || '. Project ' || btrim(coalesce(p->>'project_no', '')) || '.';
+            || ', confirmed by ' || btrim(coalesce(p->>'confirmed_by', '')) || '.';
+  if btrim(coalesce(p->>'completed_by', '')) <> '' then
+    v_remarks := v_remarks || ' Transmittal completed by ' || btrim(p->>'completed_by')
+              || coalesce(' on ' || to_char(((p->>'completed_at')::timestamptz at time zone 'Asia/Manila')::date, 'FMMonth FMDD, YYYY'), '')
+              || '.';
+  end if;
+  v_remarks := v_remarks || ' Project ' || btrim(coalesce(p->>'project_no', '')) || '.';
 
   select default_rate into v_generic from public.drawing_catalog
    where doc_type = 'DC' and active and lower(btrim(name)) = 'drydocking document'

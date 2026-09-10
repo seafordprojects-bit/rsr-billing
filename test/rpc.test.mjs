@@ -40,6 +40,12 @@ console.log('\n--- B. runs on a fresh database, twice ---');
 export async function freshDb() {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(SHIM);
+  // The session timezone is NOT Manila on purpose: to_char() on a timestamptz
+  // formats in the session zone, and on a PC set to Asia/Manila a missing
+  // `at time zone 'Asia/Manila'` printed the right day by accident (a
+  // mutation escaped that way). Honolulu is far enough from both UTC and
+  // Manila that a UTC day or a session-zone day can never coincide.
+  await db.exec("set timezone = 'Pacific/Honolulu'");
   await db.exec(SQL);
   return db;
 }
@@ -84,7 +90,7 @@ if (db) {
   ok('every line carries the same code, client, vessel, Manila bill_date and remarks (group fields)',
      l1.length === 3 && l1.every(r => r.code === r1.code && r.client === 'Seaford Shipping Lines, Inc.' && r.vessel === 'MV "SF RISER"' &&
                    ymd(r.bill_date) === '2026-09-09' &&
-                   r.remarks === 'Drydocking documents emailed September 9, 2026, confirmed by Raffy J. Ramirez. Project 25-016.'),
+                   r.remarks === 'Drydocking documents emailed September 9, 2026, confirmed by Raffy J. Ramirez. Transmittal completed by Raffy J. Ramirez on September 9, 2026. Project 25-016.'),
      JSON.stringify(l1[0] && [l1[0].code, l1[0].bill_date, l1[0].remarks]));
   ok('the receipt row exists with the payload', (await db.query("select count(*)::int as n from billing_drydock_receipt where dispatch_id = $1", [JOB().dispatch_id])).rows[0].n === 1);
 
@@ -136,6 +142,20 @@ if (db) {
   ok('the no-charge line still records the catalogue rate (the app zeroes the amount; the rate is the record)',
      l7.length === 3 && Number(l7[1].rate) === 2500, l7[1] ? String(l7[1].rate) : 'no line');
   ok('a hardcopy item with no pages inserts with pages null', l7.length === 3 && l7[2].pages === null);
+
+  console.log('\n--- J. remarks name the completer only when there is one; dates are Manila days ---');
+  const r8 = await wrap(() => call(db, JOB({ dispatch_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', completed_by: '', completed_at: null })));
+  const l8 = r8.group_id ? await lines(db, r8.group_id) : [];
+  ok('no completer on the payload -> remarks has the emailed sentence and the project only, no dangling "completed by"',
+     l8.length === 3 && l8[0].remarks === 'Drydocking documents emailed September 9, 2026, confirmed by Raffy J. Ramirez. Project 25-016.', l8[0] ? l8[0].remarks : JSON.stringify(r8));
+  const r9 = await wrap(() => call(db, JOB({ dispatch_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc', completed_by: 'Deck Hand', completed_at: '2026-09-08T22:30:00Z' })));
+  const l9 = r9.group_id ? await lines(db, r9.group_id) : [];
+  ok('a late-evening UTC completion is the NEXT Manila day in remarks (22:30Z on the 8th -> September 9)',
+     l9.length === 3 && /Transmittal completed by Deck Hand on September 9, 2026\./.test(l9[0].remarks), l9[0] ? l9[0].remarks : JSON.stringify(r9));
+  const r10 = await wrap(() => call(db, JOB({ dispatch_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbd', completed_by: 'Deck Hand', completed_at: null })));
+  const l10 = r10.group_id ? await lines(db, r10.group_id) : [];
+  ok('a completer with no time reads "completed by Deck Hand." with no dangling "on"',
+     l10.length === 3 && /confirmed by Raffy J\. Ramirez\. Transmittal completed by Deck Hand\. Project 25-016\.$/.test(l10[0].remarks), l10[0] ? l10[0].remarks : JSON.stringify(r10));
 
   console.log('\n--- H. refused payloads and roles ---');
   const bad = await wrap(() => call(db, JOB({ dispatch_id: '99999999-9999-4999-8999-999999999999', documents: [] })));
