@@ -26,7 +26,7 @@ net.mode = 'online';
 app.setSession({ access_token:'t', refresh_token:'r', expires_at: 2e9, user:{ email:'x@rsr.test' } });
 
 // a server that remembers catalogue rows; PATCH answers one tick late so a pull can land mid-flight
-const server = { rows: [], patches: [] };
+const server = { rows: [], patches: [], lines: [], linePatches: [] };
 const tick = () => new Promise(r => setTimeout(r, 30));
 globalThis.fetch = async (url, opts={}) => {
   const u = String(url), m = opts.method || 'GET';
@@ -35,6 +35,10 @@ globalThis.fetch = async (url, opts={}) => {
     if (m === 'POST') { const b = JSON.parse(opts.body); const rows = (Array.isArray(b) ? b : [b]).map(r => Object.assign({}, r, { id: 'srv-' + (server.rows.length + 1) })); server.rows.push(...rows); return j(201, rows); }
     if (m === 'PATCH') { const id = decodeURIComponent(u.split('id=eq.')[1]); const body = JSON.parse(opts.body); server.patches.push({ id, body }); await tick(); const row = server.rows.find(r => r.id === id); if (row) Object.assign(row, body); return j(204, []); }
     if (m === 'GET') return j(200, server.rows.map(r => Object.assign({}, r)));
+  }
+  if (u.includes('drawing_billing') && !u.includes('send_log')) {
+    if (m === 'PATCH') { const id = decodeURIComponent(u.split('id=eq.')[1]); const body = JSON.parse(opts.body); server.linePatches.push({ id, body }); await tick(); const row = server.lines.find(r => r.id === id); if (row) Object.assign(row, body); return j(204, []); }
+    if (m === 'GET') return j(200, server.lines.map(r => Object.assign({}, r)));
   }
   return j(200, []);
 };
@@ -74,6 +78,30 @@ const before2 = server.patches.length;
 app.queue.push({ op:'update', store:'catalog', table:'drawing_catalog', id: app.catalog[0].id, data: Object.assign({}, server.rows[0], { name: 'Once' }) });
 await Promise.all([app.flushQueue(), app.flushQueue()]);
 ok('the guard still holds: one PATCH, not two', server.patches.length === before2 + 1, String(server.patches.length - before2));
+
+
+console.log('\n--- E. the same race on a BILLING LINE -- where a stale value is a wrong bill ---');
+// The catalogue proves the mechanism; this proves it for the path that prices
+// a client's statement. pull() replaces `rows` exactly as it replaces the
+// catalogue, and lines have no compare-and-swap. Before dda0d9b this ran:
+// local reverted to 1,000 while the server held 2,500, and the next edit
+// PATCHed 1,000 back -- a wrong bill.
+server.lines = [{ id:'srv-l1', group_id:'g1', line_no:1, code:'RSR-DW-092026-001', doc_type:'DW', bill_date:'2026-09-11', client:'C', vessel:'V',
+  drawing_title:'General Arrangement', qty:1, rate:1000, status:'DRAFT', remarks:'', billable:true, created_at:'2026-09-11T00:00:00Z' }];
+await app.pull(true);
+const line = app.rows.find(r => r.id === 'srv-l1');
+ok('the line is local at its server rate', !!line && Number(line.rate) === 1000, line && String(line.rate));
+const saving = app.saveRow(Object.assign({}, line, { rate: 2500 }), false);   // PATCH in flight for a tick
+await new Promise(r => setTimeout(r, 5));
+await app.pull(true);                                                          // a pull lands mid-flight
+await saving; await tick();
+const lineNow = () => ({ local: Number(app.rows.find(r => r.id === 'srv-l1').rate), server: Number(server.lines[0].rate) });
+ok('line race: pull waited for the in-flight rate PATCH -- local and server both 2,500', lineNow().local === 2500 && lineNow().server === 2500, JSON.stringify(lineNow()));
+await app.saveRow(Object.assign({}, app.rows.find(r => r.id === 'srv-l1'), { remarks: 'second edit' }), false);
+await tick(); await tick();
+const lastLine = server.linePatches[server.linePatches.length - 1].body;
+ok('line race: the next edit carries 2,500, never the stale 1,000 (the wrong-bill case)', Number(lastLine.rate) === 2500 && lastLine.remarks === 'second edit' && Number(server.lines[0].rate) === 2500,
+   JSON.stringify({ lastPatch: { rate: lastLine.rate, remarks: lastLine.remarks }, server: server.lines[0].rate }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
