@@ -30,6 +30,9 @@ const ROWS = [ line(GID, 1, 'RSR-DC-'+MM+'-001', 'Load Line Certificate'),
 KEYS.forEach(k => globalThis.localStorage.removeItem(k));
 globalThis.localStorage.setItem('rsr_dwg_cfg_v1', JSON.stringify({ seededDW:true, url:'https://proj.supabase.co', key:'anon' }));
 globalThis.localStorage.setItem('rsr_dwg_rows_v1', JSON.stringify(ROWS));
+// the client record Bill To reads (by name, not from the line): a three-line address
+globalThis.localStorage.setItem('rsr_dwg_clients_v1', JSON.stringify([
+  { id:'srv-c1', name:'Seaford Shipping Lines, Inc.', salutation:'', contact_person:'', address:'1st Street\nNorth Reclamation Area\nCebu City', billing_email:'billing@seaford.test', email_cc:'' } ]));
 const app = globalThis.__loadApp();
 net.mode = 'online';
 app.setSession({ access_token:'t', refresh_token:'r', expires_at: 2e9, user:{ email:'raffy@rsr.test' } });
@@ -91,6 +94,8 @@ const doc = el('printRoot').innerHTML;        // the statement renders into <div
 ok('the List of Vessel line is on the statement as No Charge and the total is the other line alone',
    /Drydocking List of Vessel/.test(doc) && /No Charge/.test(doc) && /2,500\.00/.test(doc) && !/5,000\.00/.test(doc),
    (doc.match(/No Charge|[0-9],[0-9]{3}\.[0-9]{2}/g) || []).join(' '));
+ok('Bill To prints the received address across its three lines',
+   /1st Street<br>North Reclamation Area<br>Cebu City/.test(doc), (doc.match(/1st Street[^<]{0,80}(<br>[^<]{0,80}){0,3}/) || [''])[0]);
 ok('the statement carries the lines but no From drydocking badge or receipt meta',
    /Load Line Certificate/.test(doc) && doc.indexOf('From drydocking') < 0 && doc.indexOf('badge dd') < 0 && doc.indexOf('Emailed ') < 0,
    /Load Line Certificate/.test(doc) ? '' : 'statement has no lines');
