@@ -876,6 +876,14 @@ Order matters: the function calls the RPC by name, so the SQL goes first.
    client's address on three lines, and the statement's Bill To block prints
    them one under the other. A one-line address there means the flattening
    cleaner is back in front of the address field.
+   **Completer, on the smoke:** a payload with `completed_by` and
+   `completed_at` set makes the line's remarks (open the card, Edit sheet,
+   Remarks field) read three sentences: emailed + confirmed by, Transmittal
+   completed by <name> on <Manila day>, Project. A payload with
+   `completed_by` empty and `completed_at` null reads two sentences with no
+   "completed by" fragment. The completer comes from the dispatch row's
+   snapshot, so a re-complete on the drydocking side never changes what an
+   earlier send's line says.
    Seen on the live run (2026-09-11): the card's No charge and the SQL rows;
    the rendered statement itself was NOT viewed -- the drydock suite's
    statement assertion and the review before every send cover it.

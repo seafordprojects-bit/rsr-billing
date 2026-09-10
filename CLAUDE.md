@@ -428,7 +428,18 @@ BLANK address with it and never overwrites one. Bill To reads the client
 record by name, so that fill is the only reason a received billing prints an
 address. `drawing_no` stays null — it is the billing's own
 reference column — and the project number rides in `remarks` with the emailed
-date and who confirmed the send. Granted to `service_role` only.
+date and who confirmed the send. Remarks also name who completed the Transmittal and when, in a second
+sentence that appears only when the drydocking side sent a completer. Both the
+confirmer and the completer are SNAPSHOTS on the dispatch row -- the trigger
+copies `new.completed_by` / `new.completed_at` from the completion that fired
+it -- never a lookup at signal time: `dd_section_completions` keeps one row per
+draft that a re-complete overwrites, so a lookup would name the next completer
+for the previous send. Dates in remarks are Manila days. `remarks` is read by
+the Monitoring search and the Edit sheet only, never by `renderStatement`,
+`pdfPlan` or `composeLetter`, which is what makes naming staff there safe; any
+change that prints remarks on the client copy must revisit this. The RPC
+suite's pglite session is pinned to Pacific/Honolulu so a missing Manila
+conversion cannot print the right day by accident on a PC set to Manila. Granted to `service_role` only.
 
 Status codes are the contract with the caller's retry loop: a retry is 200
 (`created:false`), a refused payload 400 with the field named, a database
