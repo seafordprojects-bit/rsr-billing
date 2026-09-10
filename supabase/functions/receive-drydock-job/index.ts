@@ -30,7 +30,7 @@ function secretOk(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return d === 0;
 }
-type Doc = { title: string; pages: number | null };
+type Doc = { title: string; pages: number | null; billable: boolean };
 export type Job = {
   dispatch_id: string; draft_id: string; source: string; project_no: string; vessel: string;
   client: string; client_address: string; client_email: string; documents: Doc[];
@@ -64,7 +64,16 @@ export function validate(body: unknown): { ok: true; job: Job } | { ok: false; e
       if (!Number.isInteger(n) || n < 0) return { ok: false, error: "pages must be an integer" };
       pages = n;
     }
-    documents.push({ title, pages });
+    // billable: absent means charged (true); the drydocking side sends false
+    // for the one title the yard lists without charging (Drydocking List of
+    // Vessel). Strictly boolean -- a string "no" is a bug upstream, not a
+    // value to guess at.
+    let billable = true;
+    if (o.billable !== undefined && o.billable !== null) {
+      if (typeof o.billable !== "boolean") return { ok: false, error: "billable must be true or false" };
+      billable = o.billable;
+    }
+    documents.push({ title, pages, billable });
   }
   return { ok: true, job: {
     dispatch_id: dispatch_id.toLowerCase(), draft_id: draft_id.toLowerCase(),

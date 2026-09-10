@@ -57,6 +57,7 @@ for (const [label, over, re] of [
   ['document without title', { documents: [{ pages: 1 }] }, /title/],
   ['non-integer pages', { documents: [{ title:'X', pages:'two' }] }, /pages/],
   ['blank client', { client: '   ' }, /client/],
+  ['billable that is not a boolean', { documents: [{ title:'X', billable:'no' }] }, /billable/],
 ]) {
   net.calls.length = 0;
   const r = await post(JOB(over)); const b = await r.json();
@@ -70,6 +71,10 @@ for (const [label, over, re] of [
   const w = mod.validate(JOB({ dispatch_id: '11111111-1111-4111-8111-111111111111'.toUpperCase(), sent_at: 'yesterday' }));
   ok('validate() lowercases ids and drops an unparseable timestamp to null rather than refusing the job',
      w.ok && w.job.dispatch_id === '11111111-1111-4111-8111-111111111111' && w.job.sent_at === null, JSON.stringify(w));
+  const bl = mod.validate(JOB({ documents: [{ title:'Certificate of Drydocking', pages:1 }, { title:'Drydocking List of Vessel', pages:1, billable:false }, { title:'Docking Plan' }] }));
+  ok('validate() carries billable through: absent -> true, false -> false, and a hardcopy item with no pages is accepted',
+     bl.ok && bl.job.documents.map(d => d.billable).join() === 'true,false,true' && bl.job.documents[2].pages === null,
+     JSON.stringify(bl.ok ? bl.job.documents : bl));
 }
 
 console.log('\n--- C. happy path ---');
@@ -85,6 +90,8 @@ ok('one RPC call, service key on both headers, payload under p with every field'
    JSON.stringify(c && Object.keys(c.body.p || {})));
 ok('nothing in the payload was sent that validate() did not produce (no passthrough of extra keys)',
    c && c.body && Object.keys(c.body.p).sort().join() === FIELDS.slice().sort().join(), c && Object.keys(c.body.p).sort().join());
+ok('the RPC receives billable per document (JOB has it absent -> true)',
+   c && c.body && c.body.p.documents.every(d => d.billable === true), JSON.stringify(c && c.body.p.documents));
 
 console.log('\n--- D. duplicate, refusal, database failure ---');
 net.rpcBody = { ok:true, created:false, group_id:'dd-1' };
