@@ -573,17 +573,21 @@ table.stmt-t th{
   letter-spacing:.12em;text-transform:uppercase;font-weight:700
 }
 table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
-/* a grouped drydocking line (8.1, 8.2) sits under its parent. On the ROW's
-   class, never as padding on td.d: that cell's opening tag is matched
-   literally by printclean's "description cell is marked" assertion, which
-   exists so the word-wrap rule cannot lose its target. Here rather than in
-   @media print so the screen and the paper indent alike -- this whole change
-   exists because two renderings of one send disagreed. */
-table.stmt-t tr.sub td.d{padding-left:14px}
+/* a grouped drydocking line (9.1) sits under its parent the way the client's
+   transmittal prints it: its No. cell is EMPTY and the number leads the
+   description cell, then the title -- so the row keeps every column the
+   parent rows have and only the number and title move in. The row class is
+   child, NOT sub: .sub is the drawing-number span under a title, and on
+   2026-09-17 the row took that name too, so .sub{display:block} pulled
+   the row out of the table grid -- a 53px-wide row, the title wrapped onto
+   four lines in 9px mono, its rule stopped short (found on paper,
+   BILLDC-26-001). Both rules now name the element they style. */
+table.stmt-t tr.child td.d .lbl{margin-right:.5em}
 table.stmt-t .r{text-align:right;font-family:var(--mono);white-space:nowrap}
 table.stmt-t .c{text-align:center;font-family:var(--mono);white-space:nowrap}
 table.stmt-t .cd{font-family:var(--mono);font-size:9.5px;white-space:nowrap}
-table.stmt-t .sub{display:block;font-family:var(--mono);font-size:9px;color:#555;margin-top:2px}
+table.stmt-t span.sub{display:block;font-family:var(--mono);font-size:9px;color:#555;margin-top:2px}
+table.stmt-t tr.child td.d .lbl{font-family:var(--mono)}
 table.stmt-t .nc{font-family:var(--sans);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#555;font-style:italic}
 table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
 .stmt-tot{margin-top:0;border-top:2px solid var(--ink)}
@@ -4700,7 +4704,8 @@ table.pay-t td{padding:3px 8px 3px 0;vertical-align:top}
 table.pay-t .bk{font-weight:bold;white-space:nowrap;width:34%}
 table.pay-t .ac{font-family:Consolas,monospace;white-space:nowrap;text-align:right}
 .pay .ds{font-size:10px;color:#333;margin-top:7px;line-height:1.45}
-table.stmt-t .sub{display:block;font-family:Consolas,monospace;font-size:9px;color:#555;margin-top:2px}
+table.stmt-t span.sub{display:block;font-family:Consolas,monospace;font-size:9px;color:#555;margin-top:2px}
+table.stmt-t tr.child td.d .lbl{font-family:Consolas,monospace}
 table.stmt-t .nc{font-family:Arial,Helvetica,sans-serif;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#555;font-style:italic}
 .stmt-meta{display:flex;border:1px solid #000;margin-top:3mm}
 .stmt-meta>div{flex:1;min-width:0;padding:7px 10px;border-left:1px solid #000}
@@ -4715,13 +4720,16 @@ table.stmt-t .nc{font-family:Arial,Helvetica,sans-serif;font-size:9px;letter-spa
 table.stmt-t{width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px}
 table.stmt-t th{background:#101F2E;color:#fff;text-align:left;padding:7px 8px;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase}
 table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
-/* a grouped drydocking line (8.1, 8.2) sits under its parent. On the ROW's
-   class, never as padding on td.d: that cell's opening tag is matched
-   literally by printclean's "description cell is marked" assertion, which
-   exists so the word-wrap rule cannot lose its target. Here rather than in
-   @media print so the screen and the paper indent alike -- this whole change
-   exists because two renderings of one send disagreed. */
-table.stmt-t tr.sub td.d{padding-left:14px}
+/* a grouped drydocking line (9.1) sits under its parent the way the client's
+   transmittal prints it: its No. cell is EMPTY and the number leads the
+   description cell, then the title -- so the row keeps every column the
+   parent rows have and only the number and title move in. The row class is
+   child, NOT sub: .sub is the drawing-number span under a title, and on
+   2026-09-17 the row took that name too, so .sub{display:block} pulled
+   the row out of the table grid -- a 53px-wide row, the title wrapped onto
+   four lines in 9px mono, its rule stopped short (found on paper,
+   BILLDC-26-001). Both rules now name the element they style. */
+table.stmt-t tr.child td.d .lbl{margin-right:.5em}
 table.stmt-t .r{text-align:right;font-family:Consolas,monospace;white-space:nowrap}
 table.stmt-t .c{text-align:center;font-family:Consolas,monospace;white-space:nowrap}
 table.stmt-t .cd{font-family:Consolas,monospace;font-size:9.5px;white-space:nowrap}
@@ -5206,14 +5214,20 @@ function renderStatement(picked,opts){
         <th style="width:53%">Description</th><th style="width:7%" class="c">Qty</th>
         <th style="width:16%" class="r">Rate</th><th style="width:17%" class="r">Amount</th>
       </tr></thead>
-      <tbody>${(()=>{const stmtLabels=billLabels(list);return list.map((r,i)=>`<tr${stmtLabels[i].endsWith('.0')?'':' class="sub"'}>
-        <td class="c">${stmtLabels[i]}</td>
-        <td class="d">${esc(r.drawing_title)}${lineSub(r)
+      <tbody>${(()=>{const stmtLabels=billLabels(list);return list.map((r,i)=>{
+        // a child line (9.1) prints as the transmittal does: No. cell empty,
+        // the number leading the description. A no-charge line says so ONCE,
+        // in the Amount column, with the Rate cell empty -- twice read as a
+        // typo on paper, and a real rate beside it as an arithmetic error.
+        const child=!stmtLabels[i].endsWith('.0');
+        return `<tr${child?' class="child"':''}>
+        <td class="c">${child?'':stmtLabels[i]}</td>
+        <td class="d">${child?'<span class="lbl">'+stmtLabels[i]+'</span>':''}${esc(r.drawing_title)}${lineSub(r)
             ?`<span class="sub">${lineSub(r)}</span>`:''}</td>
         <td class="c">${esc(r.qty)}</td>
-        <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(r.rate).replace('₱','')}</td>
+        <td class="r">${noCharge(r)?'':money(r.rate).replace('₱','')}</td>
         <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(amountOf(r)).replace('₱','')}</td>
-      </tr>`).join('');})()}</tbody>
+      </tr>`;}).join('');})()}</tbody>
     </table>
     <table class="stmt-tot" style="width:100%">
       <tr><td class="lbl">Subtotal — ${list.length} item${list.length===1?'':'s'}${
@@ -5432,22 +5446,30 @@ function pdfPlan(facts,issuedNo){
   head();
   const pdfLabels=billLabels(facts.list);
   facts.list.forEach((r,i)=>{
-    const tl=pdfWrap(r.drawing_title,descW,9);
+    // a child line (9.1) prints as the transmittal does: the No. cell stays
+    // empty and the number leads the description, the title half an em after
+    // it -- measured with pdfWrap's own advance, so the wrap budget shrinks
+    // by exactly what the label took and a long title still stops at descEnd
+    const lbl=pdfLabels[i], child=!lbl.endsWith('.0');
+    const dx=child?cDesc+lbl.length*9*0.5+4.5:cDesc;
+    const dw=descEnd-8-dx;
+    const tl=pdfWrap(r.drawing_title,dw,9);
     const sub=(facts.oneVessel?[r.drawing_no]:[r.vessel,r.drawing_no])
       .filter(Boolean).join(' \u00b7 ');
-    const sl=sub?pdfWrap(sub,descW,8):[];
+    const sl=sub?pdfWrap(sub,dw,8):[];
     const h=Math.max(11,tl.length*11)+sl.length*10+5;
     if(y+h>PDF_BOT){brk();head();}
     const top=y;
-    t(pdfLabels[i],cNo,top,{size:9});
+    t(lbl,child?cDesc:cNo,top,{size:9});
     if(r.qty!=null&&r.qty!=='')t(r.qty,cQty,top,{size:9,align:'right'});
-    // a no-charge line says so in BOTH cells, as print does: the real rate
-    // beside a zero amount reads to the client as an arithmetic error
-    t(noCharge(r)?'No Charge':pdfMoney(r.rate),cRate,top,{size:9,align:'right'});
+    // a no-charge line says so ONCE, in the Amount column, as print does; the
+    // Rate cell is left empty because the real rate beside a zero amount
+    // reads to the client as an arithmetic error, and No Charge twice as a typo
+    if(!noCharge(r))t(pdfMoney(r.rate),cRate,top,{size:9,align:'right'});
     t(noCharge(r)?'No Charge':pdfMoney(amountOf(r)),cAmt,top,{size:9,align:'right'});
     if(!tl.length)y+=11;
-    tl.forEach(s=>{t(s,cDesc,y,{size:9});y+=11;});
-    sl.forEach(s=>{t(s,cDesc,y,{size:8});y+=10;});
+    tl.forEach(s=>{t(s,dx,y,{size:9});y+=11;});
+    sl.forEach(s=>{t(s,dx,y,{size:8});y+=10;});
     y+=5;
   });
 

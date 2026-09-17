@@ -26,7 +26,7 @@ const rows = [
     client:'Seaford Shipping Lines', vessel:'MV SF Voyager', drawing_no:'D-102',
     drawing_title:'Midship Section', qty:1, rate:2500, status:'DRAFT',
     bill_date:'2026-08-19' },
-  // a delivered-but-not-charged line: print puts "No Charge" in BOTH cells
+  // a delivered-but-not-charged line: "No Charge" once, in the Amount column
   { id:'r3', line_no:3, group_id:'g1', code:'RSR-DW-082026-001', bill_no:'BILLDWG-26-001',
     client:'Seaford Shipping Lines', vessel:'MV SF Voyager', drawing_no:'D-103',
     drawing_title:'Capacity Plan', qty:2, rate:999, billable:false, status:'DRAFT',
@@ -174,8 +174,10 @@ ok('two vessels go back onto the lines',
 
 console.log('\n--- 10. a no-charge line ---');
 const ncOps = plan.ops.filter(o => o.t === 'text' && o.s === 'No Charge');
-ok('No Charge appears twice - rate AND amount, as print does',
-   ncOps.length === 2, JSON.stringify(ncOps.map(o => o.x)));
+ok('No Charge appears ONCE, in the Amount column, and nothing is drawn in that row\'s Rate cell',
+   ncOps.length === 1 && Math.round(ncOps[0].x) === Math.round(plan.page.w - plan.page.m) &&
+   !plan.ops.some(o => o.t === 'text' && o.y === ncOps[0].y && o.align === 'right' && o.x < ncOps[0].x && o.x > ncOps[0].x - 100),
+   JSON.stringify(plan.ops.filter(o => o.t === 'text' && o.y === (ncOps[0] || {}).y).map(o => [o.s, o.x])));
 ok('the no-charge line’s real rate is nowhere on the document',
    text.indexOf(app.pdfMoney(999)) === -1, app.pdfMoney(999));
 

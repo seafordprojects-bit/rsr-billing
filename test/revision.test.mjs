@@ -179,7 +179,9 @@ ok('all three lines printed', doc.includes('First Charged') &&
 ok('numbering runs 1.0 to 3.0',
    doc.includes('>1.0<') && doc.includes('>2.0<') && doc.includes('>3.0<'));
 ok('the free line shows No Charge', /class="nc">No Charge</.test(doc));
-ok('twice — rate and amount', (doc.match(/class="nc">No Charge</g) || []).length === 2,
+ok('once -- in the Amount column, with the Rate cell empty (twice read as a typo on paper)',
+   (doc.match(/class="nc">No Charge</g) || []).length === 1 &&
+   /<td class="r"><\/td>\s*<td class="r"><span class="nc">No Charge/.test(doc),
    String((doc.match(/class="nc">No Charge</g) || []).length));
 ok('total counts only the charged lines', /2,000\.00/.test(doc));
 ok('subtotal says how many were free', /1 at no charge/.test(doc),

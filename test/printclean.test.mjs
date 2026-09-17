@@ -230,7 +230,7 @@ ok('numeric columns cannot break', /\.c,table\.stmt-t \.r,table\.stmt-t \.cd\{wh
 ok('the number column is nowrap outside print too',
    /table\.stmt-t \.c\{[^}]*white-space:nowrap/.test(html));
 ok('and the number column is sized in percent', /width:7%" class="c">No\./.test(html));
-ok('the description cell is marked', /<td class="d">\$\{esc\(r\.drawing_title\)\}/.test(html));
+ok('the description cell is marked', /<td class="d">\$\{child\?[^}]*\}\$\{esc\(r\.drawing_title\)\}/.test(html));
 
 console.log('\n--- 3. multi-billing guard ---');
 app = reset();

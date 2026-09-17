@@ -84,5 +84,84 @@ ok('the column is created by the generated SQL, guarded like every other',
 ok('and the app SELECTS it, or the renderers would never see it',
    /'billable','parent_title'/.test(html));
 
+console.log('\n--- 4. the child row on paper and on the PDF ---');
+/* Found on paper (BILLDC-26-001, 2026-09-18): the 9.1 row printed 53px wide
+   with its title wrapped onto four lines in 9px mono and its rule stopped
+   short, while the tests above were green. The row class was `sub`, which is
+   also the drawing-number SPAN's class, so the span rule's display:block
+   pulled the row out of the table grid. Nothing here measures layout -- the
+   harness has no layout engine -- so the guard is on the two things that
+   made it possible: the row's class must not be styled by any rule written
+   for something else, and the element-typed selectors must stay. */
+const el = id => globalThis.document.getElementById(id);
+{
+  const GID = 'dd-child';
+  const T = [['Certificate of Drydocking', true, null], ['Crack Testing Evidence', true, null],
+             ['Propeller Crack Testing Evidence', false, 'Crack Testing Evidence'],
+             ['Tailshaft Crack Testing Evidence With Many More Words Appended So That This Title Must Wrap Onto A Second Line', false, 'Crack Testing Evidence'],
+             ['Docking Plan', true, null]];
+  const rows = T.map((x, i) => ({ id: 'srv-c' + i, group_id: GID, line_no: i + 1, code: 'RSR-DC-092026-009', doc_type: 'DC',
+    bill_date: '2026-09-17', client: 'Child Test Co.', vessel: 'MV CHILD', drawing_no: null, drawing_title: x[0], qty: 1,
+    rate: 2500, status: 'DRAFT', billable: x[1], parent_title: x[2], created_at: '2026-09-17T02:41:00Z' }));
+  app.rows.push(...rows);
+  app.clients.push({ id: 'cc1', name: 'Child Test Co.', address: 'Somewhere', billing_email: 'x@y.test' });
+  app.openStmtFor(GID);
+  el('sVat').value = '0'; el('sTerms').value = '30'; el('sFrom').value = '2026-09-01'; el('sTo').value = '2026-09-30';
+  app.renderStatement(app.pickedRows());
+  const doc = el('printRoot').innerHTML;
+  const rowsHtml = doc.match(/<tr[^>]*>[\s\S]*?<\/tr>/g).filter(r => /<td class="c">/.test(r)).map(r => r.replace(/\s+/g, ' '));
+  const parent = rowsHtml[1], child = rowsHtml[2];
+  ok('a parent row prints exactly as before: number in the No. cell, title first in the description cell',
+     /^<tr> <td class="c">2\.0<\/td> <td class="d">Crack Testing Evidence<\/td>/.test(parent), parent);
+  ok('a child row carries class child, an EMPTY No. cell, and its number leads the description cell -- the transmittal\'s own layout',
+     /^<tr class="child"> <td class="c"><\/td> <td class="d"><span class="lbl">2\.1<\/span>Propeller Crack Testing Evidence<\/td>/.test(child), child);
+  ok('...with the same five cells as its parent, Qty/Rate/Amount untouched',
+     (child.match(/<td /g) || []).length === 5 && (parent.match(/<td /g) || []).length === 5 &&
+     /<td class="c">1<\/td> <td class="r"><\/td> <td class="r"><span class="nc">No Charge<\/span><\/td> <\/tr>$/.test(child), child);
+  ok('the row class is not the span class -- the collision that pulled the row out of the grid',
+     /class="child"/.test(child) && !/<tr class="sub"/.test(doc) && /<span class="sub">|lineSub/.test(html));
+
+  /* both stylesheets: the screen/print block and STMT_MAIL_CSS */
+  const screen = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  const mail = html.slice(html.indexOf('const STMT_MAIL_CSS=`'), html.indexOf('`;', html.indexOf('const STMT_MAIL_CSS=`')));
+  const sheets = { screen, mail };
+  Object.keys(sheets).forEach(k => {
+    const css = sheets[k].replace(/\/\*[\s\S]*?\*\//g, '');
+    ok(k + ' CSS: the drawing-number rule is typed to the SPAN (span.sub), never a bare .sub that a row class could match',
+       /table\.stmt-t span\.sub\{display:block/.test(css) && !/table\.stmt-t \.sub\{/.test(css) && !/(^|[\n}])\s*\.sub\{/.test(css),
+       (css.match(/[^\n]*\.sub\{[^\n]*/g) || []).join(' | '));
+    ok(k + ' CSS: no rule styles the child row class except through tr.child, so a row can only ever be styled as a row',
+       /table\.stmt-t tr\.child td\.d \.lbl\{margin-right:\.5em\}/.test(css) && !/(^|[\s,}])\.child\{/.test(css) && !/table\.stmt-t \.child\{/.test(css),
+       (css.match(/[^\n]*child[^\n]*/g) || []).join(' | '));
+    ok(k + ' CSS: nothing gives a table ROW display:block',
+       !/tr[.\w]*\{[^}]*display:block/.test(css) && !/tr\.child[^{]*\{[^}]*display/.test(css));
+  });
+
+  /* the PDF: same layout, from the plan's own coordinates */
+  const facts = app.stmtFacts([app.groupOf(rows)]);
+  const plan = app.pdfPlan(facts, 'BILLDC-26-009');
+  const texts = plan.ops.filter(o => o.t === 'text');
+  const M = plan.page.m, W = plan.page.w - 2 * M;
+  const cNo = M, cDesc = M + 0.07 * W, descEnd = M + 0.60 * W, cAmt = plan.page.w - M;
+  const at = s => texts.find(o => o.s === s);
+  const p2 = at('2.0'), c1 = at('2.1'), pt = at('Crack Testing Evidence'), ct = at('Propeller Crack Testing Evidence');
+  ok('PDF: the parent number sits in the No. column and its title at the description column',
+     !!p2 && !!pt && Math.abs(p2.x - cNo) < 0.01 && Math.abs(pt.x - cDesc) < 0.01, JSON.stringify([p2, pt]));
+  ok('PDF: the child number sits where the description column starts -- nothing of that row is drawn in the No. column',
+     !!c1 && Math.abs(c1.x - cDesc) < 0.01 && !texts.some(o => o.y === c1.y && Math.abs(o.x - cNo) < 0.01), JSON.stringify(c1));
+  ok('PDF: the child title follows its number by the label width plus half an em, on the same baseline',
+     !!ct && ct.y === c1.y && Math.abs(ct.x - (cDesc + '2.1'.length * 4.5 + 4.5)) < 0.01, JSON.stringify([c1, ct]));
+  ok('PDF: the child row\'s Qty and Amount keep the parent columns, the Rate cell is empty and No Charge appears once',
+     texts.filter(o => o.y === c1.y).map(o => o.s).sort().join('|') === '1|2.1|No Charge|Propeller Crack Testing Evidence' &&
+     Math.abs(at('No Charge').x - cAmt) < 0.01, JSON.stringify(texts.filter(o => o.y === c1.y)));
+  /* the wrap budget shrinks by what the label took: a long child title still
+     stops at the description column's end rather than reaching the Qty */
+  const lines = texts.filter(o => o.size === 9 && /^(Tailshaft|Crack Testing Evidence With|Words|Appended|So That|Onto|Second|Line|Must|Wrap|A |This)/.test(o.s) && o.x > cDesc);
+  ok('PDF: a long child title wraps, and every line ends inside the description column even after the number\'s offset',
+     lines.length >= 2 && lines.every(o => o.x + o.s.length * 4.5 <= descEnd - 8 + 0.01),
+     JSON.stringify(lines.map(o => [o.s, Math.round(o.x), Math.round(o.x + o.s.length * 4.5), Math.round(descEnd - 8)])));
+  app.rows.splice(app.rows.length - rows.length, rows.length);
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

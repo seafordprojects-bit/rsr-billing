@@ -455,6 +455,31 @@ billing stays unbadged. Neither reaches the statement or the email: `drydock`
 and `printclean` assert it, the same rule that keeps tracking codes off the
 client's copy.
 
+**THE CHILD ROW PRINTS AS THE TRANSMITTAL DOES, AND ITS CLASS IS `child`
+(2026-09-18).** The first grouped bill on paper (BILLDC-26-001, test 10) had
+its 9.1 row 53px wide: the title wrapped onto four lines in 9px mono, the
+rule under it stopped short, and the tests were green. The 76679e6 row class
+was `sub` -- the same word as the drawing-number SPAN under a title -- so
+`table.stmt-t .sub{display:block;...}` matched the row, pulled it out of the
+table grid into a shrink-to-fit anonymous table, and restyled it. Nothing in
+the harness lays out a table, so the guard is on what made it possible: the
+span rule is typed (`span.sub`), the row rule is typed (`tr.child`), and
+`ddgroup` reads BOTH stylesheets (the page's and STMT_MAIL_CSS) for a bare
+class rule either could match. The layout follows the client's transmittal
+(v91 over there): the child's No. cell is EMPTY and the number leads the
+description cell, half an em before the title, in the parent's own columns,
+so Qty/Rate/Amount never move and the title has the full width. The PDF
+draws the same -- the label at cDesc, the title offset by pdfWrap's own
+advance, the wrap budget shrunk by exactly that. **No Charge prints ONCE,
+in the Amount column, with the Rate cell empty**, on paper and on the PDF
+(twice read as a typo; the real rate beside a zero amount as an arithmetic
+error). Mutation, 12: the shipped class back, both span rules unscoped,
+the number back in the No. cell, the number dropped, No Charge twice on
+paper and on the PDF, the PDF label at cNo, the title over its label, the
+wrap budget unshrunk, the row rule dropped, a row made display:block.
+Rendered and MEASURED in headless Chrome before and after (row width,
+cell widths, line count, font), because the string tests cannot.
+
 **A job RE-SENT while its draft already has an unpaid bill is FLAGGED, never
 refused (2026-09-18).** The retry key is the dispatch, not the draft: on the
 drydocking side, unlocking the Transmittal, correcting it and confirming Send
