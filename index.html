@@ -572,6 +572,13 @@ table.stmt-t th{
   letter-spacing:.12em;text-transform:uppercase;font-weight:700
 }
 table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
+/* a grouped drydocking line (8.1, 8.2) sits under its parent. On the ROW's
+   class, never as padding on td.d: that cell's opening tag is matched
+   literally by printclean's "description cell is marked" assertion, which
+   exists so the word-wrap rule cannot lose its target. Here rather than in
+   @media print so the screen and the paper indent alike -- this whole change
+   exists because two renderings of one send disagreed. */
+table.stmt-t tr.sub td.d{padding-left:14px}
 table.stmt-t .r{text-align:right;font-family:var(--mono);white-space:nowrap}
 table.stmt-t .c{text-align:center;font-family:var(--mono);white-space:nowrap}
 table.stmt-t .cd{font-family:var(--mono);font-size:9.5px;white-space:nowrap}
@@ -1344,7 +1351,7 @@ const persist=()=>{
 let filters={q:'',status:'ALL',client:'',month:'',type:''};
 let editingId=null;
 
-const FIELDS=['group_id','line_no','bill_no','rev_of','rev_no','billable','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
+const FIELDS=['group_id','line_no','bill_no','rev_of','rev_no','billable','parent_title','code','doc_type','bill_date','client','vessel','drawing_no','drawing_title','qty','rate','status','billed_date','paid_date','invoice_no','remarks','file_name','file_url','pages'];
 function payloadOf(r){
   const o={};FIELDS.forEach(k=>{o[k]=r[k]===''?null:r[k];});
   o.qty=Number(r.qty)||1;o.rate=Number(r.rate)||0;o.doc_type=typeOf(r);
@@ -1354,6 +1361,33 @@ function payloadOf(r){
   return o;
 }
 const noCharge=r=>!!r&&r.billable===false;
+/* THE NUMBER EACH LINE PRINTS, for every renderer there is. A drydocking job
+   whose documents are grouped sends the child's parent TITLE (parent_title),
+   and the client's cover prints
+
+       8    Crack Testing Evidence
+            8.1  Propeller Crack Testing Evidence
+
+   so the statement must print the same. Before this the three renderers each
+   wrote `${i+1}.0` from the array index -- one line of arithmetic, copied
+   three times, in the card, the printed statement and the PDF. They are one
+   function now because a PDF and a screen that disagree about a client's
+   bill is worse than both printing flat.
+
+   A child is a line whose parent_title names a line BEFORE it in this list;
+   anything else numbers as a parent, so an orphan (a retitled parent, a
+   deleted one, a stale row) reads as a normal whole-numbered line rather
+   than binding itself to the wrong place. */
+function billLabels(list){
+  const out=[]; let whole=0, sub=0, parentTitle=null;
+  (list||[]).forEach(r=>{
+    const p=r&&r.parent_title?String(r.parent_title):'';
+    if(p&&p===parentTitle){ out.push(whole+'.'+(++sub)); return; }
+    whole++; sub=0; parentTitle=String((r&&r.drawing_title)||'');
+    out.push(whole+'.0');
+  });
+  return out;
+}
 const amountOf=r=>noCharge(r)?0:(Number(r.qty)||0)*(Number(r.rate)||0);
 
 /* ---- revisions ---- */
@@ -2196,6 +2230,7 @@ function render(){
     if(g.status==='DRAFT')acts=sendBtn+`<button class="act primary" data-mark="BILLED" data-gid="${esc(g.id)}">Mark billed</button>`;
     else if(g.status==='BILLED')acts=sendBtn+`<button class="act paid" data-mark="PAID" data-gid="${esc(g.id)}">Mark paid</button><button class="act" data-unbill="${esc(g.id)}">Unbill</button>`;
     else acts=`<button class="act" data-mark="BILLED" data-gid="${esc(g.id)}">Reopen</button>`;
+    const labels=billLabels(g.lines);
     const lines=g.lines.map((r,i)=>{
       const bits=[];
       if(r.drawing_no)bits.push(esc(r.drawing_no));
@@ -2205,8 +2240,8 @@ function render(){
       const src=r.rev_of?rows.find(x=>String(x.id)===String(r.rev_of)):null;
       if(src)bits.push(`<button type="button" class="revlink" data-revsrc="${esc(src.id)}">revision of ${esc(src.code||'—')}</button>`);
       else if(r.rev_of)bits.push('<span class="revgone">original deleted</span>');
-      return `<div class="gl${noCharge(r)?' free':''}">
-        <span class="n">${i+1}.0</span>
+      return `<div class="gl${noCharge(r)?' free':''}${labels[i].endsWith('.0')?'':' sub'}">
+        <span class="n">${labels[i]}</span>
         <span class="t">${esc(r.drawing_title||'Untitled')}${r.rev_no?`<span class="revchip">Rev ${esc(r.rev_no)}</span>`:''}${bits.length?`<span class="s">${bits.join(' · ')}</span>`:''}</span>
         <span class="a">${noCharge(r)?'No charge':money(amountOf(r))}</span>
       </div>`;
@@ -4613,6 +4648,13 @@ table.stmt-t .nc{font-family:Arial,Helvetica,sans-serif;font-size:9px;letter-spa
 table.stmt-t{width:100%;border-collapse:collapse;margin-top:14px;font-size:10.5px}
 table.stmt-t th{background:#101F2E;color:#fff;text-align:left;padding:7px 8px;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase}
 table.stmt-t td{padding:7px 8px;border-bottom:1px solid #ccc;vertical-align:top}
+/* a grouped drydocking line (8.1, 8.2) sits under its parent. On the ROW's
+   class, never as padding on td.d: that cell's opening tag is matched
+   literally by printclean's "description cell is marked" assertion, which
+   exists so the word-wrap rule cannot lose its target. Here rather than in
+   @media print so the screen and the paper indent alike -- this whole change
+   exists because two renderings of one send disagreed. */
+table.stmt-t tr.sub td.d{padding-left:14px}
 table.stmt-t .r{text-align:right;font-family:Consolas,monospace;white-space:nowrap}
 table.stmt-t .c{text-align:center;font-family:Consolas,monospace;white-space:nowrap}
 table.stmt-t .cd{font-family:Consolas,monospace;font-size:9.5px;white-space:nowrap}
@@ -5097,14 +5139,14 @@ function renderStatement(picked,opts){
         <th style="width:53%">Description</th><th style="width:7%" class="c">Qty</th>
         <th style="width:16%" class="r">Rate</th><th style="width:17%" class="r">Amount</th>
       </tr></thead>
-      <tbody>${list.map((r,i)=>`<tr>
-        <td class="c">${i+1}.0</td>
+      <tbody>${(()=>{const stmtLabels=billLabels(list);return list.map((r,i)=>`<tr${stmtLabels[i].endsWith('.0')?'':' class="sub"'}>
+        <td class="c">${stmtLabels[i]}</td>
         <td class="d">${esc(r.drawing_title)}${lineSub(r)
             ?`<span class="sub">${lineSub(r)}</span>`:''}</td>
         <td class="c">${esc(r.qty)}</td>
         <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(r.rate).replace('₱','')}</td>
         <td class="r">${noCharge(r)?'<span class="nc">No Charge</span>':money(amountOf(r)).replace('₱','')}</td>
-      </tr>`).join('')}</tbody>
+      </tr>`).join('');})()}</tbody>
     </table>
     <table class="stmt-tot" style="width:100%">
       <tr><td class="lbl">Subtotal — ${list.length} item${list.length===1?'':'s'}${
@@ -5321,6 +5363,7 @@ function pdfPlan(facts,issuedNo){
     y=y0+30;
   };
   head();
+  const pdfLabels=billLabels(facts.list);
   facts.list.forEach((r,i)=>{
     const tl=pdfWrap(r.drawing_title,descW,9);
     const sub=(facts.oneVessel?[r.drawing_no]:[r.vessel,r.drawing_no])
@@ -5329,7 +5372,7 @@ function pdfPlan(facts,issuedNo){
     const h=Math.max(11,tl.length*11)+sl.length*10+5;
     if(y+h>PDF_BOT){brk();head();}
     const top=y;
-    t((i+1)+'.0',cNo,top,{size:9});
+    t(pdfLabels[i],cNo,top,{size:9});
     if(r.qty!=null&&r.qty!=='')t(r.qty,cQty,top,{size:9,align:'right'});
     // a no-charge line says so in BOTH cells, as print does: the real rate
     // beside a zero amount reads to the client as an arithmetic error
@@ -5475,7 +5518,7 @@ async function pdfRender(plan){
 // result, so the pane reads this stamp when -- and only when -- this script's
 // tail actually ran. A full run once reported success and changed nothing
 // (2026-09-11, editor-tab residue); the stamp is the tell. MANUAL-TEST.md.
-const SQL_REV='2026-09-11.completer-remarks';
+const SQL_REV='2026-09-17.grouped-drydock-lines';
 function sqlText(){
   const b=(($('cBucket')&&$('cBucket').value.trim())||cfg.bucket||'drawings').replace(/[^\w\-]/g,'');
   return `-- RSR Billing — run once in Supabase SQL Editor
@@ -5525,6 +5568,14 @@ alter table drawing_billing add column if not exists rev_no   integer;
 alter table drawing_billing add column if not exists billable boolean not null default true;
 -- position of a line within its billing, so entry order survives a sync
 alter table drawing_billing add column if not exists line_no integer;
+-- the TITLE of the line this one belongs under, for a drydocking job whose
+-- documents are grouped: the cover prints 8, 8.1, 8.2 and the statement must
+-- print the same. A TITLE and not a line number, because line numbers are
+-- rewritten whenever lines are added or removed (see line_no above) while a
+-- title is the same key billing already uses to price a document -- and if
+-- someone retitles the parent, grouping degrades to flat rather than binding
+-- the child to the wrong line.
+alter table drawing_billing add column if not exists parent_title text;
 alter table drawing_billing drop constraint if exists drawing_billing_code_key;
 update drawing_billing set group_id = id::text where group_id is null;
 
@@ -5917,13 +5968,18 @@ begin
     -- billable: false is the yard's listed-but-not-charged line (Drydocking
     -- List of Vessel); absent means charged. The app prints No Charge and
     -- zeroes the amount; the catalogue rate is still recorded on the line.
+    -- the parent field names the line this one sits under. Absent on every document
+    -- that stands alone, and on every job sent before the drydocking side
+    -- started sending it -- those store null and print flat, exactly as
+    -- they did.
     insert into public.drawing_billing
       (group_id, line_no, code, doc_type, bill_date, client, vessel, drawing_no,
-       drawing_title, qty, rate, status, remarks, pages, billable)
+       drawing_title, qty, rate, status, remarks, pages, billable, parent_title)
     values
       (v_gid, v_i, v_code, 'DC', v_date, v_client, v_vessel, null,
        v_title, 1, v_rate, 'DRAFT', v_remarks, v_pages,
-       coalesce((v_doc->>'billable')::boolean, true));
+       coalesce((v_doc->>'billable')::boolean, true),
+       nullif(btrim(coalesce(v_doc->>'parent', '')), ''));
   end loop;
 
   update public.billing_drydock_receipt set unpriced = v_unpriced where dispatch_id = v_dispatch;

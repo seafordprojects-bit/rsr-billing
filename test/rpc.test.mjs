@@ -159,6 +159,26 @@ if (db) {
      l7.length === 3 && Number(l7[1].rate) === 2500, l7[1] ? String(l7[1].rate) : 'no line');
   ok('a hardcopy item with no pages inserts with pages null', l7.length === 3 && l7[2].pages === null);
 
+  console.log('\n--- I2. a GROUPED job: the child line remembers its parent ---');
+  const rg = await wrap(() => call(db, JOB({ dispatch_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    documents: [ { title:'Transmittal', pages:1 },
+                 { title:'Crack Testing Evidence', pages:null },
+                 { title:'Propeller Crack Testing Evidence', pages:3, billable:false,
+                   parent:'Crack Testing Evidence' } ] })));
+  const lg = rg.group_id ? await lines(db, rg.group_id) : [];
+  ok('the child stores its parent TITLE while every other line stores null -- a job sent before the drydocking side grouped anything reads exactly as it did',
+     lg.length === 3 && lg[0].parent_title == null && lg[1].parent_title == null &&
+     lg[2].parent_title === 'Crack Testing Evidence',
+     JSON.stringify(lg.map(r => [r.drawing_title, r.parent_title])));
+  ok('and the grouping does not touch the charge: the parent bills, the child does not',
+     lg.length === 3 && lg[1].billable === true && lg[2].billable === false,
+     JSON.stringify(lg.map(r => [r.drawing_title, r.billable])));
+  const rgEmpty = await wrap(() => call(db, JOB({ dispatch_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    documents: [ { title:'Transmittal', pages:1, parent:'   ' } ] })));
+  const lgEmpty = rgEmpty.group_id ? await lines(db, rgEmpty.group_id) : [];
+  ok('a blank parent stores NULL, not an empty string -- the renderer tests one thing, not two',
+     lgEmpty.length === 1 && lgEmpty[0].parent_title === null, JSON.stringify(lgEmpty.map(r => r.parent_title)));
+
   console.log('\n--- J. remarks name the completer only when there is one; dates are Manila days ---');
   const r8 = await wrap(() => call(db, JOB({ dispatch_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', completed_by: '', completed_at: null })));
   const l8 = r8.group_id ? await lines(db, r8.group_id) : [];

@@ -39,7 +39,7 @@ function secretOk(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return d === 0;
 }
-type Doc = { title: string; pages: number | null; billable: boolean };
+type Doc = { title: string; pages: number | null; billable: boolean; parent: string | null };
 export type Job = {
   dispatch_id: string; draft_id: string; source: string; project_no: string; vessel: string;
   client: string; client_address: string; client_email: string; documents: Doc[];
@@ -82,7 +82,15 @@ export function validate(body: unknown): { ok: true; job: Job } | { ok: false; e
       if (typeof o.billable !== "boolean") return { ok: false, error: "billable must be true or false" };
       billable = o.billable;
     }
-    documents.push({ title, pages, billable });
+    // the TITLE of the line this one sits under, when the drydocking side
+    // groups documents (its cover prints 8, 8.1, 8.2 and the statement must
+    // match). Absent on a document that stands alone and on every job sent
+    // before drydocking started sending it: those store null and print flat.
+    // Cleaned like any other title, and never validated against the list --
+    // a parent naming something that is not there degrades to a flat line,
+    // which is the same answer as not sending it.
+    const parent = cleanText(o.parent, 200) || null;
+    documents.push({ title, pages, billable, parent });
   }
   return { ok: true, job: {
     dispatch_id: dispatch_id.toLowerCase(), draft_id: draft_id.toLowerCase(),
