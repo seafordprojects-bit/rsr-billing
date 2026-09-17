@@ -251,6 +251,79 @@ if (db) {
   catch (e) { svcMsg = e.message; }
   finally { await db.exec('reset role'); }
   ok('service_role can execute it', svc, svcMsg.slice(0, 120));
+
+  /* L sits at the END: every job here takes a billing number, and the
+     sections above count them. */
+  console.log('\n--- L. a job RE-SENT while an earlier bill for its draft is unpaid ---');
+  const DRAFT_R = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  // the ANSWER's resend_of, or null when it is missing -- never a throw: a crash here
+  // skips every later assertion in this file instead of failing one (mutation R6)
+  const ro = r => (r && Array.isArray(r.resend_of)) ? r.resend_of : null;
+  const rs = async id => (await db.query('select resend_of, resend_kept_at, resend_kept_by from billing_drydock_receipt where dispatch_id = $1', [id])).rows[0];
+  const s1 = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000001', draft_id: DRAFT_R })));
+  ok('the first send for a draft names no earlier bill',
+     s1.created === true && JSON.stringify(ro(s1)) === '[]' &&
+     (await rs('e0000000-0000-4000-8000-000000000001')).resend_of.length === 0, JSON.stringify(s1));
+  const s2 = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000002', draft_id: DRAFT_R })));
+  ok('a second send for the SAME draft while the first bill is DRAFT still creates its bill -- a warning, never a block',
+     s2.created === true && (await lines(db, s2.group_id)).length === 3, JSON.stringify(s2));
+  ok('...and names the earlier bill, in its answer AND on its receipt',
+     JSON.stringify(s2.resend_of) === JSON.stringify([s1.group_id]) &&
+     JSON.stringify((await rs('e0000000-0000-4000-8000-000000000002')).resend_of) === JSON.stringify([s1.group_id]),
+     JSON.stringify({ s2: s2.resend_of, receipt: (await rs('e0000000-0000-4000-8000-000000000002')) }));
+  ok('the earlier receipt is not rewritten -- the pair is found from the newer side',
+     (await rs('e0000000-0000-4000-8000-000000000001')).resend_of.length === 0);
+  const again = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000002', draft_id: DRAFT_R })));
+  ok('a retry of the second send is still created:false and leaves its record alone',
+     again.created === false && JSON.stringify((await rs('e0000000-0000-4000-8000-000000000002')).resend_of) === JSON.stringify([s1.group_id]),
+     JSON.stringify(again));
+  const other = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000003', draft_id: 'ffffffff-ffff-4fff-8fff-ffffffffffff' })));
+  ok('an unpaid bill from ANOTHER draft is never named', other.created === true && JSON.stringify(ro(other)) === '[]', JSON.stringify(other));
+
+  // a bill with ONE line paid and the rest BILLED is still unpaid (a card takes its least advanced line,
+  // and BILLED is sent-not-paid -- the bill most worth a warning)
+  await db.query("update drawing_billing set status = 'PAID' where group_id = $1 and line_no = 1", [s1.group_id]);
+  await db.query("update drawing_billing set status = 'BILLED' where group_id = $1 and line_no <> 1", [s1.group_id]);
+  await db.query("update drawing_billing set status = 'PAID' where group_id = $1", [s2.group_id]);
+  const s4 = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000004', draft_id: DRAFT_R })));
+  ok('a third send names only the bills still unpaid: a PARTLY paid, otherwise BILLED bill counts, a fully PAID one does not',
+     JSON.stringify(s4.resend_of) === JSON.stringify([s1.group_id]), JSON.stringify(s4.resend_of));
+  // the operator voids the old bills: their lines are deleted, the receipts stay
+  await db.query('delete from drawing_billing where group_id = any($1)', [[s1.group_id, s4.group_id]]);
+  const s5 = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000005', draft_id: DRAFT_R })));
+  ok('a bill whose lines were deleted (voided) is never named, though its receipt remains',
+     s5.created === true && JSON.stringify(ro(s5)) === '[]', JSON.stringify(s5));
+
+  // Keep both
+  const s6 = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000006', draft_id: DRAFT_R })));
+  ok('with the fifth bill unpaid, the sixth names it', JSON.stringify(s6.resend_of) === JSON.stringify([s5.group_id]), JSON.stringify(s6.resend_of));
+  const keep = async (gid, role) => {
+    try {
+      if (role) { await db.exec('set role ' + role); await db.exec("select set_config('request.jwt.claim.email', 'summer@rsr.test', false)"); }
+      return (await db.query('select public.keep_drydock_resend($1) as r', [gid])).rows[0].r;
+    } catch (e) { return { error: String(e.message).slice(0, 120) }; }
+    finally { if (role) { await db.exec('reset role'); await db.exec("select set_config('request.jwt.claim.email', '', false)"); } }
+  };
+  const anonKeep = await keep(s5.group_id, 'anon');
+  ok('anon cannot Keep both', /permission denied/i.test(anonKeep.error || ''), JSON.stringify(anonKeep));
+  const k1 = await keep(s5.group_id, 'authenticated');
+  const rk6 = await rs('e0000000-0000-4000-8000-000000000006');
+  ok('a signed-in user keeps both FROM THE OLDER card: the receipt naming it is stamped with who and when',
+     k1.ok === true && k1.kept === 1 && k1.by === 'summer@rsr.test' && rk6.resend_kept_at != null && rk6.resend_kept_by === 'summer@rsr.test',
+     JSON.stringify({ k1, rk6 }));
+  ok('...and Keep both changes no bill: both still have their lines, both still DRAFT',
+     (await lines(db, s5.group_id)).every(r => r.status === 'DRAFT') && (await lines(db, s6.group_id)).every(r => r.status === 'DRAFT') &&
+     (await lines(db, s5.group_id)).length === 3 && (await lines(db, s6.group_id)).length === 3);
+  const k2 = await keep(s5.group_id, 'authenticated');
+  ok('keeping again settles nothing more and does not move the stamp', k2.ok === true && k2.kept === 0 &&
+     String((await rs('e0000000-0000-4000-8000-000000000006')).resend_kept_at) === String(rk6.resend_kept_at), JSON.stringify(k2));
+  const s7 = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000007', draft_id: DRAFT_R })));
+  const k3 = await keep(s7.group_id, 'authenticated');
+  ok('keeping from the NEWER card stamps its own receipt only, and a receipt with nothing to warn about is never stamped',
+     (ro(s7) || []).length === 2 && k3.kept === 1 && (await rs('e0000000-0000-4000-8000-000000000007')).resend_kept_at != null &&
+     (await rs('e0000000-0000-4000-8000-000000000001')).resend_kept_at == null, JSON.stringify({ s7: ro(s7), k3 }));
+  const priv = await db.query("select has_function_privilege('anon', 'public.keep_drydock_resend(text)', 'execute') as a, has_function_privilege('authenticated', 'public.keep_drydock_resend(text)', 'execute') as u");
+  ok('keep_drydock_resend: anon holds no EXECUTE, authenticated does', priv.rows[0].a === false && priv.rows[0].u === true, JSON.stringify(priv.rows[0]));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

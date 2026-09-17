@@ -455,6 +455,26 @@ billing stays unbadged. Neither reaches the statement or the email: `drydock`
 and `printclean` assert it, the same rule that keeps tracking codes off the
 client's copy.
 
+**A job RE-SENT while its draft already has an unpaid bill is FLAGGED, never
+refused (2026-09-18).** The retry key is the dispatch, not the draft: on the
+drydocking side, unlocking the Transmittal, correcting it and confirming Send
+again makes a NEW dispatch, which emails the client again and raises a second
+bill. That is the designed way to re-issue documents, so it cannot be blocked
+-- but test 1 left RSR-DC-092026-001 and -002 side by side with nothing linking
+them. `receive_drydock_job` now records on the new receipt which earlier bills
+for the same `draft_id` were unpaid when it arrived (`resend_of`; unpaid = any
+line not PAID, because a card takes its least advanced line's status, so a
+BILLED bill counts). Both cards get a `Re-sent` badge naming the other and a
+**Keep both** button (`keep_drydock_resend`, signed-in users, online only like
+Unbill, which stamps `resend_kept_at/_by`). Voiding is the existing Edit ->
+Delete. `resendFlags()` re-judges against the rows as they are NOW, so the
+warning ends the moment the decision is made: old bill deleted, either bill
+PAID, or kept (on every device). Never on the statement or the email. The
+scan runs BEFORE the new job's lines are inserted, which is why excluding its
+own receipt is a recorded no-op under mutation. **The SQL must run before the
+app ships**: the receipt read selects the new columns, and a 400 there keeps
+the last map, so a fresh load would show no drydocking badges at all.
+
 What the suites cannot prove: two jobs in the same month cannot share a code.
 pglite is a single connection. The two-session check is in MANUAL-TEST.md and
 says so; there is deliberately no text-presence assertion for the lock.

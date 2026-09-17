@@ -242,6 +242,7 @@ header.top{
    never mistaken for each other on a crowded card. */
 .badge.dup{color:var(--rsr);background:rgba(200,30,35,.07);letter-spacing:.08em}
 .badge.dd{color:#0a4b78;background:rgba(10,75,120,.08);letter-spacing:.08em}
+.badge.resend{color:#8a4b00;background:rgba(200,120,0,.12);letter-spacing:.08em}
 .row-acts{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line2)}
 .act{
   display:inline-flex;align-items:center;justify-content:center;
@@ -1537,18 +1538,81 @@ let receiptMap={};
 async function refreshReceiptMap(){
   if(!online()||!authed())return receiptMap;
   try{
-    const r=await sb('billing_drydock_receipt?select=dispatch_id,group_id,received_at,unpriced,payload&order=received_at.desc');
+    const r=await sb('billing_drydock_receipt?select=dispatch_id,draft_id,group_id,received_at,unpriced,payload,resend_of,resend_kept_at&order=received_at.desc');
     const m={};
     (r||[]).forEach(row=>{
       if(!row||!row.group_id)return;
       const p=row.payload||{};
       m[row.group_id]={dispatch_id:row.dispatch_id,group_id:row.group_id,received_at:row.received_at,
                        unpriced:Array.isArray(row.unpriced)?row.unpriced:[],
-                       confirmed_by:p.confirmed_by||'',sent_at:p.sent_at||''};
+                       confirmed_by:p.confirmed_by||'',sent_at:p.sent_at||'',
+                       draft_id:row.draft_id||'',
+                       resend_of:Array.isArray(row.resend_of)?row.resend_of:[],
+                       kept:!!row.resend_kept_at};
     });
     receiptMap=m;
   }catch(e){/* table not created yet, or offline: keep the last map */}
   return receiptMap;
+}
+// A drydocking job RE-SENT while an earlier bill for the same draft was still
+// unpaid: the yard unlocked, corrected and sent the documents again, and every
+// send raises its own bill. receive_drydock_job records which earlier bills
+// were unpaid when the new one arrived (resend_of); this judges that against
+// the rows as they are NOW, so the warning ends the moment the decision is
+// made -- the old bill deleted, either bill PAID, or Keep both. A warning,
+// never a block: two bills for one job can be right. Both cards are flagged,
+// each naming the other.
+function resendFlags(){
+  const out={};
+  const add=(gid,k,other)=>{
+    const f=(out[gid]=out[gid]||{older:[],newer:[]});
+    if(f[k].indexOf(other)<0)f[k].push(other);
+  };
+  Object.keys(receiptMap).forEach(gid=>{
+    const rc=receiptMap[gid];
+    if(!rc||rc.kept||!rc.resend_of||!rc.resend_of.length)return;
+    const g=groupById(gid);
+    if(!g||g.status==='PAID')return;
+    rc.resend_of.forEach(oid=>{
+      if(oid===gid)return;
+      const o=groupById(oid);
+      if(!o||o.status==='PAID')return;
+      add(gid,'older',oid);add(oid,'newer',gid);
+    });
+  });
+  return out;
+}
+function resendLabel(f){
+  const codes=ids=>ids.map(id=>{const g=groupById(id);return (g&&g.code)||'—';}).join(', ');
+  const bits=[];
+  if(f.older.length)bits.push((f.older.length===1?'earlier bill ':'earlier bills ')+codes(f.older)+' unpaid');
+  if(f.newer.length)bits.push('sent again as '+codes(f.newer));
+  return 'Re-sent · '+bits.join(' · ');
+}
+// "Keep both": the server stamps the receipts in the pair so the warning
+// stops. It deletes nothing and changes no bill. Guarded on the FUNCTION, not
+// the button (CLAUDE.md defect 3), and online only -- like Unbill, the write
+// is the server's record and cannot be queued.
+let keepingResend=false;
+async function keepResend(gid){
+  if(keepingResend)return;
+  if(!resendFlags()[gid])return;
+  if(!online()||!authed()){toast('Keeping both needs a connection — the server records it',true);return;}
+  if(!confirm('Keep both bills? Each stays as it is and the Re-sent warning is cleared. To void the old bill instead, open it with Edit and Delete it.'))return;
+  keepingResend=true;
+  try{
+    const out=await sb('rpc/keep_drydock_resend',{method:'POST',body:JSON.stringify({p_group_id:gid})});
+    if(!out||out.ok!==true){toast((out&&out.reason)||'Not saved',true);return;}
+    // mirror the server's rule: the receipt itself, or any receipt naming it
+    Object.keys(receiptMap).forEach(k=>{
+      const rc=receiptMap[k];
+      if(rc&&!rc.kept&&rc.resend_of.length&&(k===String(gid)||rc.resend_of.indexOf(String(gid))>-1))rc.kept=true;
+    });
+    render();
+    toast('Both bills kept'+(out.by?' — '+out.by:''));
+  }catch(e){
+    toast((e&&e.status)?e.message:'Keeping both needs a connection — the server records it',true);
+  }finally{keepingResend=false;}
 }
 // One query for every billing rather than one per card. It reduces client
 // side because PostgREST has no distinct-on: the rows come back newest first
@@ -2100,6 +2164,7 @@ function render(){
   // without a sync, so a cache would go stale on every local write.
   const all=allGroups();
   const dups=dupCodes(all);
+  const resend=resendFlags();
   const byId=new Map(all.map(g=>[g.id,g]));
   // older wins, so only the newer side is offered the re-mint
   const keeper=new Map();
@@ -2187,6 +2252,7 @@ function render(){
     const dupIds=dups.get(String(g.code||'').trim());
     const dupN=dupIds?dupIds.length-1:0;
     const dupMine=dupN&&keeper.get(String(g.code||'').trim())!==g.id;
+    const rs=resend[g.id];
     const meta=[];
     if(g.vessel)meta.push(`<span><b>${esc(g.vessel)}</b></span>`);
     meta.push(`<span class="m">${fmtDate(g.bill_date)}</span>`);
@@ -2254,13 +2320,14 @@ function render(){
         ${g.mixed&&g.mixed.length?`<span class="badge mixed">Lines differ · ${esc(g.mixed.join(', '))}</span>`:''}
         ${dupN?`<span class="badge dup" title="Another billing carries this tracking code. Codes are internal — the client's copy shows the billing number only.">Code shared with ${dupN} other billing${dupN===1?'':'s'}</span>`:''}
         ${receiptMap[g.id]?`<span class="badge dd" title="Received from the drydocking app; the documents were already emailed to the client.">From drydocking${receiptMap[g.id].unpriced.length?' · '+esc(String(receiptMap[g.id].unpriced.length))+' unpriced':''}</span>`:''}
+        ${rs?`<span class="badge resend" title="The drydocking side sent this job again while an earlier bill for it was unpaid. Delete the bill you do not want (Edit, then Delete), or tap Keep both.">${esc(resendLabel(rs))}</span>`:''}
         <span class="row-amt">${money(g.total)}</span>
       </div>
       <div class="row-title">${esc(g.client||'No client')}</div>
       <div class="row-meta">${meta.join('')}<button type="button" class="gtoggle" data-exp="${esc(g.id)}">${g.count} item${g.count===1?'':'s'} <span class="ar">${open?'▴':'▾'}</span></button></div>
       ${open?`<div class="glines">${lines}</div>`:''}
       ${open?historyLines(g):''}
-      <div class="row-acts">${acts}${dupMine?`<button class="act" data-remint="${esc(g.id)}">Re-mint code</button>`:''}<button class="act ghost" data-edit="${esc(g.id)}">Edit</button></div>
+      <div class="row-acts">${acts}${dupMine?`<button class="act" data-remint="${esc(g.id)}">Re-mint code</button>`:''}${rs?`<button class="act" data-keepresend="${esc(g.id)}">Keep both</button>`:''}<button class="act ghost" data-edit="${esc(g.id)}">Edit</button></div>
     </article>`;
   }).join('');
 }
@@ -5518,7 +5585,7 @@ async function pdfRender(plan){
 // result, so the pane reads this stamp when -- and only when -- this script's
 // tail actually ran. A full run once reported success and changed nothing
 // (2026-09-11, editor-tab residue); the stamp is the tell. MANUAL-TEST.md.
-const SQL_REV='2026-09-17.grouped-drydock-lines';
+const SQL_REV='2026-09-18.drydock-resend-flag';
 function sqlText(){
   const b=(($('cBucket')&&$('cBucket').value.trim())||cfg.bucket||'drawings').replace(/[^\w\-]/g,'');
   return `-- RSR Billing — run once in Supabase SQL Editor
@@ -5833,6 +5900,13 @@ create table if not exists billing_drydock_receipt (
   unpriced     jsonb not null default '[]'::jsonb,
   received_at  timestamptz not null default now()
 );
+-- A job RE-SENT for a draft that already has an unpaid bill (v: 2026-09-18).
+-- resend_of: the earlier bills (group ids) that were not PAID when this one
+-- arrived -- a warning for the operator, never a refusal. resend_kept_*: the
+-- operator's Keep both, which clears the warning and changes no bill.
+alter table billing_drydock_receipt add column if not exists resend_of text[] not null default '{}';
+alter table billing_drydock_receipt add column if not exists resend_kept_at timestamptz;
+alter table billing_drydock_receipt add column if not exists resend_kept_by text;
 alter table billing_drydock_receipt enable row level security;
 drop policy if exists rsr_dwg_ddreceipt_read on billing_drydock_receipt;
 create policy rsr_dwg_ddreceipt_read on billing_drydock_receipt
@@ -5881,6 +5955,7 @@ declare
   v_cli       uuid;
   v_addr      text;
   v_email     text;
+  v_prior     text[];
 begin
   if jsonb_typeof(p->'documents') is distinct from 'array'
      or jsonb_array_length(p->'documents') = 0 then
@@ -5901,6 +5976,19 @@ begin
     select group_id into v_existing from public.billing_drydock_receipt where dispatch_id = v_dispatch;
     return jsonb_build_object('ok', true, 'created', false, 'group_id', v_existing);
   end if;
+
+  -- RE-SENT JOB. Earlier bills for the SAME draft that are not paid yet: the
+  -- yard unlocked the Transmittal, corrected it and sent again, and each send
+  -- raises its own bill. Recorded, never refused -- two bills can be right,
+  -- and the operator decides in the app. Unpaid is any line not PAID (a card
+  -- takes its least advanced line's status). Read BEFORE this job's lines go
+  -- in, and a bill whose lines were deleted names nothing.
+  select coalesce(array_agg(distinct r.group_id), '{}') into v_prior
+    from public.billing_drydock_receipt r
+   where r.draft_id = v_draft
+     and r.dispatch_id <> v_dispatch
+     and exists (select 1 from public.drawing_billing b
+                  where b.group_id = r.group_id and b.status <> 'PAID');
 
   v_canon := lower(v_client);
   v_addr  := nullif(btrim(coalesce(p->>'client_address', '')), '');
@@ -5982,9 +6070,34 @@ begin
        nullif(btrim(coalesce(v_doc->>'parent', '')), ''));
   end loop;
 
-  update public.billing_drydock_receipt set unpriced = v_unpriced where dispatch_id = v_dispatch;
+  update public.billing_drydock_receipt set unpriced = v_unpriced, resend_of = v_prior where dispatch_id = v_dispatch;
   return jsonb_build_object('ok', true, 'created', true, 'group_id', v_gid, 'code', v_code,
-                            'lines', v_i, 'unpriced', v_unpriced);
+                            'lines', v_i, 'unpriced', v_unpriced, 'resend_of', to_jsonb(v_prior));
+end
+$BODY$;
+
+-- keep_drydock_resend: the operator's Keep both on a re-sent drydocking job.
+-- Stamps every unsettled receipt in the pair -- the one this group id belongs
+-- to, and any that names it -- so the warning clears on every device. Deletes
+-- nothing and changes no bill. Signed-in users only (grant loop below).
+create or replace function public.keep_drydock_resend(p_group_id text)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $BODY$
+declare
+  v_n  int;
+  v_by text;
+begin
+  v_by := coalesce(nullif(btrim(coalesce(auth.email(), '')), ''), 'unknown');
+  update public.billing_drydock_receipt
+     set resend_kept_at = now(), resend_kept_by = v_by
+   where resend_kept_at is null
+     and cardinality(resend_of) > 0
+     and (group_id = p_group_id or p_group_id = any(resend_of));
+  get diagnostics v_n = row_count;
+  return jsonb_build_object('ok', true, 'kept', v_n, 'by', v_by);
 end
 $BODY$;
 
@@ -6184,6 +6297,7 @@ begin
     'public.set_unbill_passcode(text,text)',
     'public.record_billing_send(text,text,text,text[],uuid,text,text,text,numeric)',
     'public.billing_line_diff(jsonb,jsonb)',
+    'public.keep_drydock_resend(text)',
     'public.receive_drydock_job(jsonb)'
   ] loop
     if to_regprocedure(f) is not null then
@@ -6540,6 +6654,7 @@ $('list').addEventListener('click',e=>{
   const sd=e.target.closest('[data-send]');if(sd){openStmtFor(sd.dataset.send);return;}
   const mk=e.target.closest('[data-mark]');if(mk){markGroup(mk.dataset.gid,mk.dataset.mark);return;}
   const rm=e.target.closest('[data-remint]');if(rm){remintCode(rm.dataset.remint);return;}
+  const kr=e.target.closest('[data-keepresend]');if(kr){keepResend(kr.dataset.keepresend);return;}
 });
 window.addEventListener('online',()=>pull(true));
 
