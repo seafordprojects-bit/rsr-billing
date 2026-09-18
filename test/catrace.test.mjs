@@ -29,6 +29,9 @@ app.setSession({ access_token:'t', refresh_token:'r', expires_at: 2e9, user:{ em
 const server = { rows: [], patches: [], lines: [], linePatches: [] };
 const tick = () => new Promise(r => setTimeout(r, 30));
 globalThis.fetch = async (url, opts={}) => {
+    // C4: the membership read every pull makes first; this suite's server is a billing user
+    if ((opts.method||'GET') === 'GET' && String(url).split('?')[0].endsWith('billing_users'))
+      return { ok:true, status:200, json:async()=>[{ email:'r@rsr.test', role:'admin' }], text:async()=>'' };
   const u = String(url), m = opts.method || 'GET';
   const j = (status, body) => ({ ok: status < 400, status, json: async () => body, text: async () => JSON.stringify(body) });
   if (u.includes('drawing_catalog')) {

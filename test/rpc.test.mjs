@@ -33,7 +33,7 @@ ok('receipt table created exactly once', count(SQL, 'create table if not exists 
 ok('receive_drydock_job defined exactly once', count(SQL, 'create or replace function public.receive_drydock_job') === 1);
 ok('receive_drydock_job is in the revoke/grant loop once, and special-cased to service_role once',
    count(SQL, "'public.receive_drydock_job(jsonb)'" + String.fromCharCode(10) + '  ] loop') === 1 &&
-   count(SQL, "if f = 'public.receive_drydock_job(jsonb)'") === 1 &&
+   count(SQL, "if f in ('public.receive_drydock_job(jsonb)',") === 1 &&   // C4: record_billing_send joined it as service_role only
    count(SQL, "'public.receive_drydock_job(jsonb)'") === 2);
 // The script ends by naming itself: the Supabase SQL editor shows only the LAST
 // statement's result, so a run whose result pane does not read this stamp did
@@ -289,7 +289,14 @@ if (db) {
   ok('a third send names only the bills still unpaid: a PARTLY paid, otherwise BILLED bill counts, a fully PAID one does not',
      JSON.stringify(s4.resend_of) === JSON.stringify([s1.group_id]), JSON.stringify(s4.resend_of));
   // the operator voids the old bills: their lines are deleted, the receipts stay
-  await db.query('delete from drawing_billing where group_id = any($1)', [[s1.group_id, s4.group_id]]);
+  // C4: a billed or paid line can no longer be deleted directly (that was the
+  // two-tap bypass, Mark paid -> Delete). Voiding goes through unbill_group,
+  // which sets rsr.unbilling for its own transaction; the same flag here
+  // stands in for that path so the section keeps modelling a voided bill.
+  await db.exec("select set_config('rsr.unbilling', '1', false)");
+  await db.query("update drawing_billing set status = 'DRAFT', billed_date = null, paid_date = null where group_id = any($1)", [[s1.group_id, s4.group_id]]);
+  await db.exec("select set_config('rsr.unbilling', '', false)");
+  await db.query('delete from drawing_billing where group_id = any($1)', [[s1.group_id, s4.group_id]]);   // a DRAFT deletes, as in the app
   const s5 = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000005', draft_id: DRAFT_R })));
   ok('a bill whose lines were deleted (voided) is never named, though its receipt remains',
      s5.created === true && JSON.stringify(ro(s5)) === '[]', JSON.stringify(s5));
@@ -297,6 +304,8 @@ if (db) {
   // Keep both
   const s6 = await wrap(() => call(db, JOB({ dispatch_id: 'e0000000-0000-4000-8000-000000000006', draft_id: DRAFT_R })));
   ok('with the fifth bill unpaid, the sixth names it', JSON.stringify(s6.resend_of) === JSON.stringify([s5.group_id]), JSON.stringify(s6.resend_of));
+  // C4: Keep both is for billing accounts; the kept-by email below is one
+  await db.query("insert into billing_users (email, role) values ('summer@rsr.test', 'staff') on conflict do nothing");
   const keep = async (gid, role) => {
     try {
       if (role) { await db.exec('set role ' + role); await db.exec("select set_config('request.jwt.claim.email', 'summer@rsr.test', false)"); }
@@ -324,6 +333,135 @@ if (db) {
      (await rs('e0000000-0000-4000-8000-000000000001')).resend_kept_at == null, JSON.stringify({ s7: ro(s7), k3 }));
   const priv = await db.query("select has_function_privilege('anon', 'public.keep_drydock_resend(text)', 'execute') as a, has_function_privilege('authenticated', 'public.keep_drydock_resend(text)', 'execute') as u");
   ok('keep_drydock_resend: anon holds no EXECUTE, authenticated does', priv.rows[0].a === false && priv.rows[0].u === true, JSON.stringify(priv.rows[0]));
+}
+
+if (db) {
+  console.log('\n--- M. billing roles (C4): who a billing account is, and what staff may not touch ---');
+  /* The audit's C4: every policy was `to authenticated using (true)`, so any
+     account on the SHARED Supabase project (the kiosk logins carmen@ and
+     mandaue@) could read every client and rewrite the bank details printed on
+     every bill. Membership lives in billing_users; role 'admin' or 'staff'.
+     admin@ = admin, secretary@ = staff (owner's decision 2026-09-18). Every
+     probe below runs AS the authenticated role with a JWT email set, against
+     the real generated SQL -- policies are exercised, never read. */
+  const asRole = async (email, sql, params) => {
+    try {
+      await db.exec('set role authenticated');
+      await db.exec("select set_config('request.jwt.claim.email', '" + email + "', false), set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-00000000000" + (email.length % 10) + "', false)");
+      const r = await db.query(sql, params); return { rows: r.rows, affected: r.affectedRows };
+    } catch (e) { return { error: String(e.message).slice(0, 160) }; }
+    finally { await db.exec('reset role'); await db.exec("select set_config('request.jwt.claim.email', '', false)"); }
+  };
+  const ADMIN = 'owner@rsr.test', STAFF = 'wife@rsr.test', KIOSK = 'kiosk@rsr.test';
+  const refused = r => !!(r.error && /permission denied|row-level security|billing account required|violates|forward|unbill_group|frozen|cannot be deleted/i.test(r.error)) || (r.affected === 0 && !(r.rows && r.rows.length));
+
+  // table + seed
+  const tbl = await db.query("select to_regclass('public.billing_users') t, (select relrowsecurity from pg_class where oid = to_regclass('public.billing_users')) rls");
+  ok('M1 billing_users exists with RLS on', tbl.rows[0].t != null && tbl.rows[0].rls === true, JSON.stringify(tbl.rows[0]));
+  await db.query('insert into billing_senders (email) values ($1) on conflict do nothing', [STAFF]);
+  await db.exec(SQL);   // the seed: every allow-listed sender becomes a billing user (staff), nobody is removed
+  const seeded = await db.query('select email, role from billing_users order by email');
+  ok('M2 re-running the script seeds billing_users from billing_senders as staff (one run: seed + policies together)',
+     seeded.rows.some(r => r.email === STAFF && r.role === 'staff'), JSON.stringify(seeded.rows));
+  await db.query("insert into billing_users (email, role) values ($1, 'admin') on conflict (email) do update set role = 'admin'", [ADMIN]);
+  const roleCheck = await wrap(() => db.query("insert into billing_users (email, role) values ('x@rsr.test', 'owner')"));
+  ok('M3 role is constrained to admin|staff', /violates check|invalid input|check constraint/i.test(roleCheck.error || ''), JSON.stringify(roleCheck));
+
+  // own-row read, and the helpers
+  const own = await asRole(STAFF, 'select email, role from billing_users');
+  ok('M4 a member reads exactly its OWN row (the app learns its role from it)', own.rows && own.rows.length === 1 && own.rows[0].role === 'staff', JSON.stringify(own));
+  const none = await asRole(KIOSK, 'select email, role from billing_users');
+  ok('M5 a non-member reads [] -- the app\'s "not a billing account" signal', none.rows && none.rows.length === 0, JSON.stringify(none));
+  const fns = await asRole(STAFF, 'select public.rsr_billing_user() u, public.rsr_billing_admin() a, public.rsr_billing_role() r');
+  ok('M6 helpers: staff is a user, not an admin', fns.rows && fns.rows[0].u === true && fns.rows[0].a === false && fns.rows[0].r === 'staff', JSON.stringify(fns));
+
+  // a bill to probe with
+  const gid = 'role-probe-1';
+  await db.query("insert into drawing_billing (group_id, line_no, code, doc_type, bill_date, client, vessel, drawing_title, qty, rate, status) values ($1, 1, 'RSR-DW-092026-090', 'DW', '2026-09-18', 'Probe Co', 'MV PROBE', 'Plan A', 1, 2500, 'DRAFT')", [gid]);
+  await db.query("insert into clients (name, billing_email) values ('Probe Co', 'ap@probe.test') on conflict do nothing");
+  await db.query("insert into app_settings (key, value) values ('payment', '{\"payee\":\"RSR\"}') on conflict (key) do update set value = excluded.value");
+  await db.query("insert into app_settings (key, seq_year, seq_n) values ('billseq:DW', '26', 7) on conflict (key) do update set seq_year = '26', seq_n = 7");
+
+  // KIOSK (non-member): nothing
+  ok('M7 non-member reads no bills', (await asRole(KIOSK, 'select count(*)::int n from drawing_billing')).rows[0].n === 0);
+  ok('M8 non-member reads no clients', (await asRole(KIOSK, 'select count(*)::int n from clients')).rows[0].n === 0);
+  ok('M9 non-member reads no settings, no send log, no receipts',
+     (await asRole(KIOSK, 'select count(*)::int n from app_settings')).rows[0].n === 0 &&
+     (await asRole(KIOSK, 'select count(*)::int n from drawing_billing_send_log')).rows[0].n === 0 &&
+     (await asRole(KIOSK, 'select count(*)::int n from billing_drydock_receipt')).rows[0].n === 0);
+  ok('M10 non-member cannot insert a bill', refused(await asRole(KIOSK, "insert into drawing_billing (group_id, line_no, code, doc_type, bill_date, client, vessel, drawing_title, qty, rate, status) values ('k', 1, 'X', 'DW', '2026-09-18', 'c', 'v', 't', 1, 1, 'DRAFT')")));
+  const kPay = await asRole(KIOSK, "update app_settings set value = '{\"payee\":\"ATTACKER\"}' where key = 'payment'");
+  ok('M11 non-member cannot rewrite the payment details (the audit\'s bank-account rewrite)', refused(kPay) && (await db.query("select value->>'payee' p from app_settings where key='payment'")).rows[0].p === 'RSR', JSON.stringify(kPay));
+  ok('M12 non-member cannot touch the drawings bucket', refused(await asRole(KIOSK, "insert into storage.objects (bucket_id, name) values ('drawings', 'k.pdf')")));
+  ok('M13 non-member cannot call record_billing_send (service_role only now) nor keep_drydock_resend',
+     /permission denied/i.test((await asRole(KIOSK, "select public.record_billing_send('g','B','to@x.test')")).error || '') &&
+     /billing account required/i.test((await asRole(KIOSK, "select public.keep_drydock_resend('g')")).error || ''));
+  ok('M14 even a MEMBER cannot call record_billing_send: only the Edge Function\'s service key may write the send log',
+     /permission denied/i.test((await asRole(ADMIN, "select public.record_billing_send('g','B','to@x.test')")).error || ''));
+
+  // STAFF: everything needed to bill, and nothing admin
+  ok('M15 staff reads bills and clients', (await asRole(STAFF, 'select count(*)::int n from drawing_billing')).rows[0].n >= 1 && (await asRole(STAFF, 'select count(*)::int n from clients')).rows[0].n >= 1);
+  ok('M16 staff can create a bill and edit a client', !(await asRole(STAFF, "insert into drawing_billing (group_id, line_no, code, doc_type, bill_date, client, vessel, drawing_title, qty, rate, status) values ('s1', 1, 'RSR-DW-092026-091', 'DW', '2026-09-18', 'Probe Co', 'MV S', 'Plan S', 1, 2500, 'DRAFT')")).error &&
+     (await asRole(STAFF, "update clients set email_cc = 'cc@probe.test' where name = 'Probe Co'")).affected === 1);
+  const claim = await asRole(STAFF, "update app_settings set seq_n = 8 where key = 'billseq:DW' and seq_year = '26' and seq_n = 7");
+  ok('M17 staff can CLAIM a billing number (the compare-and-swap +1)', claim.affected === 1, JSON.stringify(claim));
+  const manual = await asRole(STAFF, "update app_settings set seq_n = 12 where key = 'billseq:DW' and seq_year = '26' and seq_n = 8");
+  ok('M18 staff can raise the counter to a hand-typed number (forward, any step)', manual.affected === 1, JSON.stringify(manual));
+  const reset = await asRole(STAFF, "update app_settings set seq_n = 1 where key = 'billseq:DW'");
+  ok('M19 staff cannot RESET the counter backwards (trigger: a non-admin only moves a counter forward)', refused(reset) && (await db.query("select seq_n from app_settings where key='billseq:DW'")).rows[0].seq_n === 12, JSON.stringify(reset));
+  const sPay = await asRole(STAFF, "update app_settings set value = '{\"payee\":\"WIFE\"}' where key = 'payment'");
+  ok('M20 staff cannot change payment details, letter or types (admin-only settings keys)', refused(sPay) && refused(await asRole(STAFF, "insert into app_settings (key, value) values ('letter', '{\"text\":\"x\"}')")), JSON.stringify(sPay));
+  ok('M21 staff reads the catalogue but cannot add or reprice an item', (await asRole(STAFF, 'select count(*)::int n from drawing_catalog')).rows[0].n >= 1 &&
+     refused(await asRole(STAFF, "update drawing_catalog set default_rate = 1 where doc_type = 'DC'")) && refused(await asRole(STAFF, "insert into drawing_catalog (name, doc_type) values ('Sneaky', 'DW')")));
+  ok('M22 staff can read the send log and receipts', !!(await asRole(STAFF, 'select count(*)::int n from drawing_billing_send_log')).rows && !!(await asRole(STAFF, 'select count(*)::int n from billing_drydock_receipt')).rows);
+
+  // ADMIN: the fenced things
+  ok('M23 admin changes payment details and the catalogue rate', (await asRole(ADMIN, "update app_settings set value = '{\"payee\":\"RSR Engineering\"}' where key = 'payment'")).affected === 1 &&
+     (await asRole(ADMIN, "update drawing_catalog set default_rate = 2600 where doc_type = 'DC'")).affected >= 1);
+  ok('M24 admin may reset a counter', (await asRole(ADMIN, "update app_settings set seq_n = 0 where key = 'billseq:DW'")).affected === 1);
+
+  // guards, run as staff (the app's own path)
+  await db.query("update drawing_billing set status = 'BILLED', billed_date = '2026-09-18', bill_no = 'BILLDWG-26-090' where group_id = $1", [gid]).catch(() => {});
+  ok('M25 guard: BILLED -> PAID (mark paid) and PAID -> BILLED (reopen) are allowed',
+     (await asRole(STAFF, "update drawing_billing set status = 'PAID', paid_date = '2026-09-19' where group_id = $1", [gid])).affected === 1 &&
+     (await asRole(STAFF, "update drawing_billing set status = 'BILLED' where group_id = $1", [gid])).affected === 1);
+  ok('M26 guard: BILLED -> DRAFT and PAID -> DRAFT are refused outside unbill_group (the two-tap bypass is closed)',
+     refused(await asRole(STAFF, "update drawing_billing set status = 'DRAFT' where group_id = $1", [gid])) &&
+     (await asRole(STAFF, "update drawing_billing set status = 'PAID' where group_id = $1", [gid])).affected === 1 &&
+     refused(await asRole(STAFF, "update drawing_billing set status = 'DRAFT' where group_id = $1", [gid])));
+  ok('M27 guard: rate, qty, billable and title are frozen on a non-DRAFT line; remarks/invoice stay editable',
+     refused(await asRole(STAFF, 'update drawing_billing set rate = 1 where group_id = $1', [gid])) &&
+     refused(await asRole(STAFF, 'update drawing_billing set qty = 9 where group_id = $1', [gid])) &&
+     refused(await asRole(STAFF, "update drawing_billing set drawing_title = 'Other' where group_id = $1", [gid])) &&
+     (await asRole(STAFF, "update drawing_billing set remarks = 'ok', invoice_no = 'INV-1' where group_id = $1", [gid])).affected === 1);
+  ok('M28 guard: a PAID or BILLED line cannot be deleted; a DRAFT line can',
+     refused(await asRole(STAFF, 'delete from drawing_billing where group_id = $1', [gid])) &&
+     (await asRole(STAFF, "delete from drawing_billing where group_id = 's1'")).affected === 1);
+
+  // the captured unbill subsystem is in the script now, and unbill_group still walks a bill back
+  const ops = await db.query("select to_regclass('public.billing_unbill_operator') o, to_regclass('public.billing_unbill_throttle') t, to_regclass('public.drawing_billing_unbill_log') l, to_regprocedure('public.unbill_group(text,text,text)') f, to_regprocedure('public.resolve_unbill_operator(text)') r");
+  ok('M29 the unbill subsystem (3 tables, 4 RPCs, 2 guards) is created by the script -- a second project can be stood up from the repo', Object.values(ops.rows[0]).every(v => v != null), JSON.stringify(ops.rows[0]));
+  await db.query("insert into billing_unbill_operator (name, passcode_hash) values ('Wife', extensions.crypt('654321', extensions.gen_salt('bf', 4)))");
+  // the app offers Unbill on a BILLED bill (a PAID one is reopened first); M26 left the probe PAID
+  await asRole(STAFF, "update drawing_billing set status = 'BILLED' where group_id = $1", [gid]);
+  const ub = await asRole(STAFF, "select public.unbill_group($1, '654321', 'probe') r", [gid]);
+  ok('M30 staff unbills by passcode through unbill_group (allowed by decision) and the row is DRAFT again', !!(ub.rows && ub.rows[0].r.ok === true) && (await db.query('select status from drawing_billing where group_id=$1', [gid])).rows[0].status === 'DRAFT', JSON.stringify(ub));
+  ok('M31 a non-member cannot unbill even with a valid passcode', /billing account required/i.test((await asRole(KIOSK, "select public.unbill_group($1, '654321', 'probe') r", [gid])).error || ''));
+  const wrong = await asRole(STAFF, "select public.unbill_group($1, '000000', 'probe') r", [gid]);
+  ok('M32 the wrong passcode is refused with the server\'s own words', !!(wrong.rows && wrong.rows[0].r.reason === 'Wrong passcode'), JSON.stringify(wrong));
+
+  // privileges as facts
+  const priv = await db.query("select " +
+    "has_function_privilege('anon','public.rsr_dwg_block_unbill()','execute') a1, " +
+    "has_function_privilege('anon','public.rsr_dwg_block_delete_billed()','execute') a2, " +
+    "has_function_privilege('anon','public.rsr_touch_updated_at()','execute') a3, " +
+    "has_function_privilege('authenticated','public.record_billing_send(text,text,text,text[],uuid,text,text,text,numeric)','execute') rb_auth, " +
+    "has_function_privilege('service_role','public.record_billing_send(text,text,text,text[],uuid,text,text,text,numeric)','execute') rb_svc, " +
+    "has_function_privilege('anon','public.rsr_billing_user()','execute') ru_anon, " +
+    "has_function_privilege('authenticated','public.rsr_billing_user()','execute') ru_auth");
+  ok('M33 trigger functions hold no anon EXECUTE; record_billing_send is service_role only; the role helpers execute for authenticated, not anon',
+     priv.rows[0].a1 === false && priv.rows[0].a2 === false && priv.rows[0].a3 === false && priv.rows[0].rb_auth === false && priv.rows[0].rb_svc === true && priv.rows[0].ru_anon === false && priv.rows[0].ru_auth === true, JSON.stringify(priv.rows[0]));
+  ok('M34 the script still applies a second time after all of this (idempotent with the new objects)', !(await wrap(() => db.exec(SQL))).error);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

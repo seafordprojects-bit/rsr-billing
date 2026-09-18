@@ -36,6 +36,9 @@ const asRows = (out) => ({ ok:true, status:200, json:async()=>out,
 
 function installServer() {
   globalThis.fetch = async (url, opts={}) => {
+    // C4: the membership read every pull makes first; this suite's server is a billing user
+    if ((opts.method||'GET') === 'GET' && String(url).split('?')[0].endsWith('billing_users'))
+      return { ok:true, status:200, json:async()=>[{ email:'r@rsr.test', role:'admin' }], text:async()=>'' };
     const u = String(url), m = opts.method || 'GET';
     if (!u.includes('/app_settings')) {
       if (m === 'GET') return asRows([]);
@@ -80,8 +83,17 @@ const boot = (cfg) => {
 console.log('\n--- A. the table is in the SQL, authenticated only ---');
 ok('app_settings created', /create table if not exists app_settings/.test(html));
 ok('RLS enabled', /alter table app_settings enable row level security/.test(html));
-ok('authenticated-only policy',
-   /create policy rsr_dwg_settings_authed on app_settings\s*\n\s*for all to authenticated/.test(html));
+// C4 (2026-09-18): no longer one "for all to authenticated using (true)" policy.
+// Every billing account reads; a billing account may INSERT/UPDATE only the
+// billseq:* counter rows (the claim); everything else -- payment details,
+// letter, types -- and any DELETE is admin. The old single policy is dropped
+// by name so a re-run on the live project cannot leave it standing beside these.
+ok('settings policies: read for billing users, counter rows writable by billing users, the rest admin-only',
+   /drop policy if exists rsr_dwg_settings_authed on app_settings;/.test(html) &&
+   /create policy rsr_dwg_settings_read on app_settings\s*\n\s*for select to authenticated using \(public\.rsr_billing_user\(\)\)/.test(html) &&
+   /create policy rsr_dwg_settings_update on app_settings\s*\n\s*for update to authenticated\s*\n\s*using\s+\(public\.rsr_billing_admin\(\) or \(public\.rsr_billing_user\(\) and key like 'billseq:%'\)\)/.test(html) &&
+   /create policy rsr_dwg_settings_delete on app_settings\s*\n\s*for delete to authenticated using \(public\.rsr_billing_admin\(\)\)/.test(html) &&
+   !/create policy rsr_dwg_settings_authed on app_settings/.test(html));
 ok('no anon policy anywhere', !/to anon/.test(html));
 ok('counter columns are plain, for compare-and-swap',
    /seq_year\s+text/.test(html) && /seq_n\s+integer/.test(html));

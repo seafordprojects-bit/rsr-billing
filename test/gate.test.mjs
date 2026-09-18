@@ -68,6 +68,37 @@ await settle();
 ok('gate shown after a real rejection', gateOn() === true);
 ok('session cleared', app.authed() === false);
 
+console.log('\n--- F. C4: a session is not enough -- the account must be a billing user ---');
+// The Supabase project is shared with the kiosk/payroll app, so carmen@ and
+// mandaue@ hold valid logins that are NOT billing accounts. The SQL (RLS on
+// billing_users, own-row read) is the control; this is the screen that says so.
+clearLS(); setCfg(); setSession(3600 * 1000);
+document.getElementById('gate').classList.remove('on');
+net.mode = 'online'; net.role = null;                 // GET billing_users -> []
+app = globalThis.__loadApp();
+await new Promise(r => setTimeout(r, 60));
+ok('a signed-in NON-member is shown the gate again', gateOn() === true);
+ok('the message says why', /not a billing account/i.test(el('gErr').textContent), el('gErr').textContent);
+ok('and its session is cleared, so a kiosk token does not linger on the billing origin', app.authed() === false);
+
+clearLS(); setCfg(); setSession(3600 * 1000);
+document.getElementById('gate').classList.remove('on');
+net.role = 'staff';
+app = globalThis.__loadApp();
+await new Promise(r => setTimeout(r, 60));
+ok('a STAFF member goes straight in', gateOn() === false);
+ok('and the app knows its role', app.role() === 'staff', String(app.role()));
+ok('staff sees no admin-only Settings: payment details, covering letter, document types and catalogue editing are hidden',
+   el('cfgPayment').hidden === true && el('cfgLetter').hidden === true && el('cfgTypes').hidden === true && el('cfgCatalog').hidden === true);
+
+net.role = 'admin';
+clearLS(); setCfg(); setSession(3600 * 1000);
+document.getElementById('gate').classList.remove('on');
+app = globalThis.__loadApp();
+await new Promise(r => setTimeout(r, 60));
+ok('an ADMIN goes straight in with every Settings section', gateOn() === false && app.role() === 'admin' &&
+   el('cfgPayment').hidden === false && el('cfgLetter').hidden === false && el('cfgTypes').hidden === false && el('cfgCatalog').hidden === false);
+
 console.log('\n' + '='.repeat(46));
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

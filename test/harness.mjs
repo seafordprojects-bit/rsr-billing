@@ -17,7 +17,7 @@ const hook = `
 globalThis.__t={
   get queue(){return queue}, get rows(){return rows}, get cfg(){return cfg},
   get session(){return session},
-  saveRow, saveBatch, flushQueue, deleteRow, persist, online, authed, setSession, pull, uploadPdf,
+  saveRow, saveBatch, flushQueue, deleteRow, persist, online, authed, role, setSession, pull, uploadPdf,
   deadJobs, jobLabel, syncBadge,
   get catalog(){return catalog}, catSave, catDelete, catReorder, catSorted, catActive,
   effRate, openCat, renderCat, catShown, renderCatMgr, get kPicked(){return kPicked}, nextCode,
@@ -237,7 +237,11 @@ export const monthFirst = (ymd) => String(ymd || mnlToday()).slice(0, 8) + '01';
 // server would: push {match, status, body} and the next request whose URL
 // contains `match` gets that response. Entries are consumed once unless
 // `keep` is true.
-export const net = { mode:'offline', calls:[], nextId:1, script:[], catalogUnique:null };
+// net.role: what GET billing_users answers for the signed-in account -- the
+// membership row the app reads after sign-in (C4). 'admin' by default, so
+// every suite that signs in is a billing user; 'staff' for the narrower
+// role; null = NOT a billing account (the kiosk logins), answered as [].
+export const net = { mode:'offline', calls:[], nextId:1, script:[], catalogUnique:null, role:'admin' };
 const scripted = (url, method) => {
   const i = net.script.findIndex(s =>
     String(url).indexOf(s.match) > -1 && (!s.method || s.method === method));
@@ -293,6 +297,12 @@ globalThis.fetch = async (url, opts={}) => {
     return { ok:true, status:201, json:async()=>out, text:async()=>JSON.stringify(out) };
   }
 
+  // C4: the membership read. A real project answers the caller's OWN row
+  // under the own-row policy, or [] for an account that is not listed.
+  if (method === 'GET' && String(url).split('?')[0].endsWith('billing_users')) {
+    const me = net.role ? [{ email: 'raffy@rsr.test', role: net.role }] : [];
+    return { ok:true, status:200, json:async()=>me, text:async()=>JSON.stringify(me) };
+  }
   // online: echo inserts back with a server id
   const out = rows.map(r => Object.assign({}, r, { id: 'srv-' + (net.nextId++) }));
   return { ok:true, status:200, json:async()=>out, text:async()=>JSON.stringify(out) };

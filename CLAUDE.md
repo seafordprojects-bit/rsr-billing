@@ -22,7 +22,7 @@ icon-maskable-512.png apple-touch-icon.png  Android mask-safe icon, and iOS's ow
 supabase/config.toml                        CLI project config, from supabase init
 supabase/functions/send-statement/index.ts  Deno Edge Function, emails a billing
 supabase/functions/receive-drydock-job/index.ts  Deno Edge Function, receives a drydocking job
-test/                                       harness + 38 suites (node test/run.mjs)
+test/                                       harness + 40 suites (node test/run.mjs)
 test/supabase_shim.sql test/sqltext.mjs     what a fresh Supabase project has; SQL extractor for pglite
 package.json                                dev dependency only: pglite, for test/rpc.test.mjs
 tools/mkicon.py                             regenerates the inlined brand mark
@@ -47,7 +47,9 @@ refreshed when close to expiry. A refresh that fails *because the device is
 offline* deliberately keeps the session — otherwise a user with queued work
 would be signed out mid-outage.
 
-**Seven tables**, all authenticated-only RLS. The generated SQL creates them:
+**Eight tables.** The generated SQL creates them. Since C4 (2026-09-18) RLS
+is **billing-accounts-only, not authenticated-only** -- see *Who a billing
+account is* below.
 
 | table | holds |
 |---|---|
@@ -58,6 +60,54 @@ would be signed out mid-outage.
 | `billing_senders` | who may email a billing (allowlist) |
 | `drawing_billing_send_log` | what was sent, per billing per send; the record of what the client received |
 | `billing_drydock_receipt` | one row per drydocking job received; `dispatch_id` is the idempotency key |
+| `billing_users` | who a BILLING account is, and its role (`admin` / `staff`) |
+
+### Who a billing account is (C4, 2026-09-18)
+
+This Supabase project is **shared with the kiosk/payroll app**, so `carmen@`
+and `mandaue@rsrengineering.services` hold valid logins that are not billing
+accounts. Until C4 every policy read `to authenticated using (true)`: any of
+those logins could read every client and rewrite the bank details printed on
+every bill (pre-launch audit, C4, executed in pglite). Membership is now a row
+in `billing_users`; the role is `admin` (admin@) or `staff` (secretary@ --
+the owner's wife, who bills). carmen@ and mandaue@ are not listed.
+
+- Three helpers every policy reads: `rsr_billing_role()` (SECURITY DEFINER,
+  reads the caller's row), `rsr_billing_user()`, `rsr_billing_admin()`.
+  A caller with no JWT (the SQL editor, a service key) has no role.
+- **Staff** bills, sends, marks paid, reopens, unbills by passcode, edits
+  clients, reads everything, and may write the `billseq:*` counter rows --
+  the number claim is a compare-and-swap PATCH on them.
+- **Admin only**: `app_settings` rows other than `billseq:*` (payment
+  details, covering letter, document types), any write to `drawing_catalog`
+  (the DC flat rate prices every drydocking job), any `app_settings` DELETE,
+  and a counter **reset**: trigger `rsr_billing_counter_guard` lets a
+  non-admin move a counter forward only (the claim, or a hand-typed higher
+  number), never back. The SQL editor is exempt (no JWT).
+- **Seeded from `billing_senders`, as staff, in the SAME script run that
+  switches the policies** -- so running the script can never lock the owner
+  out. Promote by hand once: `update billing_users set role='admin' where
+  email='...'`. The script adds and never demotes.
+- The app reads its own row after every pull (`rsr_dwg_users_self`, an
+  own-row SELECT policy). `[]` means "not a billing account": the session is
+  cleared and the gate says so. A role the device has not learned yet (first
+  boot offline) hides nothing -- the SQL is the control, the UI only keeps a
+  staff device from queueing writes that would die in Pending writes
+  (`pushSharedSettings`, `migrateSettings` and save-to-catalogue skip for a
+  known staff role; the four admin Settings sections are hidden).
+- `record_billing_send` is **service_role only** now, beside
+  `receive_drydock_job`: the browser never called it, and granted to
+  `authenticated` it let any session forge a "sent" record naming any sender.
+- The guards were tightened at the same time: `BILLED -> PAID -> DRAFT` used
+  to walk a bill back with no passcode in two PATCHes (the live guard named
+  `BILLED -> DRAFT` alone), and a PAID line was deletable. Now both billed
+  states return to DRAFT only through `unbill_group`, only a DRAFT line
+  deletes, and `rate`/`qty`/`billable`/`drawing_title` are frozen once a line
+  leaves DRAFT -- the app itself edits only status, dates, invoice no. and
+  remarks on a non-draft line, so nothing legitimate is refused.
+- Gate: `rpc.test.mjs` section M (34 assertions, every probe run AS
+  `authenticated` with a JWT email against the real SQL) and `gate.test.mjs`
+  section F. Thirteen mutations, each caught by a named assertion.
 
 ### The group model — the thing to understand first
 
@@ -753,15 +803,22 @@ another app's policy.
 ## Tests
 
 ```bash
-node test/run.mjs            # all 38 suites
+node test/run.mjs            # all 40 suites
 node test/run.mjs groups     # one suite, by prefix
 node test/groups.test.mjs    # directly, same thing
 ```
 
-1990 assertions, Node only. One dev dependency, pglite, for `rpc.test.mjs`:
+2120 assertions, Node only. One dev dependency, pglite, for `rpc.test.mjs`:
 it runs the generated SQL on a brand-new database (the shim in
 `test/supabase_shim.sql` is what a fresh project already has) and exercises
-`receive_drydock_job` as anon, authenticated and service_role. It takes the
+`receive_drydock_job` as anon, authenticated and service_role. **Since C4 the
+shim models a real project's DEFAULT PRIVILEGES** (all on tables, EXECUTE on
+functions, to anon/authenticated/service_role, and usage on `auth`): with
+none of that, "anon cannot read X" passed because anon was never granted,
+not because a revoke held, and no probe as `authenticated` could reach a
+table at all -- the RLS predicates had never executed here. What
+`sqlText()` REVOKES is the load-bearing half; the grants are the background
+it revokes against (the drydocking harness learned the same on 2026-09-13). It takes the
 SQL from a child process (`test/sqltext.mjs`) because pglite, seeing the
 harness's `window` stub, takes its browser loader and dies. `fn.test.mjs` needs
 `--experimental-strip-types` (the runner passes it).
@@ -975,9 +1032,10 @@ Before going live:
 1. **Run the regenerated SQL** in the Supabase SQL editor. It creates all five
    tables and adds every column added since. Without it, syncing fails silently
    on the missing pieces.
-2. **Confirm signup is disabled** in Authentication → Providers. RLS is
-   `to authenticated using (true)` on every table, so anyone who can create an
-   account can read and rewrite all billing data.
+2. **Confirm signup is disabled** in Authentication → Providers (confirmed
+   `disable_signup: true` on 2026-09-18). Since C4 RLS is billing-accounts-only
+   (`billing_users`), so a stray login reads nothing -- but signup stays off:
+   this project's logins are also the kiosk's.
 3. ~~**Deploy the function and set its secrets**~~ — **done, in three steps:**
    deployed with `RESEND_API_KEY` set **2026-08-23**, `STATEMENT_FROM` set
    **2026-08-25**, sending domain verified **2026-08-26**.
@@ -1065,6 +1123,11 @@ Before going live:
    ```sql
    insert into billing_senders (email) values ('you@example.com')
    on conflict (email) do nothing;
+   ```
+   Then re-run the regenerated SQL (it seeds `billing_users` from that list,
+   as staff) and promote yourself:
+   ```sql
+   update billing_users set role = 'admin' where email = 'you@example.com';
    ```
 5. **Reset the DW counter** in Settings → Document types; test prints left the
    series ahead of reality.
@@ -1213,7 +1276,13 @@ the code. Recorded so they are not re-investigated.
   compared canonically, so `Seaford Shipping lines` matched in the app and was
   refused by the function — with a message about the billing email, which was
   not what had gone wrong. `fn.test.mjs` section I2 pins this.
-- **The unbill subsystem is not in `sqlText()`.** It exists only in the live
+- ~~**The unbill subsystem is not in `sqlText()`.**~~ **CAPTURED 2026-09-18
+  (C4)**: the three tables, four RPCs and two guard trigger functions were read
+  from the live project with `pg_get_functiondef` and are in `sqlText()` now,
+  with the C4 membership checks and the tightened guards; `rpc.test.mjs` M29
+  asserts a fresh database gets all of them. `drawing_catalog_name_doctype_key`
+  went in with it (as a unique index of the same name -- a no-op live). The
+  paragraphs below are kept as the record of what the gap was. It exists only in the live
   database, written by hand in the SQL editor, and `sqlText()` creates none of
   it:
 

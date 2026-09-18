@@ -1035,13 +1035,13 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="sect-t">PDF attachments</div>
     <div class="f"><label for="cBucket">Storage bucket</label><input id="cBucket" class="mono-in" placeholder="drawings"><div class="hint">Leave blank to skip uploads and keep only the file name on each record. The SQL below creates this bucket <b>private</b> — attachments open through a link that is signed for one hour when you tap them, so the files are never public.</div></div>
 
-    <details class="sect" data-sect="types">
+    <details class="sect" data-sect="types" id="cfgTypes">
       <summary><div class="sect-t sect-h">Document types</div></summary>
     <div class="hint" style="margin:-4px 0 9px">The code goes into every tracking number — <span style="font-family:var(--mono)" id="typeSample"></span> — and each type counts on its own each month, with its own billing-number series each year. Changing a code here does not touch records already saved.</div>
     <div class="pick" id="cTypeList"></div>
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cTypeAdd" type="button">Add type</button></div>
     </details>
-    <details class="sect" data-sect="catalog">
+    <details class="sect" data-sect="catalog" id="cfgCatalog">
       <summary><div class="sect-t sect-h" style="display:flex;align-items:center">Catalog<span style="margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:0;text-transform:none;color:var(--slate)" id="cCatCount"></span></div></summary>
     <div class="hint" style="margin:-4px 0 9px">Your standard items, offered under <b>From catalog</b>. Unticking keeps past billing intact and only hides the item from the picker.</div>
     <div class="pick" id="cCatList"></div>
@@ -1062,7 +1062,7 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div class="hint" style="margin:-4px 0 9px">Writes the server refused. They are not retried until you say so.</div>
     <div class="pick" id="cDeadList"></div>
 
-    <details class="sect" data-sect="payment">
+    <details class="sect" data-sect="payment" id="cfgPayment">
       <summary><div class="sect-t sect-h">Payment details</div></summary>
     <div class="hint" style="margin:-4px 0 9px">Printed after the total on every billing.</div>
     <div class="f"><label for="cPayee">Please issue payment to</label><input id="cPayee" placeholder="Payee name as it appears on the account"></div>
@@ -1070,9 +1070,11 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
     <div style="display:flex;gap:8px;margin-top:9px"><button class="act" id="cBankAdd" type="button">Add bank account</button></div>
     <div class="f" style="margin-top:13px"><label for="cRemit">Email deposit slips to</label><input id="cRemit" type="email" inputmode="email" autocomplete="off" spellcheck="false" placeholder="billing@yourdomain.com"><div class="hint">Printed as the deposit-slip instruction line.</div></div>
     </details>
+    <div id="cfgLetter">
     <div class="sect-t">Covering letter</div>
     <div class="hint" style="margin:-4px 0 9px">Opens every emailed billing, above the document, and is shown for review before each send. Placeholders: <span style="font-family:var(--mono)">{contact} {billno} {vessel} {period} {total} {due}</span> — <b>{contact}</b> is the client's Salutation, or their contact person when that is blank, or "Sir/Madam" when both are. Clear the box to go back to the standard wording.</div>
     <div class="f"><textarea id="cLetter" style="min-height:190px;line-height:1.55"></textarea></div>
+    </div>
     <label class="chk"><input type="checkbox" id="cMarkPrint"><span>Auto-mark billed on print<span class="s">A successful email always marks the billing BILLED. Printing asks first unless this is on.</span></span></label>
 
     <div class="sect-t">Screen lock</div>
@@ -1735,6 +1737,9 @@ const LS_SES='rsr_dwg_session_v1';
 let session={};
 try{session=JSON.parse(localStorage.getItem(LS_SES)||'{}');}catch(e){session={};}
 const authed=()=>!!session.access_token;
+// C4: the role billing_users gave this account ('admin' | 'staff'), learned on
+// every pull from the own-row read. null until the first pull answers.
+const role=()=>session.role||null;
 function saveSession(){localStorage.setItem(LS_SES,JSON.stringify(session));}
 function setSession(d){
   session={
@@ -2076,6 +2081,21 @@ async function pull(quiet){
   setSync('busy','Sync');
   try{
     await ensureFresh();
+    // C4: a session is not enough -- the account must be listed in
+    // billing_users. RLS hides every table from a non-member regardless;
+    // this read is what lets the screen SAY so and drop the kiosk token
+    // instead of showing an empty app reading "Synced".
+    try{
+      const me=await sb('billing_users?select=email,role');
+      if(Array.isArray(me)){
+        if(!me.length){
+          clearSession();rows=[];queue.length=0;persist();render();
+          showGate('This account is not a billing account. Sign in with a billing login.');
+          return false;
+        }
+        if(session.role!==me[0].role){session.role=me[0].role;saveSession();render();}
+      }
+    }catch(e){/* offline, or the table is not created yet: the policies decide, not this screen */}
     await flushQueue();
     const data=await sb(cfg.table+'?select=*&order=bill_date.desc,code.desc');
     const pendingLocal=rows.filter(r=>String(r.id).startsWith('loc-'));
@@ -2159,7 +2179,16 @@ function visible(){
 
 /* ================= render ================= */
 let expanded={};
+// C4: what the signed-in role may reach. Sections, not a mode: the SQL is the
+// control, this only keeps a staff device from offering what would be refused.
+function applyRole(){
+  // hidden for an account KNOWN to be staff; a role not learned yet (first
+  // boot offline) shows everything -- the policies refuse, this only tidies
+  const staff=role()==='staff';
+  ['cfgPayment','cfgLetter','cfgTypes','cfgCatalog','mlToCatWrap'].forEach(id=>{const e=$(id);if(e)e.hidden=staff;});
+}
 function render(){
+  applyRole();
   const vis=visible();
   // Cross-group, so it cannot live in groupOf: that sees one group's rows and
   // a shared code is a property of the corpus. Deliberately not cached and
@@ -2516,6 +2545,10 @@ function queueSetting(key,row){
   persist();
 }
 async function pushSharedSettings(){
+  // C4: types, payment and letter are admin-only keys -- a staff device does
+  // not queue them (the policy would refuse and leave three dead jobs). The
+  // counter claims go through claimBillNo/raiseBillNo, which staff may do.
+  if(role()==='staff')return;
   queueSetting('types',{value:{list:cfg.types}});
   queueSetting('payment',{value:{payee:cfg.payee||'',remitEmail:cfg.remitEmail||'',
                                  banks:cfg.banks||[]}});
@@ -2535,6 +2568,7 @@ async function pushSharedSettings(){
 // table does not have yet, so nothing has to be re-entered.
 async function migrateSettings(){
   if(cfg.settingsMigrated)return 0;
+  if(role()==='staff')return 0;   // C4: a staff device never publishes the firm's settings
   let pushed=0;
   if(!settings['types']){queueSetting('types',{value:{list:cfg.types}});pushed++;}
   if(!settings['payment']){
@@ -2901,9 +2935,10 @@ async function doSignIn(){
   const btn=$('gIn');btn.disabled=true;btn.textContent='Signing in…';
   try{
     setSession(await authPost('token?grant_type=password',{email:email,password:pw}));
-    hideGate();
-    toast('Signed in');
+    // pull first: it reads billing_users and re-raises the gate for an account
+    // that is not a billing user, so "Signed in" is said only when it is true
     await pull();
+    if(authed()){hideGate();toast('Signed in');}
   }catch(e){
     $('gErr').textContent=/invalid/i.test(e.message)?'That email and password do not match an account.':e.message;
   }finally{btn.disabled=false;btn.textContent='Sign in';}
@@ -3378,7 +3413,7 @@ $('eSave').onclick=async()=>{
       rev_of:l.rev_of||null,rev_no:l.rev_no||null,
       file_name:null,file_url:null,pages:null
     },meta));
-    const toCat=$('mlToCat').checked;
+    const toCat=$('mlToCat').checked&&role()!=='staff';   // C4: catalogue writes are admin-only
     hide();
     await saveBatch(built);
     await rememberClient(client);
@@ -5607,7 +5642,7 @@ async function pdfRender(plan){
 // result, so the pane reads this stamp when -- and only when -- this script's
 // tail actually ran. A full run once reported success and changed nothing
 // (2026-09-11, editor-tab residue); the stamp is the tell. MANUAL-TEST.md.
-const SQL_REV='2026-09-18.drydock-resend-flag';
+const SQL_REV='2026-09-18.billing-roles';
 function sqlText(){
   const b=(($('cBucket')&&$('cBucket').value.trim())||cfg.bucket||'drawings').replace(/[^\w\-]/g,'');
   return `-- RSR Billing — run once in Supabase SQL Editor
@@ -5674,16 +5709,63 @@ create index if not exists idx_db_date   on drawing_billing(bill_date desc);
 create index if not exists idx_db_type   on drawing_billing(doc_type);
 create index if not exists idx_db_group  on drawing_billing(group_id);
 
+-- ---------------------------------------------------------------
+-- Who a BILLING account is (C4, 2026-09-18). This Supabase project is
+-- shared with the kiosk/payroll app, so carmen@ and mandaue@ hold valid
+-- logins that are not billing accounts -- and until now every policy
+-- below was 'to authenticated using (true)': any of them could read every
+-- client and rewrite the bank details printed on every bill. Membership
+-- is a row here; role is 'admin' or 'staff'. Staff bills, sends, marks
+-- paid and unbills by passcode; admin alone touches the payment details,
+-- the covering letter, the document types, the catalogue and a counter
+-- RESET (staff may only move a counter forward -- the claim).
+--
+-- Seeded further down from billing_senders (already the allow-list of who
+-- may email), as staff, in the SAME run that switches the policies -- so
+-- the owner cannot lock themself out by running half the script. Promote
+-- yourself once, from the SQL editor:
+--   update billing_users set role = 'admin' where email = 'you@example.com';
+-- The own-row policy is how the app learns its role after sign-in; a
+-- non-member reads [] and is shown the gate with the reason.
+-- ---------------------------------------------------------------
+create table if not exists billing_users (
+  email      text primary key,
+  role       text not null default 'staff' check (role in ('admin','staff')),
+  note       text,
+  created_at timestamptz default now()
+);
+alter table billing_users enable row level security;
+drop policy if exists rsr_dwg_users_self on billing_users;
+create policy rsr_dwg_users_self on billing_users
+  for select to authenticated using (email = lower(coalesce(auth.email(), '')));
+revoke all on billing_users from anon;
+
+-- The three helpers every policy reads. rsr_billing_role is SECURITY
+-- DEFINER so the policies can read billing_users for OTHER rows than the
+-- caller's own (the own-row policy above is for the app's read, not for
+-- these). A caller with no JWT (the SQL editor, the service key) has no
+-- role and is not a billing user -- RLS does not apply to the table owner
+-- anyway, and the counter guard exempts that case explicitly.
+create or replace function public.rsr_billing_role() returns text
+language sql stable security definer set search_path = public as $BODY$
+  select role from public.billing_users where email = lower(coalesce(auth.email(), ''))
+$BODY$;
+create or replace function public.rsr_billing_user() returns boolean
+language sql stable as $BODY$ select public.rsr_billing_role() is not null $BODY$;
+create or replace function public.rsr_billing_admin() returns boolean
+language sql stable as $BODY$ select public.rsr_billing_role() = 'admin' $BODY$;
+revoke execute on function public.rsr_billing_role(), public.rsr_billing_user(), public.rsr_billing_admin() from public, anon;
+grant  execute on function public.rsr_billing_role(), public.rsr_billing_user(), public.rsr_billing_admin() to authenticated, service_role;
+
 alter table drawing_billing enable row level security;
 
--- Signed-in users only. The anon key alone can no longer read or write:
--- every request must carry a Supabase Auth access token.
--- Create the accounts under Authentication -> Users.
+-- Billing accounts only (C4). Until 2026-09-18 this read 'using (true)':
+-- signed in was enough, and the project's sign-ins include the kiosk app's.
 drop policy if exists db_anon_all             on drawing_billing;
 drop policy if exists db_authed_all           on drawing_billing;
 drop policy if exists rsr_dwg_billing_authed  on drawing_billing;
 create policy rsr_dwg_billing_authed on drawing_billing
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.rsr_billing_user()) with check (public.rsr_billing_user());
 
 -- ---------------------------------------------------------------
 -- Catalog of standard drawings, for billing the same set repeatedly.
@@ -5707,12 +5789,24 @@ alter table drawing_catalog
   add column if not exists doc_type text not null default 'DW';
 
 create index if not exists idx_dc_order on drawing_catalog(sort_order, name);
+-- C4 (2026-09-18): one catalogue row per (name, doc_type). This existed on the
+-- live project as a hand-added CONSTRAINT of the same name and nowhere in the
+-- repo (CLAUDE.md "Known open items"); the seed's ignore-duplicates upsert
+-- relies on it. Same name, so on the live project this is a no-op.
+create unique index if not exists drawing_catalog_name_doctype_key on drawing_catalog(name, doc_type);
 
 alter table drawing_catalog enable row level security;
 
+-- C4: every billing account reads the catalogue (it prices the lines);
+-- only admin adds, retires or REPRICES an item -- the DC flat rate here is
+-- what every drydocking job is billed at.
 drop policy if exists rsr_dwg_catalog_authed on drawing_catalog;
-create policy rsr_dwg_catalog_authed on drawing_catalog
-  for all to authenticated using (true) with check (true);
+drop policy if exists rsr_dwg_catalog_read   on drawing_catalog;
+drop policy if exists rsr_dwg_catalog_admin  on drawing_catalog;
+create policy rsr_dwg_catalog_read on drawing_catalog
+  for select to authenticated using (public.rsr_billing_user());
+create policy rsr_dwg_catalog_admin on drawing_catalog
+  for all to authenticated using (public.rsr_billing_admin()) with check (public.rsr_billing_admin());
 
 -- ---------------------------------------------------------------
 -- Where each client's statements are emailed. Filled in the first
@@ -5795,7 +5889,7 @@ alter table clients enable row level security;
 
 drop policy if exists rsr_dwg_clients_authed on clients;
 create policy rsr_dwg_clients_authed on clients
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.rsr_billing_user()) with check (public.rsr_billing_user());
 
 -- ---------------------------------------------------------------
 -- Settings that must agree across devices: the document type list
@@ -5822,9 +5916,46 @@ create table if not exists app_settings (
 
 alter table app_settings enable row level security;
 
+-- C4: every billing account reads settings and may write the COUNTER rows
+-- (claiming a billing number is a compare-and-swap PATCH on billseq:*);
+-- only admin writes anything else -- payment details, letter, types -- or
+-- deletes a row. A counter also only moves FORWARD for a non-admin: the
+-- guard below is what makes a reset an admin action while the claim (+1)
+-- and a hand-typed higher number stay open to staff.
 drop policy if exists rsr_dwg_settings_authed on app_settings;
-create policy rsr_dwg_settings_authed on app_settings
-  for all to authenticated using (true) with check (true);
+drop policy if exists rsr_dwg_settings_read   on app_settings;
+drop policy if exists rsr_dwg_settings_insert on app_settings;
+drop policy if exists rsr_dwg_settings_update on app_settings;
+drop policy if exists rsr_dwg_settings_delete on app_settings;
+create policy rsr_dwg_settings_read on app_settings
+  for select to authenticated using (public.rsr_billing_user());
+create policy rsr_dwg_settings_insert on app_settings
+  for insert to authenticated
+  with check (public.rsr_billing_admin() or (public.rsr_billing_user() and key like 'billseq:%'));
+create policy rsr_dwg_settings_update on app_settings
+  for update to authenticated
+  using      (public.rsr_billing_admin() or (public.rsr_billing_user() and key like 'billseq:%'))
+  with check (public.rsr_billing_admin() or (public.rsr_billing_user() and key like 'billseq:%'));
+create policy rsr_dwg_settings_delete on app_settings
+  for delete to authenticated using (public.rsr_billing_admin());
+
+create or replace function public.rsr_billing_counter_guard() returns trigger
+language plpgsql as $BODY$
+begin
+  -- no JWT (the SQL editor, the service key) is exempt: that is the owner
+  -- doing admin work by hand, and the reset instructions in CLAUDE.md
+  if new.key like 'billseq:%' and auth.email() is not null and not public.rsr_billing_admin() then
+    if new.seq_year < old.seq_year or (new.seq_year = old.seq_year and new.seq_n < old.seq_n) then
+      raise exception 'a billing counter only moves forward -- a reset is an admin action'
+        using errcode = 'check_violation';
+    end if;
+  end if;
+  return new;
+end
+$BODY$;
+drop trigger if exists rsr_billing_counter_guard on app_settings;
+create trigger rsr_billing_counter_guard before update on app_settings
+  for each row execute function public.rsr_billing_counter_guard();
 
 -- ---------------------------------------------------------------
 -- Who may email statements. The send-statement function sends from
@@ -5847,6 +5978,13 @@ create table if not exists billing_senders (
 );
 
 alter table billing_senders enable row level security;
+
+-- C4 seed: whoever may already email statements is a billing user (staff).
+-- Same run as the policies above, never a separate step. Adds, never
+-- removes or demotes -- roles are set by hand from the SQL editor.
+insert into billing_users (email, role)
+  select lower(email), 'staff' from billing_senders
+  on conflict (email) do nothing;
 
 -- ---------------------------------------------------------------
 -- What was sent, and when. One row per billing per send: a
@@ -5903,7 +6041,7 @@ alter table drawing_billing_send_log enable row level security;
 
 drop policy if exists rsr_dwg_sendlog_read on drawing_billing_send_log;
 create policy rsr_dwg_sendlog_read on drawing_billing_send_log
-  for select to authenticated using (true);
+  for select to authenticated using (public.rsr_billing_user());
 
 -- ---------------------------------------------------------------
 -- Drydocking jobs arrive from the drydocking app (its Cloud Run
@@ -5932,7 +6070,7 @@ alter table billing_drydock_receipt add column if not exists resend_kept_by text
 alter table billing_drydock_receipt enable row level security;
 drop policy if exists rsr_dwg_ddreceipt_read on billing_drydock_receipt;
 create policy rsr_dwg_ddreceipt_read on billing_drydock_receipt
-  for select to authenticated using (true);
+  for select to authenticated using (public.rsr_billing_user());
 
 -- receive_drydock_job: one transaction turns a received job into a DRAFT
 -- DC billing. Order matters: the receipt insert goes first, so a retry
@@ -6112,6 +6250,9 @@ declare
   v_n  int;
   v_by text;
 begin
+  if not public.rsr_billing_user() then
+    raise exception 'billing account required';   -- C4: definer functions bypass RLS, so they check for themselves
+  end if;
   v_by := coalesce(nullif(btrim(coalesce(auth.email(), '')), ''), 'unknown');
   update public.billing_drydock_receipt
      set resend_kept_at = now(), resend_kept_by = v_by
@@ -6141,7 +6282,7 @@ begin
   if to_regclass('public.drawing_billing_unbill_log') is not null then
     execute 'drop policy if exists rsr_dwg_unbilllog_read on drawing_billing_unbill_log';
     execute 'create policy rsr_dwg_unbilllog_read on drawing_billing_unbill_log '||
-            'for select to authenticated using (true)';
+            'for select to authenticated using (public.rsr_billing_user())';
   end if;
 end
 $BODY$;
@@ -6295,18 +6436,474 @@ begin
 end
 $BODY$;
 
+-- CAPTURE of the live-only unbill subsystem, read from the LIVE billing
+-- project (wpmcbjrisuyjvobvzaus) on 2026-09-18 with pg_get_functiondef /
+-- pg_get_triggerdef / information_schema. Until this file existed, these
+-- objects had NO copy outside the database (CLAUDE.md "Known open items";
+-- audit F6). Every statement is idempotent so it can join sqlText().
+-- Function bodies are VERBATIM as captured; C4 changes to them are marked.
+
+create table if not exists public.billing_unbill_operator (
+  id            bigint generated always as identity primary key,
+  name          text not null unique,
+  passcode_hash text not null,
+  active        boolean not null default true,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+alter table public.billing_unbill_operator enable row level security;
+-- no policy on purpose: unreadable to every session; only the definer RPCs read it
+
+create table if not exists public.billing_unbill_throttle (
+  id           boolean primary key default true check (id),   -- the single row
+  fails        integer not null default 0,
+  window_start timestamptz not null default now(),
+  locked_until timestamptz,
+  updated_at   timestamptz not null default now()
+);
+alter table public.billing_unbill_throttle enable row level security;
+
+create table if not exists public.drawing_billing_unbill_log (
+  id               bigint generated always as identity primary key,
+  gid              text not null,
+  rows_affected    integer not null,
+  reason           text,
+  billing_snapshot jsonb,
+  unbilled_at      timestamptz not null default now(),
+  operator_id      bigint,
+  operator_name    text
+);
+alter table public.drawing_billing_unbill_log enable row level security;
+-- rsr_dwg_unbilllog_read (select to authenticated) is already created by sqlText()
+
+-- ===== resolve_unbill_operator (verbatim from the live project)
+CREATE OR REPLACE FUNCTION public.resolve_unbill_operator(p_input text)
+ RETURNS TABLE(operator_id bigint, operator_name text)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+
+declare
+
+  v_now timestamptz := now();
+
+  v_row public.billing_unbill_throttle%rowtype;
+
+  v_ids bigint[];
+
+  MAX_FAILS constant int      := 10;
+
+  COOLDOWN  constant interval := interval '15 minutes';
+
+begin
+
+  insert into public.billing_unbill_throttle (id) values (true)
+
+    on conflict on constraint billing_unbill_throttle_pkey do nothing;
+
+  select * into v_row from public.billing_unbill_throttle t where t.id for update;
+
+
+
+  -- FAIL-CLOSED: while locked, deny without checking the passcode.
+
+  if v_row.locked_until is not null and v_row.locked_until > v_now then
+
+    update public.billing_unbill_throttle t set updated_at = v_now where t.id;
+
+    return;
+
+  end if;
+
+
+
+  if v_now - v_row.window_start > COOLDOWN then
+
+    v_row.fails := 0;
+
+    v_row.window_start := v_now;
+
+  end if;
+
+
+
+  select array_agg(o.id) into v_ids
+
+  from public.billing_unbill_operator o
+
+  where o.active
+
+    and o.passcode_hash = extensions.crypt(p_input, o.passcode_hash);
+
+
+
+  -- no match, or an ambiguous match: refuse, never guess
+
+  if v_ids is null or array_length(v_ids, 1) <> 1 then
+
+    update public.billing_unbill_throttle t
+
+       set fails        = v_row.fails + 1,
+
+           window_start = v_row.window_start,
+
+           locked_until = case when v_row.fails + 1 >= MAX_FAILS
+
+                               then v_now + COOLDOWN else null end,
+
+           updated_at   = v_now
+
+     where t.id;
+
+    return;
+
+  end if;
+
+
+
+  update public.billing_unbill_throttle t
+
+     set fails = 0, window_start = v_now, locked_until = null, updated_at = v_now
+
+   where t.id;
+
+
+
+  return query
+
+    select o.id, o.name from public.billing_unbill_operator o where o.id = v_ids[1];
+
+end
+
+$function$;
+
+-- ===== unbill_group (captured from the live project 2026-09-18; C4 adds the membership check)
+CREATE OR REPLACE FUNCTION public.unbill_group(p_gid text, p_passcode text, p_reason text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+
+declare
+
+  v_n        int;
+
+  v_snapshot jsonb;
+
+  v_op_id    bigint;
+
+  v_op_name  text;
+
+begin
+  if not public.rsr_billing_user() then
+    raise exception 'billing account required';   -- C4: a definer function checks for itself
+  end if;
+
+  select operator_id, operator_name into v_op_id, v_op_name
+
+  from public.resolve_unbill_operator(p_passcode);
+
+
+
+  if v_op_id is null then
+
+    return jsonb_build_object('ok', false, 'reason', 'Wrong passcode');
+
+  end if;
+
+
+
+  if p_gid is null or btrim(p_gid) = '' then
+
+    return jsonb_build_object('ok', false, 'reason', 'No billing given');
+
+  end if;
+
+
+
+  select jsonb_agg(to_jsonb(b)) into v_snapshot
+
+  from public.drawing_billing b
+
+  where coalesce(b.group_id::text, b.id::text) = btrim(p_gid)
+
+    and b.status = 'BILLED';
+
+
+
+  perform set_config('rsr.unbilling', '1', true);
+
+
+
+  update public.drawing_billing b
+
+     set status = 'DRAFT', billed_date = null, paid_date = null
+
+   where coalesce(b.group_id::text, b.id::text) = btrim(p_gid)
+
+     and b.status = 'BILLED';
+
+  get diagnostics v_n = row_count;
+
+
+
+  perform set_config('rsr.unbilling', '', true);
+
+
+
+  if v_n = 0 then
+
+    return jsonb_build_object('ok', false, 'reason', 'Nothing billed to undo on that billing');
+
+  end if;
+
+
+
+  insert into public.drawing_billing_unbill_log
+
+    (gid, rows_affected, reason, billing_snapshot, operator_id, operator_name)
+
+  values
+
+    (btrim(p_gid), v_n, nullif(btrim(coalesce(p_reason, '')), ''), v_snapshot, v_op_id, v_op_name);
+
+
+
+  return jsonb_build_object('ok', true, 'lines', v_n, 'by', v_op_name);
+
+end
+
+$function$;
+
+-- ===== add_unbill_operator (captured from the live project 2026-09-18; C4 adds the membership check)
+CREATE OR REPLACE FUNCTION public.add_unbill_operator(p_auth_passcode text, p_new_name text, p_new_passcode text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+
+declare
+
+  v_op_id   bigint;
+
+  v_op_name text;
+
+  v_new_id  bigint;
+
+begin
+  if not public.rsr_billing_user() then
+    raise exception 'billing account required';   -- C4: a definer function checks for itself
+  end if;
+
+  select operator_id, operator_name into v_op_id, v_op_name
+
+  from public.resolve_unbill_operator(p_auth_passcode);
+
+
+
+  if v_op_id is null then
+
+    return jsonb_build_object('ok', false, 'reason', 'Wrong passcode');
+
+  end if;
+
+
+
+  if p_new_name is null or btrim(p_new_name) = '' then
+
+    return jsonb_build_object('ok', false, 'reason', 'Name required');
+
+  end if;
+
+  if p_new_passcode is null or length(p_new_passcode) < 6 then
+
+    return jsonb_build_object('ok', false, 'reason', 'Passcode must be at least 6 characters');
+
+  end if;
+
+
+
+  -- reject a passcode that already resolves, or ambiguity becomes possible
+
+  if exists (select 1 from public.billing_unbill_operator o
+
+              where o.passcode_hash = extensions.crypt(p_new_passcode, o.passcode_hash)) then
+
+    return jsonb_build_object('ok', false, 'reason', 'That passcode is already in use');
+
+  end if;
+
+
+
+  insert into public.billing_unbill_operator (name, passcode_hash)
+
+  values (btrim(p_new_name), extensions.crypt(p_new_passcode, extensions.gen_salt('bf', 10)))
+
+  returning id into v_new_id;
+
+
+
+  return jsonb_build_object('ok', true, 'id', v_new_id, 'added_by', v_op_name);
+
+end
+
+$function$;
+
+-- ===== set_unbill_passcode (captured from the live project 2026-09-18; C4 adds the membership check)
+CREATE OR REPLACE FUNCTION public.set_unbill_passcode(p_current text, p_new text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions'
+AS $function$
+
+declare
+
+  v_op_id bigint;
+
+begin
+  if not public.rsr_billing_user() then
+    raise exception 'billing account required';   -- C4: a definer function checks for itself
+  end if;
+
+  if p_new is null or length(p_new) < 6 then
+
+    raise exception 'New passcode must be at least 6 characters';
+
+  end if;
+
+  if p_new = p_current then
+
+    raise exception 'New passcode must differ from the current one';
+
+  end if;
+
+
+
+  select operator_id into v_op_id from public.resolve_unbill_operator(p_current);
+
+  if v_op_id is null then
+
+    return false;
+
+  end if;
+
+
+
+  if exists (select 1 from public.billing_unbill_operator o
+
+              where o.id <> v_op_id
+
+                and o.passcode_hash = extensions.crypt(p_new, o.passcode_hash)) then
+
+    raise exception 'That passcode is already in use by another operator';
+
+  end if;
+
+
+
+  update public.billing_unbill_operator
+
+     set passcode_hash = extensions.crypt(p_new, extensions.gen_salt('bf', 10)),
+
+         updated_at    = now()
+
+   where id = v_op_id;
+
+
+
+  return true;
+
+end
+
+$function$;
+
+-- ===== rsr_dwg_block_unbill (verbatim from the live project)
+CREATE OR REPLACE FUNCTION public.rsr_dwg_block_unbill()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+begin
+  -- C4 (2026-09-18): the live guard refused only BILLED -> DRAFT, so
+  -- BILLED -> PAID -> DRAFT walked a bill back with no passcode in two
+  -- PATCHes (pre-launch audit, executed against the live bodies). Both
+  -- billed states now return to draft only through unbill_group.
+  if old.status in ('BILLED','PAID') and new.status = 'DRAFT'
+     and coalesce(current_setting('rsr.unbilling', true), '') <> '1' then
+    raise exception
+      'A billed billing can only be returned to draft through unbill_group, which requires the passcode'
+      using errcode = 'check_violation';
+  end if;
+  -- and what the client was billed is frozen once the bill left DRAFT: the
+  -- app itself edits only status, dates, invoice no. and remarks on a
+  -- non-draft line, so nothing legitimate is refused here
+  if old.status <> 'DRAFT' and coalesce(current_setting('rsr.unbilling', true), '') <> '1'
+     and (new.rate is distinct from old.rate or new.qty is distinct from old.qty
+          or new.billable is distinct from old.billable
+          or new.drawing_title is distinct from old.drawing_title) then
+    raise exception
+      'A billed line''s rate, quantity, billable flag and title are frozen. Unbill it first.'
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end
+$function$;
+
+-- ===== rsr_dwg_block_delete_billed (verbatim from the live project)
+CREATE OR REPLACE FUNCTION public.rsr_dwg_block_delete_billed()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+begin
+  -- C4: PAID was deletable (the live guard named BILLED alone), which with
+  -- Mark paid made deleting a billed bill two taps. Only a DRAFT line goes.
+  if old.status <> 'DRAFT' then
+    raise exception 'A billed or paid billing cannot be deleted. Unbill it first.'
+      using errcode = 'check_violation';
+  end if;
+  return old;
+end
+$function$;
+
+-- triggers (verbatim)
+drop trigger if exists rsr_dwg_unbill_guard on public.drawing_billing;
+create trigger rsr_dwg_unbill_guard before update on public.drawing_billing
+  for each row execute function public.rsr_dwg_block_unbill();
+drop trigger if exists rsr_dwg_delete_guard on public.drawing_billing;
+create trigger rsr_dwg_delete_guard before delete on public.drawing_billing
+  for each row execute function public.rsr_dwg_block_delete_billed();
+
+-- privileges as found live: the four RPCs execute for authenticated (and
+-- service_role), not anon; the two trigger functions still carry the PUBLIC
+-- default (anon_x = true live) -- C4 revokes that, as drydocking did in v81.
+
+-- trigger functions execute for nobody: PostgreSQL grants EXECUTE to PUBLIC
+-- on creation and anon is a member of PUBLIC (drydocking closed the same gap
+-- in its v81). Not callable directly anyway -- revoked is stronger than
+-- unreachable-by-kind.
+revoke execute on function public.rsr_touch_updated_at(), public.rsr_dwg_block_unbill(),
+  public.rsr_dwg_block_delete_billed(), public.rsr_billing_counter_guard() from public, anon, authenticated;
+
 -- ---------------------------------------------------------------
--- Unbilling: authenticated callers only, never anon.
+-- RPC perimeter: billing accounts only, never anon.
 --
--- The unbill RPCs are not created here. They were written by hand in
--- the SQL editor and this file has never carried them; what it does
--- carry is the grant, because the grant is the whole perimeter. They
--- are security definer, so they bypass RLS entirely and EXECUTE is the
--- only thing in front of them. Supabase grants EXECUTE on new
--- functions in public to the anon role by default, so re-creating one
+-- Until C4 (2026-09-18) the unbill subsystem above existed ONLY in the live
+-- database -- this file carried the grant and nothing else, so a second
+-- project could not be stood up from the repo and the guards it relied on
+-- were absent on rebuild day. The bodies above were captured from the live
+-- project with pg_get_functiondef and are now the source of truth. They are
+-- security definer, so they bypass RLS entirely and check membership
+-- themselves; EXECUTE is the outer perimeter. Supabase grants EXECUTE on
+-- new functions in public to the anon role by default, so re-creating one
 -- silently reopens it to anybody holding the public anon key -- which
--- ships to every browser and is not a secret. Re-running this takes
--- that back, and skips whichever functions are absent.
+-- ships to every browser and is not a secret. Re-running this takes that
+-- back. record_billing_send joins receive_drydock_job as service_role only:
+-- the browser never calls it (the Edge Function does, after Resend
+-- accepted), and granted to authenticated it let any session forge a
+-- "sent" record naming any sender.
 -- ---------------------------------------------------------------
 do $BODY$
 declare
@@ -6333,9 +6930,10 @@ begin
       execute 'revoke execute on function ' || f || ' from public';
       execute 'revoke execute on function ' || f || ' from anon';
       -- explicit, so a revoke of PUBLIC can never take the app down with it
-      if f = 'public.receive_drydock_job(jsonb)' then
-        -- the drydocking ingress: only the Edge Function's service key,
-        -- never a browser session
+      if f in ('public.receive_drydock_job(jsonb)',
+               'public.record_billing_send(text,text,text,text[],uuid,text,text,text,numeric)') then
+        -- the drydocking ingress and the send log: only an Edge Function's
+        -- service key, never a browser session
         execute 'revoke execute on function ' || f || ' from authenticated';
         execute 'grant execute on function ' || f || ' to service_role';
       else
@@ -6387,8 +6985,8 @@ drop policy if exists dwg_authed_rw           on storage.objects;
 drop policy if exists rsr_dwg_storage_authed  on storage.objects;
 create policy rsr_dwg_storage_authed on storage.objects
   for all to authenticated
-  using       (bucket_id = '${b}')
-  with check  (bucket_id = '${b}');
+  using       (bucket_id = '${b}' and public.rsr_billing_user())
+  with check  (bucket_id = '${b}' and public.rsr_billing_user());
 
 -- Check what ended up on storage.objects across the whole project:
 -- select policyname, roles, qual from pg_policies
@@ -6447,6 +7045,10 @@ function openCfg(){
   $('cfgFull').hidden=!who;
   $('cPayee').value=cfg.payee||'';
   $('cRemit').value=cfg.remitEmail||'';
+  // C4: the admin-only sections. Hidden for staff, and pushSharedSettings
+  // skips their keys too -- the SQL refuses them anyway, and a refused write
+  // would only sit in Pending writes as a dead job.
+  applyRole();
   renderTypes();renderCatMgr();renderCliMgr();renderBanks();renderDeadJobs();
   sample();show('sheetCfg');
 }
