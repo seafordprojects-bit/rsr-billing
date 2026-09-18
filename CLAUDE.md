@@ -109,6 +109,23 @@ the owner's wife, who bills). carmen@ and mandaue@ are not listed.
   `authenticated` with a JWT email against the real SQL) and `gate.test.mjs`
   section F. Thirteen mutations, each caught by a named assertion.
 
+**An unbill passcode belongs to a LOGIN, and the log names the account
+(C4, second commit, 2026-09-18).** `operator_name` said who held the
+passcode, never who was signed in. `billing_unbill_operator.email` ties each
+row to one login: `resolve_unbill_operator` matches a passcode only under
+that email (a mismatch reads as "Wrong passcode" -- nothing says whose it
+was), `drawing_billing_unbill_log.operator_email` records `auth.email()` at
+unbill time, the answer carries `by_email` for the toast, and the card's
+timeline reads "Summer Imma (secretary@...) · unbilled". A row with NO email
+still resolves for any billing user: that is the pre-backfill state, kept so
+the migration cannot strand unbilling; the owner's one-time UPDATE ties the
+two live rows (id 1 Raffy -> admin@, id 2 Summer Imma -> secretary@) and is
+deliberately not in this file -- it names accounts, and the repo is public.
+`add_unbill_operator` takes the email (4 arguments, shape-checked, unique
+case-insensitively) and the 3-argument form is DROPPED first: two overloads
+would make PostgREST answer 300 to every caller. Gate: `rpc.test.mjs` section
+N and the sendlog suite's timeline; five mutations.
+
 ### The group model — the thing to understand first
 
 `drawing_billing` rows are **lines**, not billings. Lines created together share

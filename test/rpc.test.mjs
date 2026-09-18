@@ -464,5 +464,71 @@ if (db) {
   ok('M34 the script still applies a second time after all of this (idempotent with the new objects)', !(await wrap(() => db.exec(SQL))).error);
 }
 
+if (db) {
+  console.log('\n--- N. each unbill passcode is tied to a login, and the log names the account (C4, second commit) ---');
+  /* Owner's decision 2026-09-18: keep the passcode, but a passcode resolves
+     only under the login it belongs to, and drawing_billing_unbill_log records
+     WHICH ACCOUNT unbilled -- operator_name alone said who held the code, not
+     who was signed in. Operator rows carry `email`; a row with NO email (a
+     legacy row before the owner's one-time backfill) still resolves for any
+     billing user, so the migration cannot lock unbilling out before the
+     mapping is applied. add_unbill_operator requires the email (4-argument
+     form; the 3-argument form is DROPPED so PostgREST cannot see two). */
+  const asRole2 = async (email, sql, params) => {
+    try {
+      await db.exec('set role authenticated');
+      await db.exec("select set_config('request.jwt.claim.email', '" + email + "', false), set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-00000000000" + (email.length % 10) + "', false)");
+      const r = await db.query(sql, params); return { rows: r.rows, affected: r.affectedRows };
+    } catch (e) { return { error: String(e.message).slice(0, 160) }; }
+    finally { await db.exec('reset role'); await db.exec("select set_config('request.jwt.claim.email', '', false)"); }
+  };
+  const ADMIN2 = 'owner@rsr.test', STAFF2 = 'wife@rsr.test';
+  const cols = await db.query("select (select count(*) from information_schema.columns where table_name='billing_unbill_operator' and column_name='email')::int e, (select count(*) from information_schema.columns where table_name='drawing_billing_unbill_log' and column_name='operator_email')::int l");
+  ok('N1 billing_unbill_operator.email and drawing_billing_unbill_log.operator_email exist', cols.rows[0].e === 1 && cols.rows[0].l === 1, JSON.stringify(cols.rows[0]));
+
+  // two operators: the wife's row tied to her login, the owner's row tied to his
+  await db.query("update billing_unbill_operator set email = $1 where name = 'Wife'", [STAFF2]);
+  await db.query("insert into billing_unbill_operator (name, passcode_hash, email) values ('Owner', extensions.crypt('111111', extensions.gen_salt('bf', 4)), $1)", [ADMIN2]);
+  // a bill to unbill, BILLED
+  await db.query("insert into drawing_billing (group_id, line_no, code, doc_type, bill_date, client, vessel, drawing_title, qty, rate, status, billed_date, bill_no) values ('tie-1', 1, 'RSR-DW-092026-095', 'DW', '2026-09-18', 'Probe Co', 'MV TIE', 'Plan T', 1, 2500, 'BILLED', '2026-09-18', 'BILLDWG-26-095')");
+  const wrongLogin = await asRole2(ADMIN2, "select public.unbill_group('tie-1', '654321', 'not mine') r");
+  ok('N2 the wife\'s passcode under the OWNER\'s login is refused as "Wrong passcode" (tied, and nothing leaks about whose it is)',
+     !!(wrongLogin.rows && wrongLogin.rows[0].r.ok === false && wrongLogin.rows[0].r.reason === 'Wrong passcode') &&
+     (await db.query("select status from drawing_billing where group_id='tie-1'")).rows[0].status === 'BILLED', JSON.stringify(wrongLogin));
+  const rightLogin = await asRole2(STAFF2, "select public.unbill_group('tie-1', '654321', 'mine') r");
+  ok('N3 the same passcode under HER login unbills', !!(rightLogin.rows && rightLogin.rows[0].r.ok === true && rightLogin.rows[0].r.by === 'Wife'), JSON.stringify(rightLogin));
+  const logRow = (await db.query("select operator_name, operator_email from drawing_billing_unbill_log where gid = 'tie-1' order by id desc limit 1")).rows[0];
+  ok('N4 the log names the operator AND the account that was signed in', !!logRow && logRow.operator_name === 'Wife' && logRow.operator_email === STAFF2, JSON.stringify(logRow));
+  ok('N5 the answer carries the account too, for the toast', rightLogin.rows && rightLogin.rows[0].r.by_email === STAFF2, JSON.stringify(rightLogin.rows && rightLogin.rows[0].r));
+
+  // a legacy row (no email yet) still resolves for any billing user -- the transition state
+  await db.query("insert into billing_unbill_operator (name, passcode_hash) values ('Legacy', extensions.crypt('222222', extensions.gen_salt('bf', 4)))");
+  await db.query("update drawing_billing set status = 'BILLED' where group_id = 'tie-1'").catch(() => {});
+  const legacy = await asRole2(ADMIN2, "select public.unbill_group('tie-1', '222222', 'legacy') r");
+  ok('N6 an operator row with NO email (before the backfill) still resolves for a billing user -- the migration cannot strand unbilling',
+     !!(legacy.rows && legacy.rows[0].r.ok === true), JSON.stringify(legacy));
+
+  // add_unbill_operator: email required, 4 arguments, old form gone. UPGRADE
+  // DAY, not day zero: on a fresh database the 3-argument form never existed
+  // and the drop is a no-op, so the assertion below would pass with the drop
+  // deleted (mutation NC, not caught until this). Plant the live project's
+  // signature, then make the script upgrade it -- the same third run the
+  // drydocking bootstrap test has for save_draft.
+  await db.exec("create or replace function public.add_unbill_operator(p_a text, p_b text, p_c text) returns jsonb language sql as $$ select '{}'::jsonb $$");
+  ok('N6b setup -- the live project’s 3-argument add_unbill_operator is present before the upgrade',
+     (await db.query("select to_regprocedure('public.add_unbill_operator(text,text,text)') o")).rows[0].o != null);
+  await db.exec(SQL);
+  const sigs = await db.query("select to_regprocedure('public.add_unbill_operator(text,text,text)') old3, to_regprocedure('public.add_unbill_operator(text,text,text,text)') new4");
+  ok('N7 add_unbill_operator takes the email (4 args) and the 3-argument form is dropped (PostgREST refuses an overload)', sigs.rows[0].old3 == null && sigs.rows[0].new4 != null, JSON.stringify(sigs.rows[0]));
+  const addBad = await asRole2(ADMIN2, "select public.add_unbill_operator('111111', 'New Person', '333333', 'not-an-email') r");
+  ok('N8 a new operator needs a login email, checked for shape', !!(addBad.rows && addBad.rows[0].r.ok === false && /email/i.test(addBad.rows[0].r.reason)), JSON.stringify(addBad));
+  const addDup = await asRole2(ADMIN2, "select public.add_unbill_operator('111111', 'New Person', '333333', 'WIFE@rsr.test') r");
+  ok('N9 one login, one operator: an email already tied (any case) is refused', !!(addDup.rows && addDup.rows[0].r.ok === false && /already/i.test(addDup.rows[0].r.reason)), JSON.stringify(addDup));
+  const addOk = await asRole2(ADMIN2, "select public.add_unbill_operator('111111', 'New Person', '333333', 'New.Person@rsr.test') r");
+  const stored = (await db.query("select email from billing_unbill_operator where name = 'New Person'")).rows[0];
+  ok('N10 a valid add stores the email lower-cased', !!(addOk.rows && addOk.rows[0].r.ok === true) && stored && stored.email === 'new.person@rsr.test', JSON.stringify({ addOk, stored }));
+  ok('N11 the script still applies twice with these changes', !(await wrap(() => db.exec(SQL))).error);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

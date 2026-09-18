@@ -1672,7 +1672,7 @@ async function historyFor(gid){
     .catch(()=>[]);
   // caught separately rather than through Promise.all: until the read policy
   // is run this table refuses, and a billing's sends must still show
-  const unbills=sb('drawing_billing_unbill_log?select=unbilled_at,operator_name'+
+  const unbills=sb('drawing_billing_unbill_log?select=unbilled_at,operator_name,operator_email'+
     ',reason,rows_affected'+q+'&order=unbilled_at.desc').catch(()=>[]);
   const [s,u]=await Promise.all([sends,unbills]);
   const ev=[];
@@ -2380,7 +2380,9 @@ function historyLines(g){
   if(!ev||!ev.length)return '';
   const rows=ev.map((r,i)=>{
     if(r.kind==='unbill'){
-      const head=[fmtDate(dayOf(r.at)),String(r.operator_name||'').trim()||'unknown','unbilled'];
+      // C4: the passcode says who held the code, the login says who used it
+      const who=(String(r.operator_name||'').trim()||'unknown')+(r.operator_email?' ('+String(r.operator_email).trim()+')':'');
+      const head=[fmtDate(dayOf(r.at)),who,'unbilled'];
       const n=Number(r.rows_affected)||0;
       const sub=[String(r.reason||'').trim(),
                  n?n+' line'+(n===1?'':'s'):''].filter(Boolean).join(' · ');
@@ -2872,7 +2874,7 @@ async function doUnbill(){
     historyChanged(unbillGid);
     persist();render();hide();
     const n=Number(out.lines)||0,mine=rows.filter(r=>groupIdOf(r)===String(unbillGid)).length;
-    toast('Unbilled by '+(out.by||'—')+' — '+n+' line'+(n===1?'':'s')+
+    toast('Unbilled by '+(out.by||'—')+(out.by_email?' ('+out.by_email+')':'')+' — '+n+' line'+(n===1?'':'s')+
       (n!==mine?' (server changed '+n+' of '+mine+' — syncing)':''));
     pull(true);                              // reconcile against what it did
   }catch(e){
@@ -5642,7 +5644,7 @@ async function pdfRender(plan){
 // result, so the pane reads this stamp when -- and only when -- this script's
 // tail actually ran. A full run once reported success and changed nothing
 // (2026-09-11, editor-tab residue); the stamp is the tell. MANUAL-TEST.md.
-const SQL_REV='2026-09-18.billing-roles';
+const SQL_REV='2026-09-18.unbill-login';
 function sqlText(){
   const b=(($('cBucket')&&$('cBucket').value.trim())||cfg.bucket||'drawings').replace(/[^\w\-]/g,'');
   return `-- RSR Billing — run once in Supabase SQL Editor
@@ -6453,6 +6455,15 @@ create table if not exists public.billing_unbill_operator (
 );
 alter table public.billing_unbill_operator enable row level security;
 -- no policy on purpose: unreadable to every session; only the definer RPCs read it
+-- C4 (second commit): a passcode belongs to a LOGIN. resolve_unbill_operator
+-- matches a row only under its own email; a row with no email yet (before the
+-- owner's one-time backfill) resolves for any billing user, so the migration
+-- cannot strand unbilling. The owner sets the two live rows by hand:
+--   update billing_unbill_operator set email = 'admin@...' where id = 1;   -- Raffy
+--   update billing_unbill_operator set email = 'secretary@...' where id = 2; -- Summer Imma
+alter table public.billing_unbill_operator add column if not exists email text;
+create unique index if not exists billing_unbill_operator_email_key
+  on public.billing_unbill_operator (lower(email)) where email is not null;
 
 create table if not exists public.billing_unbill_throttle (
   id           boolean primary key default true check (id),   -- the single row
@@ -6473,6 +6484,9 @@ create table if not exists public.drawing_billing_unbill_log (
   operator_id      bigint,
   operator_name    text
 );
+-- C4 (second commit): WHICH ACCOUNT unbilled. operator_name says who held the
+-- passcode; this says who was signed in when it was used.
+alter table public.drawing_billing_unbill_log add column if not exists operator_email text;
 alter table public.drawing_billing_unbill_log enable row level security;
 -- rsr_dwg_unbilllog_read (select to authenticated) is already created by sqlText()
 
@@ -6483,99 +6497,49 @@ CREATE OR REPLACE FUNCTION public.resolve_unbill_operator(p_input text)
  SECURITY DEFINER
  SET search_path TO 'public', 'extensions'
 AS $function$
-
 declare
-
   v_now timestamptz := now();
-
   v_row public.billing_unbill_throttle%rowtype;
-
   v_ids bigint[];
-
   MAX_FAILS constant int      := 10;
-
   COOLDOWN  constant interval := interval '15 minutes';
-
 begin
-
   insert into public.billing_unbill_throttle (id) values (true)
-
     on conflict on constraint billing_unbill_throttle_pkey do nothing;
-
   select * into v_row from public.billing_unbill_throttle t where t.id for update;
-
-
-
   -- FAIL-CLOSED: while locked, deny without checking the passcode.
-
   if v_row.locked_until is not null and v_row.locked_until > v_now then
-
     update public.billing_unbill_throttle t set updated_at = v_now where t.id;
-
     return;
-
   end if;
-
-
-
   if v_now - v_row.window_start > COOLDOWN then
-
     v_row.fails := 0;
-
     v_row.window_start := v_now;
-
   end if;
-
-
-
   select array_agg(o.id) into v_ids
-
   from public.billing_unbill_operator o
-
   where o.active
-
-    and o.passcode_hash = extensions.crypt(p_input, o.passcode_hash);
-
-
-
+    and o.passcode_hash = extensions.crypt(p_input, o.passcode_hash)
+    -- C4: the passcode must be used under the login it is tied to; a row with
+    -- no email yet is the pre-backfill state and still resolves
+    and (o.email is null or lower(o.email) = lower(coalesce(auth.email(), '')));
   -- no match, or an ambiguous match: refuse, never guess
-
   if v_ids is null or array_length(v_ids, 1) <> 1 then
-
     update public.billing_unbill_throttle t
-
        set fails        = v_row.fails + 1,
-
            window_start = v_row.window_start,
-
            locked_until = case when v_row.fails + 1 >= MAX_FAILS
-
                                then v_now + COOLDOWN else null end,
-
            updated_at   = v_now
-
      where t.id;
-
     return;
-
   end if;
-
-
-
   update public.billing_unbill_throttle t
-
      set fails = 0, window_start = v_now, locked_until = null, updated_at = v_now
-
    where t.id;
-
-
-
   return query
-
     select o.id, o.name from public.billing_unbill_operator o where o.id = v_ids[1];
-
 end
-
 $function$;
 
 -- ===== unbill_group (captured from the live project 2026-09-18; C4 adds the membership check)
@@ -6585,171 +6549,92 @@ CREATE OR REPLACE FUNCTION public.unbill_group(p_gid text, p_passcode text, p_re
  SECURITY DEFINER
  SET search_path TO 'public', 'extensions'
 AS $function$
-
 declare
-
   v_n        int;
-
   v_snapshot jsonb;
-
   v_op_id    bigint;
-
   v_op_name  text;
-
 begin
   if not public.rsr_billing_user() then
     raise exception 'billing account required';   -- C4: a definer function checks for itself
   end if;
-
   select operator_id, operator_name into v_op_id, v_op_name
-
   from public.resolve_unbill_operator(p_passcode);
-
-
-
   if v_op_id is null then
-
     return jsonb_build_object('ok', false, 'reason', 'Wrong passcode');
-
   end if;
-
-
-
   if p_gid is null or btrim(p_gid) = '' then
-
     return jsonb_build_object('ok', false, 'reason', 'No billing given');
-
   end if;
-
-
-
   select jsonb_agg(to_jsonb(b)) into v_snapshot
-
   from public.drawing_billing b
-
   where coalesce(b.group_id::text, b.id::text) = btrim(p_gid)
-
     and b.status = 'BILLED';
-
-
-
   perform set_config('rsr.unbilling', '1', true);
-
-
-
   update public.drawing_billing b
-
      set status = 'DRAFT', billed_date = null, paid_date = null
-
    where coalesce(b.group_id::text, b.id::text) = btrim(p_gid)
-
      and b.status = 'BILLED';
-
   get diagnostics v_n = row_count;
-
-
-
   perform set_config('rsr.unbilling', '', true);
-
-
-
   if v_n = 0 then
-
     return jsonb_build_object('ok', false, 'reason', 'Nothing billed to undo on that billing');
-
   end if;
-
-
-
   insert into public.drawing_billing_unbill_log
-
-    (gid, rows_affected, reason, billing_snapshot, operator_id, operator_name)
-
+    (gid, rows_affected, reason, billing_snapshot, operator_id, operator_name, operator_email)
   values
-
-    (btrim(p_gid), v_n, nullif(btrim(coalesce(p_reason, '')), ''), v_snapshot, v_op_id, v_op_name);
-
-
-
-  return jsonb_build_object('ok', true, 'lines', v_n, 'by', v_op_name);
-
+    (btrim(p_gid), v_n, nullif(btrim(coalesce(p_reason, '')), ''), v_snapshot, v_op_id, v_op_name,
+     lower(coalesce(auth.email(), '')));
+  return jsonb_build_object('ok', true, 'lines', v_n, 'by', v_op_name, 'by_email', lower(coalesce(auth.email(), '')));
 end
-
 $function$;
 
 -- ===== add_unbill_operator (captured from the live project 2026-09-18; C4 adds the membership check)
-CREATE OR REPLACE FUNCTION public.add_unbill_operator(p_auth_passcode text, p_new_name text, p_new_passcode text)
+-- C4: the 3-argument form is DROPPED first -- two overloads would make
+-- PostgREST refuse to choose (300) for every caller
+drop function if exists public.add_unbill_operator(text, text, text);
+CREATE OR REPLACE FUNCTION public.add_unbill_operator(p_auth_passcode text, p_new_name text, p_new_passcode text, p_new_email text)
  RETURNS jsonb
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public', 'extensions'
 AS $function$
-
 declare
-
   v_op_id   bigint;
-
   v_op_name text;
-
   v_new_id  bigint;
-
 begin
   if not public.rsr_billing_user() then
     raise exception 'billing account required';   -- C4: a definer function checks for itself
   end if;
-
   select operator_id, operator_name into v_op_id, v_op_name
-
   from public.resolve_unbill_operator(p_auth_passcode);
-
-
-
   if v_op_id is null then
-
     return jsonb_build_object('ok', false, 'reason', 'Wrong passcode');
-
   end if;
-
-
-
   if p_new_name is null or btrim(p_new_name) = '' then
-
     return jsonb_build_object('ok', false, 'reason', 'Name required');
-
   end if;
-
   if p_new_passcode is null or length(p_new_passcode) < 6 then
-
     return jsonb_build_object('ok', false, 'reason', 'Passcode must be at least 6 characters');
-
   end if;
-
-
-
+  -- C4: every new operator is tied to a login from the start
+  if p_new_email is null or p_new_email !~ '^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$' then
+    return jsonb_build_object('ok', false, 'reason', 'A login email is required');
+  end if;
+  if exists (select 1 from public.billing_unbill_operator o where lower(o.email) = lower(p_new_email)) then
+    return jsonb_build_object('ok', false, 'reason', 'That login already has an operator passcode');
+  end if;
   -- reject a passcode that already resolves, or ambiguity becomes possible
-
   if exists (select 1 from public.billing_unbill_operator o
-
               where o.passcode_hash = extensions.crypt(p_new_passcode, o.passcode_hash)) then
-
     return jsonb_build_object('ok', false, 'reason', 'That passcode is already in use');
-
   end if;
-
-
-
-  insert into public.billing_unbill_operator (name, passcode_hash)
-
-  values (btrim(p_new_name), extensions.crypt(p_new_passcode, extensions.gen_salt('bf', 10)))
-
+  insert into public.billing_unbill_operator (name, passcode_hash, email)
+  values (btrim(p_new_name), extensions.crypt(p_new_passcode, extensions.gen_salt('bf', 10)), lower(btrim(p_new_email)))
   returning id into v_new_id;
-
-
-
   return jsonb_build_object('ok', true, 'id', v_new_id, 'added_by', v_op_name);
-
 end
-
 $function$;
 
 -- ===== set_unbill_passcode (captured from the live project 2026-09-18; C4 adds the membership check)
@@ -6759,66 +6644,33 @@ CREATE OR REPLACE FUNCTION public.set_unbill_passcode(p_current text, p_new text
  SECURITY DEFINER
  SET search_path TO 'public', 'extensions'
 AS $function$
-
 declare
-
   v_op_id bigint;
-
 begin
   if not public.rsr_billing_user() then
     raise exception 'billing account required';   -- C4: a definer function checks for itself
   end if;
-
   if p_new is null or length(p_new) < 6 then
-
     raise exception 'New passcode must be at least 6 characters';
-
   end if;
-
   if p_new = p_current then
-
     raise exception 'New passcode must differ from the current one';
-
   end if;
-
-
-
   select operator_id into v_op_id from public.resolve_unbill_operator(p_current);
-
   if v_op_id is null then
-
     return false;
-
   end if;
-
-
-
   if exists (select 1 from public.billing_unbill_operator o
-
               where o.id <> v_op_id
-
                 and o.passcode_hash = extensions.crypt(p_new, o.passcode_hash)) then
-
     raise exception 'That passcode is already in use by another operator';
-
   end if;
-
-
-
   update public.billing_unbill_operator
-
      set passcode_hash = extensions.crypt(p_new, extensions.gen_salt('bf', 10)),
-
          updated_at    = now()
-
    where id = v_op_id;
-
-
-
   return true;
-
 end
-
 $function$;
 
 -- ===== rsr_dwg_block_unbill (verbatim from the live project)
@@ -6911,7 +6763,7 @@ declare
 begin
   foreach f in array array[
     'public.unbill_group(text,text,text)',
-    'public.add_unbill_operator(text,text,text)',
+    'public.add_unbill_operator(text,text,text,text)',
     'public.resolve_unbill_operator(text)',
     'public.set_unbill_passcode(text,text)',
     'public.record_billing_send(text,text,text,text[],uuid,text,text,text,numeric)',

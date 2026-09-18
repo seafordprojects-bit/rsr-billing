@@ -521,7 +521,7 @@ const SENDS = [
 ];
 // sits BETWEEN sends 2 and 3, which is what makes the naive index wrong
 const UNBILLS = [
-  { unbilled_at:'2026-08-28T22:00:00Z', operator_name:'Summer Imma',
+  { unbilled_at:'2026-08-28T22:00:00Z', operator_name:'Summer Imma', operator_email:'secretary@rsr.test',
     reason:'wrong rate on the shafting line', rows_affected:4 },
 ];
 const scriptBoth = (s, u) => {
@@ -541,8 +541,8 @@ ok('interleaved newest first, by time not by send_no',
 ok('neither snapshot column is ever asked for',
    !net.calls.some(c => /billing_snapshot|letter_text/.test(String(c.url))),
    JSON.stringify(net.calls.map(c => String(c.url).split('select=')[1] || '')));
-ok('the unbill query takes only what it shows',
-   net.calls.some(c => /unbill_log\?select=unbilled_at,operator_name,reason,rows_affected/.test(String(c.url))),
+ok('the unbill query takes only what it shows (the signed-in account included, C4)',
+   net.calls.some(c => /unbill_log\?select=unbilled_at,operator_name,operator_email,reason,rows_affected/.test(String(c.url))),
    JSON.stringify(net.calls.map(c => c.url)));
 
 console.log('\n--- I2. the rows read as a timeline ---');
@@ -553,6 +553,8 @@ ok('sends are numbered', /#3/.test(block) && /#1/.test(block), block);
 ok('unbills are not', /class="sl unbill"/.test(block) && /<span class="n">—<\/span>/.test(block),
    block);
 ok('the unbill names its operator', /Summer Imma/.test(block), block);
+ok('and the ACCOUNT that was signed in (C4): the passcode says who held the code, the login says who used it',
+   /Summer Imma \(secretary@rsr\.test\)/.test(block), block.slice(block.indexOf('sl unbill'), block.indexOf('sl unbill') + 200));
 ok('and its reason', /wrong rate on the shafting line/.test(block), block);
 ok('and how many lines it moved', /4 lines/.test(block), block);
 ok('an unbill carries no amount',
