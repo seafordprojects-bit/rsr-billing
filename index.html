@@ -661,6 +661,16 @@ table.stmt-t tbody tr:nth-child(even){background:#f6f7f5}
       <div id="gErr" role="alert"></div>
       <button id="gFor" type="button">Forgot password</button>
     </div>
+    <!-- the password-reset link's landing (audit M23): shown instead of the
+         credentials while the link's session is held; see recoverFromHash -->
+    <div id="gRecover" hidden>
+      <label for="rPw1">New password</label>
+      <input id="rPw1" type="password" autocomplete="new-password" placeholder="at least 6 characters">
+      <label for="rPw2">Repeat it</label>
+      <input id="rPw2" type="password" autocomplete="new-password">
+      <button id="rSet" type="button">Set password</button>
+      <div id="rErr" role="alert"></div>
+    </div>
     <button id="gCfg" type="button">Connection settings</button>
   </div>
 </div>
@@ -1769,6 +1779,102 @@ async function authPost(path,body){
   if(!res.ok)throw new Error(d.error_description||d.msg||d.message||d.error||('HTTP '+res.status));
   return d;
 }
+// the same call with a method and a bearer of the caller's choosing -- the
+// reset link's landing acts under the LINK's token, not the stored session
+async function authCall(method,path,body,bearerToken){
+  let res;
+  try{
+    const h={'apikey':cfg.key,'Content-Type':'application/json'};
+    if(bearerToken)h['Authorization']='Bearer '+bearerToken;
+    res=await fetch(cfg.url.replace(/\/+$/,'')+'/auth/v1/'+path,{method:method,headers:h,body:body?JSON.stringify(body):undefined});
+  }catch(e){const err=new Error('Cannot reach the server. Check your connection.');err.network=true;throw err;}
+  let d={};try{d=await res.json();}catch(e){}
+  if(!res.ok)throw new Error(d.error_description||d.msg||d.message||d.error||('HTTP '+res.status));
+  return d;
+}
+
+/* ---- the password-reset link's landing (audit M23) ------------------------
+   The mail's link comes back to this page with the session in the URL
+   FRAGMENT (#access_token=...&refresh_token=...&type=recovery), or with an
+   error (#error_code=otp_expired&error_description=...) when the link is
+   expired or already used. This app runs its own auth against /auth/v1 and
+   keeps its own session object, so until 2026-09-19 nothing read that
+   fragment: the token sat in the browser history and the person had no way to
+   set a password -- "Forgot password" sent a mail that dead-ended. Both
+   projects' Site URL was also still Supabase's localhost default.
+   recoverFromHash() runs first in boot(): scrub the URL (replaceState, so no
+   history entry keeps the token), learn whose token it is, hold it in
+   `recovery` -- NOT in `session`: the person is not signed in until the
+   password is set -- and show the panel. doSetPassword() PUTs the new password
+   under the link's bearer; on success the link's session becomes the session
+   and the usual pull() decides whether the gate opens: a kiosk-only account
+   gets its password set and is then told this app is not for it. */
+let recovery=null;   // { access_token, refresh_token, expires_in, email } while the panel is up
+function hashParams(h){
+  const p={};
+  String(h||'').replace(/^#/,'').split('&').forEach(kv=>{
+    if(!kv)return;const i=kv.indexOf('=');
+    const k=decodeURIComponent(i<0?kv:kv.slice(0,i)),v=i<0?'':decodeURIComponent(kv.slice(i+1).replace(/\+/g,' '));
+    p[k]=v;
+  });
+  return p;
+}
+function scrubHash(){try{history.replaceState(null,'',location.pathname+location.search);}catch(e){}}
+const RECOVERY_EXPIRED='This reset link has expired or was already used. Type your email and tap Forgot password for a new one.';
+function recoverFromHash(){
+  const p=hashParams(location.hash);
+  const isRec=p.type==='recovery'&&!!p.access_token;
+  const isErr=!!(p.error_code||p.error_description||p.error);
+  if(!isRec&&!isErr)return false;
+  scrubHash();                                   // FIRST: the token leaves the address bar before anything else runs
+  if(!online()){showGate(null,true);return true;}
+  if(isErr){showGate(RECOVERY_EXPIRED);return true;}
+  recovery={access_token:p.access_token,refresh_token:p.refresh_token||'',expires_in:parseInt(p.expires_in,10)||3600,email:''};
+  showRecover();
+  // whose token is it? Asked under the link's bearer; a refused token is an
+  // expired link, not a sign-in
+  authCall('GET','user',null,recovery.access_token).then(u=>{
+    if(!recovery)return;
+    recovery.email=(u&&u.email)||'';
+    $('gMsg').textContent='Set a new password for '+(recovery.email||'this account')+'.';
+  }).catch(()=>{recovery=null;showGate(RECOVERY_EXPIRED);});
+  return true;
+}
+function showRecover(){
+  gateOpen=true;
+  $('gMsg').textContent='Set a new password.';
+  $('gErr').textContent='';$('rErr').textContent='';
+  $('gCreds').hidden=true;$('gRecover').hidden=false;
+  $('rPw1').value='';$('rPw2').value='';
+  $('gate').classList.add('on');scrollLock();
+  setSync('off','Password reset');
+  setTimeout(()=>{$('rPw1').focus();},120);
+}
+let settingPw=false;
+async function doSetPassword(){
+  if(settingPw||!recovery)return;              // guard the function, not the button
+  const p1=$('rPw1').value,p2=$('rPw2').value;
+  if(p1.length<6){$('rErr').textContent='Use at least 6 characters.';return;}
+  if(p1!==p2){$('rErr').textContent='The two passwords do not match.';return;}
+  settingPw=true;const btn=$('rSet');btn.disabled=true;$('rErr').textContent='';
+  try{
+    const u=await authCall('PUT','user',{password:p1},recovery.access_token);
+    // the link's session is the session now
+    setSession({access_token:recovery.access_token,refresh_token:recovery.refresh_token,expires_in:recovery.expires_in,user:{email:(u&&u.email)||recovery.email}});
+    recovery=null;
+    $('gRecover').hidden=true;$('gCreds').hidden=false;
+    // pull() reads billing_users and re-raises the gate for an account that is
+    // not a billing user -- the set is not a way in
+    await pull();
+    if(authed()){hideGate();toast('Password set. Signed in as '+session.email);}
+  }catch(e){
+    $('rErr').textContent=e.message;
+  }finally{settingPw=false;btn.disabled=false;}
+}
+$('rSet').onclick=doSetPassword;
+$('rPw2').addEventListener('keydown',e=>{if(e.key==='Enter')doSetPassword();});
+$('rPw1').addEventListener('keydown',e=>{if(e.key==='Enter')$('rPw2').focus();});
+
 async function refreshSession(){
   if(!session.refresh_token)return false;
   try{setSession(await authPost('token?grant_type=refresh_token',{refresh_token:session.refresh_token}));return true;}
@@ -2957,7 +3063,10 @@ $('gFor').onclick=async()=>{
   const email=$('gEmail').value.trim();
   if(!email){$('gErr').textContent='Type your email first, then tap Forgot password.';return;}
   if(!online()){$('gErr').textContent='Set the Supabase project first.';return;}
-  try{await authPost('recover',{email:email});$('gErr').textContent='';toast('Reset link sent to '+email);}
+  // redirect_to = THIS app's URL, so the link comes back here whatever the
+  // project's Site URL says (it was Supabase's localhost default for a year);
+  // the URL must be on the project's Redirect URLs list
+  try{await authPost('recover?redirect_to='+encodeURIComponent(location.origin+location.pathname),{email:email});$('gErr').textContent='';toast('Reset link sent to '+email);}
   catch(e){$('gErr').textContent=e.message;}
 };
 async function doSignOut(){
@@ -7141,6 +7250,10 @@ window.addEventListener('online',()=>pull(true));
   setMakeType(DEF_TYPE);
   setTab('mon');
   render();
+
+  // A password-reset link's fragment owns the gate (audit M23); nothing else
+  // in this boot runs until the password is set or the panel is left
+  if(recoverFromHash())return;
 
   // No project set: blocked, same as being signed out, until one is
   // configured. Seeding still runs quietly in the background so the queue

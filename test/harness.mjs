@@ -56,6 +56,7 @@ globalThis.__t={
   fmtDate, today, addDays, yy2, money, periodEnds, periodText,
   get pendingSend(){return pendingSend}, set pendingSend(v){pendingSend=v},
   show, hide, showGate, hideGate, scrollLock, escClose,
+  recoverFromHash, doSetPassword, get recovery(){return recovery}, get session(){return session},
   get openSheet(){return openSheet},
   lockArmed, bumpLock, lockTick, showLock, hideLock, doUnlock, lockSync,
   get locked(){return locked}, get lockAt(){return lockAt}
@@ -195,7 +196,16 @@ globalThis.window = {
   addEventListener(){}, print(){},
   get pdfjsLib(){ return undefined; },
 };
-globalThis.location = { href:'https://example.test/index.html' };
+/* the URL, with the pieces a reset link's landing reads: a suite sets .hash
+   before __loadApp(); history.replaceState (the app's scrub) rewrites it the
+   way a browser would and never adds an entry (recovery.test asserts on
+   history.length) */
+globalThis.location = { origin:'https://example.test', pathname:'/index.html', search:'', hash:'',
+  get href(){ return this.origin + this.pathname + this.search + this.hash; } };
+globalThis.history = { length: 1,
+  replaceState(_s, _t, url){ const u = String(url == null ? '' : url); const h = u.indexOf('#');
+    globalThis.location.hash = h < 0 ? '' : u.slice(h); },
+  pushState(){ this.length++; } };
 globalThis.confirm = () => true;
 globalThis.alert = () => {};
 
@@ -252,7 +262,7 @@ const scripted = (url, method) => {
 };
 globalThis.fetch = async (url, opts={}) => {
   const method = opts.method || 'GET';
-  net.calls.push({ url, method });
+  net.calls.push({ url, method, headers: opts.headers || {}, body: typeof opts.body === 'string' ? opts.body : null });
   if (net.mode === 'offline') throw new TypeError('Failed to fetch');
   if (net.mode === 'unauthorized') {
     return { ok:false, status:401, json:async()=>({message:'JWT expired'}), text:async()=>'' };
@@ -297,6 +307,15 @@ globalThis.fetch = async (url, opts={}) => {
     return { ok:true, status:201, json:async()=>out, text:async()=>JSON.stringify(out) };
   }
 
+  // the auth endpoints a reset link's landing uses (recovery.test): who the
+  // bearer belongs to, the password update, and the recover mail request
+  if (String(url).indexOf('/auth/v1/user') > -1 && (method === 'GET' || method === 'PUT')) {
+    const u = { id: 'u-1', email: 'raffy@rsr.test', aud: 'authenticated' };
+    return { ok:true, status:200, json:async()=>u, text:async()=>JSON.stringify(u) };
+  }
+  if (String(url).indexOf('/auth/v1/recover') > -1 && method === 'POST') {
+    return { ok:true, status:200, json:async()=>({}), text:async()=>'{}' };
+  }
   // C4: the membership read. A real project answers the caller's OWN row
   // under the own-row policy, or [] for an account that is not listed.
   if (method === 'GET' && String(url).split('?')[0].endsWith('billing_users')) {

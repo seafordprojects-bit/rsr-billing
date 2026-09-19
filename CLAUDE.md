@@ -126,6 +126,41 @@ case-insensitively) and the 3-argument form is DROPPED first: two overloads
 would make PostgREST answer 300 to every caller. Gate: `rpc.test.mjs` section
 N and the sendlog suite's timeline; five mutations.
 
+### The reset link's landing (audit M23, 2026-09-19)
+
+A password-reset mail's link comes back to this page with the session in the
+URL FRAGMENT (`#access_token=...&refresh_token=...&type=recovery`), or with
+an error (`#error_code=otp_expired`) when it is expired or already used. This
+app runs its own auth against `/auth/v1` and keeps its own `session` object,
+so until 2026-09-19 nothing read that fragment: the token sat in the browser
+history and the person had no way to set a password -- "Forgot password" sent
+a mail that dead-ended. Both projects' Site URL was also still Supabase's
+`http://localhost:3000` default, so every link was dead twice over.
+
+- **`recoverFromHash()` runs FIRST in `boot()`.** Scrub the URL with
+  `history.replaceState` (no history entry keeps the token), learn whose
+  token it is (`GET /auth/v1/user` under the LINK's bearer), hold it in
+  `recovery` -- NOT in `session`: nobody is signed in until the password is
+  set -- and show `#gRecover` inside the gate instead of the credentials.
+- **`doSetPassword()`** PUTs `{password}` under the link's bearer
+  (`authCall`, the sibling of `authPost` that takes a method and a bearer).
+  On success the link's session becomes the session and the usual `pull()`
+  decides whether the gate opens: **a kiosk-only account gets its password
+  set and is then told this app is not for it** -- the set is not a way in.
+  A refused password keeps the panel up with the server's sentence.
+- **An expired link** shows the credentials with the sentence and Forgot in
+  reach. **Forgot** now names THIS app as `redirect_to`
+  (`location.origin + pathname`) so the link comes back here whatever the
+  project's Site URL says; that URL must be on the project's Redirect URLs.
+
+`test/recovery.test.mjs` (16): the harness gained a URL model (`location`
+with `hash`/`origin`/`pathname`, `history.replaceState` that never adds an
+entry) and answers for the three auth endpoints; `net.calls` now records
+headers and body so a bearer can be asserted. Eight mutations, each caught by
+a named assertion. Owner-side: Site URL and Redirect URLs on the project, and
+one real reset after deploy -- that is the proof, not the throwaway-user SMTP
+test.
+
 ### The group model — the thing to understand first
 
 `drawing_billing` rows are **lines**, not billings. Lines created together share
