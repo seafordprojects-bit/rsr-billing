@@ -1110,9 +1110,19 @@ Before going live:
    to say so. Anything written before 2026-08-26 that describes billings
    reaching only RSR is describing that, and is out of date.
 
-   `STATEMENT_REPLY_TO` is unset, so Reply-To falls to `DEFAULT_REPLY_TO`
-   (`rsrengineering.services2025@gmail.com`). That is the intended address and
-   wants no change.
+   **2026-09-19: the billing identity moved to `finance@rsrengg.com`.**
+   `STATEMENT_FROM` was re-set to `RSR Engineering Services <finance@rsrengg.com>`
+   (env-file, from outside the repo) and `DEFAULT_FROM` changed with it so the
+   secret and the constant still name the same address. The Porkbun forward for
+   finance@ was tested before the switch; the billing@ forward stays for clients
+   who reply to an older statement's From. The payment block's deposit-slip
+   address is a Settings value (`payment.remitEmail`), changed in the app.
+
+   `STATEMENT_REPLY_TO` was unset until 2026-09-19, so Reply-To fell to
+   `DEFAULT_REPLY_TO` (`rsrengineering.services2025@gmail.com`). It is set now;
+   a malformed value falls back to the Gmail address silently (`cleanEmail`),
+   so the proof of a Reply-To change is the header on the next send, never the
+   `secrets set` succeeding.
 
    **The deployed build matches the tree.** `send-statement` is at version 24,
    deployed **2026-08-31**, which carries `a173727`'s CC allowlist — layer (4)

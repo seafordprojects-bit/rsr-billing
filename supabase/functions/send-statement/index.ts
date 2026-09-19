@@ -65,7 +65,7 @@ const canonName = (v: unknown) =>
 // external CC delivered. So this is settled, not a prerequisite to arrange:
 // real clients receive billings, and cc carries a second recipient.
 //
-// It stays true only while billing@rsrengg.com sits on a verified domain. If
+// It stays true only while finance@rsrengg.com sits on a verified domain. If
 // verification ever lapses Resend refuses with a 403 "domain is not verified",
 // which this function passes straight back -- so the failure is a failed send,
 // never mail that vanishes. That is the one thing to check first if sending
@@ -79,17 +79,25 @@ const canonName = (v: unknown) =>
 // went into learning that on 2026-08-26. Mint RESEND_API_KEY on the first.
 //
 // Reply-To is a different mailbox on purpose: replies to a billing should land
-// where they are read, which is the Gmail account, not an alias on the sending
-// domain that nobody watches.
+// where they are read. The constant below is the Gmail account that read them
+// until 2026-09-19; since then STATEMENT_REPLY_TO names a forwarded address on
+// rsrengg.com, and the constant is only the fallback a fresh deploy or a
+// malformed secret drops to (cleanEmail) -- silently, so a Reply-To change is
+// proved by the header on the next send, not by `secrets set` succeeding.
+//
+// 2026-09-19: the billing identity moved from billing@ to finance@rsrengg.com.
+// STATEMENT_FROM and DEFAULT_FROM were changed together, on purpose: when the
+// two named different addresses (v15, see CLAUDE.md), clearing the secret
+// dropped sending into the sandbox with nothing in the logs.
 //
 // ---- to change either without a redeploy --------------------------------
-//   supabase secrets set STATEMENT_FROM="RSR Engineering Services <billing@rsrengg.com>"
+//   supabase secrets set STATEMENT_FROM="RSR Engineering Services <finance@rsrengg.com>"
 //   supabase secrets set STATEMENT_REPLY_TO="someone@example.com"
 // Both are read at invocation, so the secret wins over the constant below and
 // no deploy is needed. The constants are the default a fresh deploy starts
 // from; the secrets are how you move either address in a hurry.
 // ---------------------------------------------------------------------------
-const DEFAULT_FROM = "RSR Engineering Services <billing@rsrengg.com>";
+const DEFAULT_FROM = "RSR Engineering Services <finance@rsrengg.com>";
 const DEFAULT_REPLY_TO = "rsrengineering.services2025@gmail.com";
 
 Deno.serve(async (req: Request): Promise<Response> => {
