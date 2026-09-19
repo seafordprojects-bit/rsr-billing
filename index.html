@@ -2880,6 +2880,34 @@ async function setBillingEmail(name,email){
   }
 }
 
+// A send must not silently rewrite the address on file (2026-09-19, Cebu).
+// The Email button used to call setBillingEmail(client, to) before EVERY
+// send, because send-statement refuses any recipient that is not the client's
+// on-file billing_email -- the app satisfied the check by making the typed
+// address the record first. Circular, and silent: a test statement to the
+// owner's own address rewrote Seaford Shipping Lines' real billing email, and
+// the same happens on a one-off send to a client's accountant or on a typo.
+// One decision now: a blank or missing record is filled silently (the
+// legitimate first send), the same address writes nothing, a DIFFERENT
+// address asks -- naming both -- and Cancel sends nothing and writes nothing.
+// No "send once without saving": the function's rule would refuse it, and that
+// rule is worth keeping. setBillingEmail stays the raw writer (ingress, tests).
+function emailChangeText(client,onFile,to){
+  return client+' is on file as '+onFile+'.\n\nSend to '+to+' and make it the address on file?\n\nCancel sends nothing and leaves the address unchanged.';
+}
+async function confirmBillingEmail(client,to){
+  const c=clientRec(client);
+  const onFile=String((c&&c.billing_email)||'').trim();
+  if(!onFile){await setBillingEmail(client,to);return true;}   // first send: nothing on file yet
+  if(onFile===to)return true;                                  // same address: nothing to write
+  if(!confirm(emailChangeText(client,onFile,to))){
+    toast('Not sent. '+client+' stays on file as '+onFile,true);
+    return false;
+  }
+  await setBillingEmail(client,to);
+  return true;
+}
+
 /* ---- edge functions ---- */
 async function fnPost(name,body,retried){
   if(!online())throw new Error('No project configured');
@@ -5071,8 +5099,9 @@ $('sEmailBtn').onclick=async()=>{
   try{
     // Saved first, and confirmed to have reached the server: the function
     // checks the recipient against this client's row, so on a first send
-    // there has to be something there to check against.
-    await setBillingEmail(client,to);
+    // there has to be something there to check against. A DIFFERENT address
+    // than the one on file asks first (confirmBillingEmail); Cancel stops here.
+    if(!(await confirmBillingEmail(client,to)))return;
     if(queue.length){
       toast('Could not save the billing email — try again once synced',true);
       return;

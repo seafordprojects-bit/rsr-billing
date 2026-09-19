@@ -25,7 +25,7 @@ globalThis.__t={
   get filters(){return filters}, set filters(v){filters=v}, openStmt, openStmtFor, buildPick, stmtCandidates, saveCfg,
   sqlText,
   objectPath, signedUrl, openPdf, fnPost, statementEmailHtml, renderStatement, pickedRows,
-  get clients(){return clients}, billingEmail, setBillingEmail, offerMarkBilled,
+  get clients(){return clients}, billingEmail, setBillingEmail, confirmBillingEmail, emailChangeText, offerMarkBilled,
   setTab, setMakeType, renderMake, get tab(){return tab}, get makeType(){return makeType},
   refLabel, builtIn, TAB_TYPES, BUILT_IN, openEntry, openImport,
   nextBillNo, commitBillNo, payBlock, cliSave, cliDelete, cliSorted, clientRec, cliKey,

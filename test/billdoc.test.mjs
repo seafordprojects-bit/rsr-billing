@@ -143,7 +143,7 @@ ok('the send still verifies the recipient',
    /client:client,/.test(html) && /billing_email=eq\./.test(
      fs.readFileSync(FN_SRC,'utf8')));
 ok('a missing address is prompted for once', /prompt\('Billing email for /.test(html));
-ok('and saved back', /setBillingEmail\(client,to\)/.test(html));
+ok('and saved back -- through the confirming wrapper (2026-09-19)', /confirmBillingEmail\(client,to\)/.test(html));
 
 console.log('\n--- D. A4 print layout ---');
 const pr = html.slice(html.indexOf('@media print{'), html.indexOf('@media print{') + 2200);

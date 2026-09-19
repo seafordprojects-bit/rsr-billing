@@ -166,7 +166,7 @@ const src = html.slice(html.indexOf("$('sEmailBtn').onclick"),
 // The send now sits behind the letter-review step, so the ordering is
 // structural rather than sequential: the Email button saves the address and
 // only then sets pendingSend, and lSend refuses to run without it.
-const iSave = src.indexOf('setBillingEmail(client,to)');
+const iSave = src.indexOf('confirmBillingEmail(client,to)');   // the confirming wrapper (2026-09-19), not the raw writer
 const iPend = src.indexOf('pendingSend={');
 ok('setBillingEmail runs before the review opens',
    iSave > -1 && iPend > -1 && iSave < iPend,

@@ -402,6 +402,27 @@ wholesale — so a stale field silently overwrites a corrected one. That is the
 the startup `pull()` landing together — otherwise send every job twice, and a
 compare-and-swap then races itself.
 
+**THE ONE EXCEPTION IS CLOSED: A SEND NO LONGER REWRITES THE ADDRESS ON FILE
+(2026-09-19, found at Cebu).** The Email button called `setBillingEmail(client,
+to)` before EVERY send, because `send-statement` refuses any recipient that is
+not the client's on-file `billing_email` -- the app satisfied the check by
+making the typed address the record first. Circular, and silent: the §G test
+statement to the owner's own address rewrote Seaford Shipping Lines' real
+billing email, and the same happens on a one-off send to a client's accountant
+or on a typo. `confirmBillingEmail(client, to)` decides now: a blank or
+missing record is filled silently (the legitimate first send), the same
+address writes nothing, a DIFFERENT address asks with `confirm()` naming both
+("<client> is on file as <old>. Send to <new> and make it the address on
+file? Cancel sends nothing and leaves the address unchanged."), and Cancel
+returns false: the handler returns before the letter is composed, and a toast
+names the address that stays. No "send once without saving" -- the function's
+rule would refuse it, and that rule is worth keeping. `setBillingEmail` stays
+the raw writer (the drydock ingress and the tests use it). `test/sendemail.test.mjs`
+(11); seven mutations, six caught by a named assertion and one a recorded
+no-op: "the same address writes anyway" changes nothing because the raw writer
+already refuses an identical value, and test B pins the property. HANDOVER's
+§G cleanup keeps the restore step regardless, for the day someone answers OK.
+
 ### Storage
 
 The `drawings` bucket is **private**. Uploads store the object *path*, and a PDF
